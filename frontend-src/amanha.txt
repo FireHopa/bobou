@@ -1,0 +1,6 @@
+
+01 - colocar as etapas em somente uma linha com barra de rolagem inferior
+02 - diminuir o tamanho do lead
+03 - cadastrar dono do negocio (cintia e fabi conseguem ver um do outro)
+04 - ocupar tela toda
+05 - importar xml

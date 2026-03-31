@@ -1,0 +1,4225 @@
+import * as React from "react";
+import { createPortal } from "react-dom";
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Columns3,
+  FilePlus2,
+  FolderKanban,
+  GitBranch,
+  GripVertical,
+  Inbox,
+  LayoutTemplate,
+  Link2,
+  Loader2,
+  MousePointerClick,
+  Pencil,
+  Plus,
+  Save,
+  Sparkles,
+  Trash2,
+  Unlink,
+} from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { exportAuthorityFormat } from "@/lib/authorityExport";
+import { AUTHORITY_AGENTS, authorityAgentByKey } from "@/constants/authorityAgents";
+import {
+  buildAuthorityWorkspaceSourceKind,
+  buildImportedWorkspaceBlueprint,
+  extractAuthorityAgentKey,
+  getImportedWorkspaceColumnIds,
+  inferImportedWorkspaceColumnIds,
+  isAuthorityImportCard,
+  writeImportedWorkspaceMeta,
+} from "@/lib/bobarImported";
+import { toastApiError, toastInfo, toastSuccess } from "@/lib/toast";
+import { cn } from "@/lib/utils";
+import {
+  bobarService,
+  type BobarBoard,
+  type BobarCard,
+  type BobarCardType,
+  type BobarColumn,
+  type BobarFlowchart,
+  type BobarFlowEdge,
+  type BobarFlowNode,
+} from "@/services/bobar";
+
+type FlowTemplate = {
+  key: string;
+  label: string;
+  description: string;
+  cardType: BobarCardType;
+  title: string;
+  note: string;
+  contentText: string;
+  structure?: BobarFlowchart;
+};
+
+type CardEditorDraft = {
+  title: string;
+  card_type: BobarCardType | string;
+  column_id: number;
+  content_text: string;
+  note: string;
+};
+
+type ChecklistItem = {
+  id: string;
+  text: string;
+  checked: boolean;
+};
+
+
+type DropdownOption = {
+  value: string;
+  label: string;
+  description?: string;
+};
+
+type DragCardState = {
+  cardId: number;
+  fromColumnId: number;
+};
+
+type ColumnDialogState = { mode: "create"; column: null } | { mode: "rename"; column: BobarColumn };
+
+type DeleteDialogState =
+  | { type: "column"; column: BobarColumn }
+  | { type: "card"; card: BobarCard };
+
+type BobarViewMode = "board" | "imports";
+type ImportProgressStatus = "todo" | "in_progress" | "done";
+
+const CARD_TYPE_OPTIONS: Array<{ value: BobarCardType; label: string }> = [
+  { value: "manual", label: "Manual" },
+  { value: "roteiro", label: "Roteiro" },
+  { value: "conteudo", label: "Conteúdo" },
+  { value: "ideia", label: "Ideia" },
+  { value: "checklist", label: "Checklist" },
+  { value: "fluxograma", label: "Fluxograma" },
+];
+
+function newNodeId() {
+  return `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function newEdgeId() {
+  return `edge-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeText(value: string | null | undefined) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .trim();
+}
+
+function newChecklistItemId() {
+  return `check-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createChecklistItem(text = "", checked = false): ChecklistItem {
+  return {
+    id: newChecklistItemId(),
+    text,
+    checked,
+  };
+}
+
+function normalizeChecklistItems(items: ChecklistItem[]) {
+  const normalized = items.map((item) => ({
+    id: item.id || newChecklistItemId(),
+    text: String(item.text || ""),
+    checked: Boolean(item.checked),
+  }));
+
+  return normalized.length ? normalized : [createChecklistItem()];
+}
+
+function parseChecklistContent(value: string | null | undefined) {
+  const lines = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n");
+
+  const items: ChecklistItem[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const taskMatch = line.match(/^(?:[-*•]\s*)?\[(x|X| )\]\s+(.*)$/);
+    if (taskMatch) {
+      items.push(createChecklistItem(taskMatch[2], /x/i.test(taskMatch[1])));
+      continue;
+    }
+
+    const bulletMatch = line.match(/^(?:[-*•]\s+|\d+[.)]\s+)(.*)$/);
+    if (bulletMatch) {
+      items.push(createChecklistItem(bulletMatch[1], false));
+      continue;
+    }
+
+    items.push(createChecklistItem(line, false));
+  }
+
+  return normalizeChecklistItems(items);
+}
+
+function serializeChecklistContent(items: ChecklistItem[]) {
+  return items
+    .map((item) => ({
+      checked: Boolean(item.checked),
+      text: String(item.text || "").trim(),
+    }))
+    .filter((item) => item.text)
+    .map((item) => `- [${item.checked ? "x" : " "}] ${item.text}`)
+    .join("\n");
+}
+
+function getChecklistStats(items: ChecklistItem[]) {
+  const validItems = items.filter((item) => item.text.trim());
+  const checked = validItems.filter((item) => item.checked).length;
+  return {
+    total: validItems.length,
+    checked,
+    pending: Math.max(validItems.length - checked, 0),
+  };
+}
+
+function normalizeFlowNode(raw: Partial<BobarFlowNode>, index: number): BobarFlowNode {
+  return {
+    id: String(raw.id || newNodeId()),
+    title: String(raw.title || raw.time || `Bloco ${index + 1}`).slice(0, 90),
+    content: String(raw.content || ""),
+    time: String(raw.time || ""),
+    kind: String(raw.kind || "step"),
+    x: Number.isFinite(Number(raw.x)) ? Number(raw.x) : 80 + (index % 3) * 300,
+    y: Number.isFinite(Number(raw.y)) ? Number(raw.y) : 80 + Math.floor(index / 3) * 190,
+  };
+}
+
+function normalizeFlowEdge(raw: Partial<BobarFlowEdge>, index: number): BobarFlowEdge {
+  return {
+    id: String(raw.id || `edge-${raw.source || "source"}-${raw.target || "target"}-${index}`),
+    source: String(raw.source || ""),
+    target: String(raw.target || ""),
+    label: String(raw.label || ""),
+  };
+}
+
+function dedupeEdges(edges: BobarFlowEdge[]) {
+  const seen = new Set<string>();
+  const next: BobarFlowEdge[] = [];
+  for (const edge of edges) {
+    if (!edge.source || !edge.target || edge.source === edge.target) continue;
+    const key = `${edge.source}:${edge.target}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(edge);
+  }
+  return next;
+}
+
+function buildSequentialEdges(nodes: BobarFlowNode[]): BobarFlowEdge[] {
+  const next: BobarFlowEdge[] = [];
+  for (let index = 0; index < nodes.length - 1; index += 1) {
+    next.push({
+      id: newEdgeId(),
+      source: nodes[index].id,
+      target: nodes[index + 1].id,
+      label: "",
+    });
+  }
+  return next;
+}
+
+function flowToContentText(flow: BobarFlowchart) {
+  return flow.nodes
+    .map((node, index) => {
+      const header = [node.time || "", node.title || `Bloco ${index + 1}`]
+        .filter(Boolean)
+        .join(" · ");
+      return [header, normalizeText(node.content)].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
+}
+
+function parseFlowchart(
+  structureJson?: string | null,
+  fallbackTitle = "Novo fluxo",
+  fallbackContent = "",
+): BobarFlowchart {
+  try {
+    const parsed = JSON.parse(structureJson || "{}");
+    const rawNodes = Array.isArray(parsed?.nodes) ? parsed.nodes : [];
+    const nodes: BobarFlowNode[] = rawNodes.map((node: unknown, index: number) =>
+      normalizeFlowNode((node || {}) as Partial<BobarFlowNode>, index),
+    );
+    const validIds = new Set<string>(nodes.map((node) => node.id));
+    const rawEdges = Array.isArray(parsed?.edges) ? parsed.edges : [];
+    const edges: BobarFlowEdge[] = dedupeEdges(
+      rawEdges
+        .map((edge: unknown, index: number) =>
+          normalizeFlowEdge((edge || {}) as Partial<BobarFlowEdge>, index),
+        )
+        .filter((edge: BobarFlowEdge) => validIds.has(edge.source) && validIds.has(edge.target)),
+    );
+
+    if (nodes.length) {
+      return {
+        nodes,
+        edges,
+        meta: typeof parsed?.meta === "object" && parsed?.meta ? parsed.meta : { grid: 32 },
+      };
+    }
+  } catch {
+    // noop
+  }
+
+  const text = normalizeText(fallbackContent);
+  const chunks = text
+    ? text
+        .split(/\n\s*\n/)
+        .map((chunk) => chunk.trim())
+        .filter(Boolean)
+    : [];
+
+  const nodes =
+    chunks.length > 0
+      ? chunks.slice(0, 18).map((chunk, index) => {
+          const lines = chunk
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean);
+          const head = lines[0] || fallbackTitle;
+          const timeMatch = head.match(/(\d+\s*(?:-|a|até|to)\s*\d+\s*s|\d+\s*s)/i);
+          return normalizeFlowNode(
+            {
+              title: timeMatch
+                ? head.replace(String(timeMatch[1]), "").replace(/^[-–·:\s]+|[-–·:\s]+$/g, "") ||
+                  head
+                : head.slice(0, 70),
+              time: timeMatch ? String(timeMatch[1]).replace(/\s+/g, "") : "",
+              content: lines.slice(1).join("\n") || chunk,
+              kind: index === 0 ? "hook" : index === chunks.length - 1 ? "cta" : "step",
+            },
+            index,
+          );
+        })
+      : [
+          normalizeFlowNode(
+            {
+              title: fallbackTitle || "Novo bloco",
+              content: fallbackContent,
+              kind: "step",
+            },
+            0,
+          ),
+        ];
+
+  return {
+    nodes,
+    edges: [],
+    meta: { grid: 32 },
+  };
+}
+
+function cloneFlow(flow?: BobarFlowchart | null): BobarFlowchart {
+  const source = flow || { nodes: [], edges: [], meta: { grid: 32 } };
+  const idMap = new Map<string, string>();
+  const nodes = source.nodes.map((node, index) => {
+    const nextId = newNodeId();
+    idMap.set(node.id, nextId);
+    return normalizeFlowNode({ ...node, id: nextId }, index);
+  });
+  const edges = dedupeEdges(
+    source.edges.map((edge, index) =>
+      normalizeFlowEdge(
+        {
+          ...edge,
+          id: newEdgeId(),
+          source: idMap.get(edge.source) || edge.source,
+          target: idMap.get(edge.target) || edge.target,
+        },
+        index,
+      ),
+    ),
+  );
+  return {
+    nodes,
+    edges,
+    meta: { ...(source.meta || {}), grid: Number(source.meta?.grid || 32) || 32 },
+  };
+}
+
+function buildFlowTemplate(
+  key: string,
+  label: string,
+  description: string,
+  title: string,
+  nodes: Array<Partial<BobarFlowNode>>,
+): FlowTemplate {
+  const normalizedNodes = nodes.map((node, index) =>
+    normalizeFlowNode(
+      {
+        id: newNodeId(),
+        title: String(node.title || `Bloco ${index + 1}`),
+        content: String(node.content || ""),
+        time: String(node.time || ""),
+        kind: String(node.kind || "step"),
+        x: Number.isFinite(Number(node.x)) ? Number(node.x) : 80 + index * 280,
+        y: Number.isFinite(Number(node.y)) ? Number(node.y) : 80 + (index % 2) * 160,
+      },
+      index,
+    ),
+  );
+
+  const structure: BobarFlowchart = {
+    nodes: normalizedNodes,
+    edges: buildSequentialEdges(normalizedNodes),
+    meta: { templateKey: key, grid: 32 },
+  };
+
+  return {
+    key,
+    label,
+    description,
+    cardType: "fluxograma",
+    title,
+    note: description,
+    contentText: flowToContentText(structure),
+    structure,
+  };
+}
+
+const CARD_TEMPLATES: FlowTemplate[] = [
+  buildFlowTemplate(
+    "ugc-hook-30s",
+    "UGC hook 30s",
+    "Hook curto com dor, prova e CTA.",
+    "Roteiro UGC · Hook 30s",
+    [
+      {
+        time: "0-3s",
+        title: "Hook",
+        kind: "hook",
+        content: "Abra com uma quebra forte, curiosidade ou contraste visual.",
+      },
+      {
+        time: "4-8s",
+        title: "Dor",
+        kind: "step",
+        content: "Mostre o problema principal da audiência.",
+      },
+      {
+        time: "9-16s",
+        title: "Prova",
+        kind: "support",
+        content: "Mostre evidência, exemplo ou resultado real.",
+      },
+      {
+        time: "17-30s",
+        title: "CTA",
+        kind: "cta",
+        content: "Finalize com um próximo passo claro.",
+      },
+    ],
+  ),
+  buildFlowTemplate(
+    "storysell-45s",
+    "Storysell 45s",
+    "Narrativa com conflito, virada e fechamento comercial.",
+    "Storysell · 45s",
+    [
+      {
+        time: "0-5s",
+        title: "Abertura",
+        kind: "hook",
+        content: "Entre já no contexto ou conflito.",
+      },
+      {
+        time: "6-15s",
+        title: "Tensão",
+        kind: "step",
+        content: "Aumente o peso do problema ou desafio.",
+      },
+      {
+        time: "16-28s",
+        title: "Virada",
+        kind: "support",
+        content: "Mostre o ponto de descoberta da solução.",
+      },
+      {
+        time: "29-45s",
+        title: "Resultado + CTA",
+        kind: "cta",
+        content: "Feche com transformação e chamada.",
+      },
+    ],
+  ),
+  {
+    key: "pipeline-conteudo",
+    label: "Pipeline de conteúdo",
+    description: "Card de produção simples para acompanhar execução.",
+    cardType: "conteudo",
+    title: "Pipeline de conteúdo",
+    note: "Use esse card para mover uma pauta entre etapas operacionais.",
+    contentText: [
+      "1. Definir objetivo do conteúdo",
+      "2. Validar hook principal",
+      "3. Aprovar roteiro",
+      "4. Gravar versão principal",
+      "5. Separar cortes e variações",
+      "6. Publicar e revisar performance",
+    ].join("\n"),
+  },
+  {
+    key: "checklist-gravacao",
+    label: "Checklist de gravação",
+    description: "Checklist pronta para captação e revisão.",
+    cardType: "checklist",
+    title: "Checklist de gravação",
+    note: "Use antes de liberar gravação ou edição.",
+    contentText: [
+      "- Confirmar hook e CTA aprovados",
+      "- Validar enquadramento, lente e iluminação",
+      "- Separar provas visuais e telas",
+      "- Gravar variações de abertura",
+      "- Revisar áudio, legenda e thumb",
+    ].join("\n"),
+  },
+];
+
+function buildConnectionPath(startX: number, startY: number, endX: number, endY: number) {
+  const deltaX = Math.max(80, Math.abs(endX - startX) * 0.42);
+  return `M ${startX} ${startY} C ${startX + deltaX} ${startY}, ${endX - deltaX} ${endY}, ${endX} ${endY}`;
+}
+
+function buildEdgePath(source: BobarFlowNode, target: BobarFlowNode) {
+  return buildConnectionPath(source.x + 256, source.y + 62, target.x, target.y + 62);
+}
+
+function clampPosition(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function autoArrangeFlow(flow: BobarFlowchart) {
+  if (!flow.nodes.length) return flow;
+
+  const byId = new Map(flow.nodes.map((node) => [node.id, node]));
+  const outgoing = new Map<string, string[]>();
+  const indegree = new Map<string, number>();
+
+  for (const node of flow.nodes) {
+    outgoing.set(node.id, []);
+    indegree.set(node.id, 0);
+  }
+
+  for (const edge of flow.edges) {
+    if (!byId.has(edge.source) || !byId.has(edge.target)) continue;
+    outgoing.get(edge.source)?.push(edge.target);
+    indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+  }
+
+  const timeValue = (node: BobarFlowNode) => {
+    const match = String(node.time || node.title || "").match(/(\d+(?:[.,]\d+)?)/);
+    return match ? Number(String(match[1]).replace(",", ".")) : Number.POSITIVE_INFINITY;
+  };
+
+  const queue = flow.nodes
+    .filter((node) => (indegree.get(node.id) || 0) === 0)
+    .sort((a, b) => {
+      const delta = timeValue(a) - timeValue(b);
+      if (Number.isFinite(delta) && delta !== 0) return delta;
+      return a.y === b.y ? a.x - b.x : a.y - b.y;
+    })
+    .map((node) => node.id);
+
+  const visited = new Set<string>();
+  const orderedIds: string[] = [];
+  const depthById = new Map<string, number>();
+
+  for (const node of flow.nodes) depthById.set(node.id, 0);
+
+  while (queue.length) {
+    const nodeId = queue.shift()!;
+    if (visited.has(nodeId)) continue;
+    visited.add(nodeId);
+    orderedIds.push(nodeId);
+
+    for (const nextId of outgoing.get(nodeId) || []) {
+      depthById.set(nextId, Math.max(depthById.get(nextId) || 0, (depthById.get(nodeId) || 0) + 1));
+      indegree.set(nextId, (indegree.get(nextId) || 0) - 1);
+      if ((indegree.get(nextId) || 0) <= 0) queue.push(nextId);
+    }
+
+    queue.sort((leftId, rightId) => {
+      const left = byId.get(leftId)!;
+      const right = byId.get(rightId)!;
+      const delta = timeValue(left) - timeValue(right);
+      if (Number.isFinite(delta) && delta !== 0) return delta;
+      return left.y === right.y ? left.x - right.x : left.y - right.y;
+    });
+  }
+
+  for (const node of flow.nodes) {
+    if (!visited.has(node.id)) orderedIds.push(node.id);
+  }
+
+  const lanes = new Map<number, BobarFlowNode[]>();
+  for (const nodeId of orderedIds) {
+    const node = byId.get(nodeId);
+    if (!node) continue;
+    const lane = depthById.get(nodeId) || 0;
+    const bucket = lanes.get(lane) || [];
+    bucket.push(node);
+    lanes.set(lane, bucket);
+  }
+
+  const nodes = orderedIds.map((nodeId, index) => {
+    const node = byId.get(nodeId)!;
+    const lane = depthById.get(nodeId) || 0;
+    const laneNodes = lanes.get(lane) || [node];
+    const laneIndex = laneNodes.findIndex((candidate) => candidate.id === nodeId);
+    return normalizeFlowNode(
+      {
+        ...node,
+        x: 88 + lane * 340,
+        y: 88 + laneIndex * 244,
+      },
+      index,
+    );
+  });
+
+  return { ...flow, nodes };
+}
+
+function readTemplateKeyFromStructure(structureJson?: string | null) {
+  try {
+    const parsed = JSON.parse(structureJson || "{}");
+    return String(parsed?.meta?.templateKey || "");
+  } catch {
+    return "";
+  }
+}
+
+const IMPORT_PROGRESS_OPTIONS: Array<{ value: ImportProgressStatus; label: string }> = [
+  { value: "todo", label: "A fazer" },
+  { value: "in_progress", label: "Em progresso" },
+  { value: "done", label: "Finalizado" },
+];
+
+function readImportProgressStatus(structureJson?: string | null): ImportProgressStatus {
+  try {
+    const parsed = JSON.parse(structureJson || "{}");
+    const value = String(parsed?.meta?.import_status || "").toLowerCase();
+    if (value === "in_progress") return "in_progress";
+    if (value === "done") return "done";
+    return "todo";
+  } catch {
+    return "todo";
+  }
+}
+
+function writeImportProgressStatus(
+  structureJson: string | null | undefined,
+  status: ImportProgressStatus,
+) {
+  let parsed: Record<string, unknown> = {};
+  try {
+    const raw = JSON.parse(structureJson || "{}");
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      parsed = raw as Record<string, unknown>;
+    }
+  } catch {
+    parsed = {};
+  }
+
+  const currentMeta =
+    parsed.meta && typeof parsed.meta === "object" && !Array.isArray(parsed.meta)
+      ? (parsed.meta as Record<string, unknown>)
+      : {};
+
+  return JSON.stringify(
+    {
+      ...parsed,
+      meta: {
+        ...currentMeta,
+        import_status: status,
+      },
+    },
+    null,
+    2,
+  );
+}
+
+function importProgressBadgeClasses(status: ImportProgressStatus) {
+  if (status === "done") return "border-emerald-400/25 bg-emerald-400/12 text-emerald-100";
+  if (status === "in_progress") return "border-amber-400/25 bg-amber-400/12 text-amber-100";
+  return "border-white/10 bg-white/[0.04] text-white/70";
+}
+
+function importProgressButtonClasses(active: boolean, status: ImportProgressStatus) {
+  if (!active) {
+    return "border-white/10 bg-white/[0.03] text-white/55 hover:border-white/20 hover:bg-white/[0.05] hover:text-white";
+  }
+  if (status === "done") return "border-emerald-400/35 bg-emerald-400/15 text-emerald-50";
+  if (status === "in_progress") return "border-amber-400/35 bg-amber-400/15 text-amber-50";
+  return "border-cyan-400/35 bg-cyan-400/15 text-cyan-50";
+}
+
+function formatImportProgressLabel(status: ImportProgressStatus) {
+  return IMPORT_PROGRESS_OPTIONS.find((option) => option.value === status)?.label || "A fazer";
+}
+
+function parseFlowContentSections(value: string | null | undefined) {
+  const lines = normalizeText(value)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const actionParts: string[] = [];
+  const speechParts: string[] = [];
+  const otherParts: string[] = [];
+  let bucket: "action" | "speech" | "other" = "other";
+
+  for (const line of lines) {
+    const actionMatch = line.match(/^a[cç][aã]o\s*:\s*(.*)$/i);
+    if (actionMatch) {
+      bucket = "action";
+      if (actionMatch[1]) actionParts.push(actionMatch[1].trim());
+      continue;
+    }
+
+    const speechMatch = line.match(/^fala\s*:\s*(.*)$/i);
+    if (speechMatch) {
+      bucket = "speech";
+      if (speechMatch[1]) speechParts.push(speechMatch[1].trim());
+      continue;
+    }
+
+    if (bucket === "action") actionParts.push(line);
+    else if (bucket === "speech") speechParts.push(line);
+    else otherParts.push(line);
+  }
+
+  return {
+    action: actionParts.join(" ").trim(),
+    speech: speechParts.join(" ").trim(),
+    other: otherParts.join("\n").trim(),
+  };
+}
+
+function typeLabel(cardType?: string | null) {
+  switch ((cardType || "").toLowerCase()) {
+    case "roteiro":
+      return "Roteiro";
+    case "conteudo":
+      return "Conteúdo";
+    case "checklist":
+      return "Checklist";
+    case "ideia":
+      return "Ideia";
+    case "fluxograma":
+      return "Fluxograma";
+    default:
+      return "Manual";
+  }
+}
+
+function nodeKindLabel(kind?: string | null) {
+  switch ((kind || "").toLowerCase()) {
+    case "hook":
+      return "Hook";
+    case "cta":
+      return "CTA";
+    case "support":
+      return "Prova";
+    case "timeline":
+      return "Linha do tempo";
+    default:
+      return "Passo";
+  }
+}
+
+function typeBadgeClasses(cardType?: string | null) {
+  const label = typeLabel(cardType);
+  if (label === "Roteiro") return "border-cyan-400/30 bg-cyan-400/10 text-cyan-200";
+  if (label === "Conteúdo") return "border-fuchsia-400/30 bg-fuchsia-400/10 text-fuchsia-200";
+  if (label === "Checklist") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
+  if (label === "Ideia") return "border-amber-400/30 bg-amber-400/10 text-amber-200";
+  if (label === "Fluxograma") return "border-violet-400/30 bg-violet-400/10 text-violet-200";
+  return "border-white/10 bg-white/5 text-white/70";
+}
+
+function countImportedCards(board: BobarBoard | null) {
+  if (!board) return 0;
+  return board.columns.reduce(
+    (acc, column) => acc + column.cards.filter((card) => isAuthorityImportCard(card)).length,
+    0,
+  );
+}
+
+function countFlowchartCards(board: BobarBoard | null) {
+  if (!board) return 0;
+  return board.columns.reduce(
+    (acc, column) =>
+      acc +
+      column.cards.filter((card) => String(card.card_type || "").toLowerCase() === "fluxograma")
+        .length,
+    0,
+  );
+}
+
+function countTemplateCards(board: BobarBoard | null) {
+  if (!board) return 0;
+  return board.columns.reduce((acc, column) => {
+    return (
+      acc +
+      column.cards.filter((card) => Boolean(readTemplateKeyFromStructure(card.structure_json)))
+        .length
+    );
+  }, 0);
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function buildSnippet(card: BobarCard) {
+  const cardType = String(card.card_type || "").toLowerCase();
+
+  if (cardType === "fluxograma") {
+    const flow = parseFlowchart(card.structure_json, card.title, card.content_text);
+    const titles = flow.nodes
+      .map((node) => node.time || node.title)
+      .filter(Boolean)
+      .slice(0, 3);
+    if (titles.length) return titles.join(" → ") + (flow.nodes.length > 3 ? "…" : "");
+  }
+
+  if (cardType === "checklist") {
+    const items = parseChecklistContent(card.content_text);
+    const stats = getChecklistStats(items);
+    const preview = items
+      .map((item) => item.text.trim())
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(" • ");
+
+    if (stats.total) {
+      return `${stats.checked}/${stats.total} concluídos${preview ? ` • ${preview}` : ""}`;
+    }
+  }
+
+  const cleanText = normalizeText(card.content_text);
+  if (cleanText) {
+    try {
+      const exported = exportAuthorityFormat(cleanText, "txt").replace(/\s+/g, " ").trim();
+      if (exported) return exported.slice(0, 180) + (exported.length > 180 ? "…" : "");
+    } catch {
+      // noop
+    }
+    return cleanText.replace(/\s+/g, " ").slice(0, 180) + (cleanText.length > 180 ? "…" : "");
+  }
+
+  const note = normalizeText(card.note).replace(/\s+/g, " ");
+  if (note) return note.slice(0, 180) + (note.length > 180 ? "…" : "");
+  return "Card vazio. Abra o editor e preencha o conteúdo.";
+}
+
+function findCard(board: BobarBoard | null, cardId: number | null) {
+  if (!board || !cardId) return null;
+  for (const column of board.columns) {
+    const found = column.cards.find((card) => card.id === cardId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function firstCardId(board: BobarBoard | null) {
+  if (!board) return null;
+  for (const column of board.columns) {
+    if (column.cards[0]) return column.cards[0].id;
+  }
+  return null;
+}
+
+function firstCardIdFromColumns(columns: BobarColumn[]) {
+  for (const column of columns) {
+    if (column.cards[0]) return column.cards[0].id;
+  }
+  return null;
+}
+
+function diffNewColumnId(previous: BobarBoard | null, next: BobarBoard) {
+  const previousIds = new Set((previous?.columns || []).map((column) => column.id));
+  const added = next.columns.find((column) => !previousIds.has(column.id));
+  return added?.id || null;
+}
+
+function diffNewCardId(previous: BobarBoard | null, next: BobarBoard) {
+  const previousIds = new Set((previous?.columns || []).flatMap((column) => column.cards.map((card) => card.id)));
+  for (const column of next.columns) {
+    const added = column.cards.find((card) => !previousIds.has(card.id));
+    if (added) return added.id;
+  }
+  return null;
+}
+
+
+function uniquePositiveIds(...groups: number[][]) {
+  const ids = new Set<number>();
+  for (const group of groups) {
+    for (const value of group) {
+      const id = Number(value);
+      if (Number.isFinite(id) && id > 0) ids.add(id);
+    }
+  }
+  return Array.from(ids);
+}
+
+function shallowEqualDraft(a: CardEditorDraft | null, b: CardEditorDraft | null) {
+  if (!a || !b) return false;
+  return (
+    a.title === b.title &&
+    a.card_type === b.card_type &&
+    a.column_id === b.column_id &&
+    a.content_text === b.content_text &&
+    a.note === b.note
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  options,
+  placeholder,
+  onChange,
+  disabled,
+}: {
+  label?: string;
+  value: string;
+  options: DropdownOption[];
+  placeholder?: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handleClick = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
+  const active = options.find((option) => option.value === value);
+
+  return (
+    <div className="space-y-2" ref={wrapperRef}>
+      {label ? (
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+          {label}
+        </div>
+      ) : null}
+      <div className="relative">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen((current) => !current)}
+          className={cn(
+            "flex h-12 w-full items-center justify-between rounded-2xl border px-4 text-left shadow-[0_16px_40px_rgba(0,0,0,0.2)] transition",
+            "border-cyan-400/30 bg-[#0a1225] text-white hover:border-cyan-300/50 hover:bg-[#0d1830]",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/50 disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+        >
+          <div className="min-w-0">
+            <div
+              className={cn(
+                "truncate text-sm font-medium",
+                active ? "text-white" : "text-white/45",
+              )}
+            >
+              {active?.label || placeholder || "Selecionar"}
+            </div>
+            {active?.description ? (
+              <div className="truncate text-xs text-white/45">{active.description}</div>
+            ) : null}
+          </div>
+          <ChevronDown
+            className={cn("h-4 w-4 shrink-0 text-white/55 transition", open && "rotate-180")}
+          />
+        </button>
+
+        {open ? (
+          <div className="absolute z-[80] mt-2 w-full overflow-hidden rounded-[1.4rem] border border-cyan-400/20 bg-[#07101f] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+            <div className="max-h-72 overflow-y-auto pr-1">
+              {options.map((option) => {
+                const activeOption = option.value === value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(option.value);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-3 text-left transition",
+                      activeOption
+                        ? "bg-cyan-400/12 text-cyan-100"
+                        : "text-white/80 hover:bg-white/5",
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{option.label}</div>
+                      {option.description ? (
+                        <div className="mt-1 text-xs leading-5 text-white/45">
+                          {option.description}
+                        </div>
+                      ) : null}
+                    </div>
+                    {activeOption ? (
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200" />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function StatChip({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.045] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.2)]">
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-200">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+            {label}
+          </div>
+          <div className="mt-1 text-2xl font-black text-white">{value}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-[1.8rem] border border-dashed border-white/10 bg-white/[0.03] px-6 py-10 text-center">
+      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5 text-white/40">
+        <Inbox className="h-6 w-6" />
+      </div>
+      <div className="mt-4 text-lg font-semibold text-white">{title}</div>
+      <div className="mt-2 text-sm leading-6 text-white/55">{description}</div>
+    </div>
+  );
+}
+
+function GuideStep({
+  step,
+  title,
+  description,
+}: {
+  step: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.035] p-4">
+      <div className="mb-3 inline-flex h-9 min-w-9 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100">
+        {step}
+      </div>
+      <div className="text-sm font-semibold text-white">{title}</div>
+      <div className="mt-2 text-sm leading-6 text-white/55">{description}</div>
+    </div>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  emphasized = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  emphasized?: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 text-sm">
+      <span className="text-white/45">{label}</span>
+      <span
+        className={cn("min-w-0 text-right text-white/72", emphasized && "font-semibold text-white")}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ColumnLane({
+  column,
+  selectedCardId,
+  onSelectCard,
+  onCreateCard,
+  onRenameColumn,
+  onDeleteColumn,
+  dragState,
+  dragOverColumnId,
+  onStartDragCard,
+  onEndDragCard,
+  onDragColumn,
+  onDropColumn,
+}: {
+  column: BobarColumn;
+  selectedCardId: number | null;
+  onSelectCard: (cardId: number) => void;
+  onCreateCard: (columnId: number) => void;
+  onRenameColumn: (column: BobarColumn) => void;
+  onDeleteColumn: (column: BobarColumn) => void;
+  dragState: DragCardState | null;
+  dragOverColumnId: number | null;
+  onStartDragCard: (card: BobarCard, event: React.DragEvent<HTMLButtonElement>) => void;
+  onEndDragCard: () => void;
+  onDragColumn: (columnId: number) => void;
+  onDropColumn: (columnId: number) => void;
+}) {
+  const isDropActive =
+    dragState && dragOverColumnId === column.id && dragState.fromColumnId !== column.id;
+  const selectedCount = column.cards.filter((card) => card.id === selectedCardId).length;
+
+  return (
+    <Card
+      variant="glass"
+      className={cn(
+        "flex w-[min(340px,82vw)] min-w-[296px] max-w-[340px] snap-start flex-col overflow-hidden rounded-[2rem] border bg-[#07101f]/80 backdrop-blur",
+        isDropActive
+          ? "border-cyan-300/60 shadow-[0_0_0_1px_rgba(34,211,238,0.28),0_24px_48px_rgba(8,145,178,0.18)]"
+          : "border-cyan-400/12",
+      )}
+      onDragOver={(event) => {
+        if (!dragState) return;
+        event.preventDefault();
+        onDragColumn(column.id);
+      }}
+      onDragLeave={(event) => {
+        if (!dragState) return;
+        const related = event.relatedTarget as Node | null;
+        if (related && event.currentTarget.contains(related)) return;
+        onDragColumn(-1);
+      }}
+      onDrop={(event) => {
+        if (!dragState) return;
+        event.preventDefault();
+        onDropColumn(column.id);
+      }}
+    >
+      <CardHeader className="border-b border-white/8 pb-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-3 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-200">
+                <FolderKanban className="h-5 w-5" />
+              </div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/75">
+                Coluna
+              </div>
+            </div>
+            <CardTitle className="break-words text-[1.45rem] leading-tight text-white">
+              {column.name}
+            </CardTitle>
+            <CardDescription className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-white/45">
+              <span>
+                {column.cards.length} {column.cards.length === 1 ? "card" : "cards"}
+              </span>
+              {selectedCount ? (
+                <span className="text-cyan-100/80">card selecionado aqui</span>
+              ) : null}
+            </CardDescription>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-2xl"
+              onClick={() => onRenameColumn(column)}
+              aria-label={`Renomear coluna ${column.name}`}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-2xl"
+              onClick={() => onDeleteColumn(column)}
+              aria-label={`Excluir coluna ${column.name}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex flex-1 flex-col gap-3 pt-5">
+        <Button
+          className="h-10 w-full rounded-2xl"
+          variant="outline"
+          onClick={() => onCreateCard(column.id)}
+        >
+          <Plus className="h-4 w-4" />
+          Novo card nesta coluna
+        </Button>
+
+        {isDropActive ? (
+          <div className="rounded-[1.6rem] border border-dashed border-cyan-300/50 bg-cyan-400/8 px-4 py-5 text-center text-sm font-medium text-cyan-100">
+            Solte aqui para mover o card para <span className="break-words">{column.name}</span>.
+          </div>
+        ) : null}
+
+        <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+          {column.cards.length ? (
+            column.cards.map((card) => {
+              const active = selectedCardId === card.id;
+              const dragging = dragState?.cardId === card.id;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  draggable
+                  onDragStart={(event) => onStartDragCard(card, event)}
+                  onDragEnd={onEndDragCard}
+                  onClick={() => onSelectCard(card.id)}
+                  className={cn(
+                    "w-full overflow-hidden rounded-[1.7rem] border p-4 text-left shadow-[0_16px_34px_rgba(0,0,0,0.22)] transition",
+                    active
+                      ? "border-cyan-400/50 bg-cyan-400/10 ring-2 ring-cyan-400/25"
+                      : "border-white/10 bg-white/[0.045] hover:bg-white/[0.07]",
+                    dragging && "opacity-45",
+                  )}
+                >
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <Badge
+                          className={cn(
+                            "rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                            typeBadgeClasses(card.card_type),
+                          )}
+                        >
+                          {typeLabel(card.card_type)}
+                        </Badge>
+                        {card.source_label ? (
+                          <Badge className="max-w-full truncate rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-white/65">
+                            {card.source_label}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="break-words text-base font-semibold leading-6 text-white">
+                        {card.title}
+                      </div>
+                    </div>
+
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/40">
+                      <GripVertical className="h-4 w-4" />
+                    </div>
+                  </div>
+
+                  <div className="break-words text-sm leading-6 text-white/60">
+                    {buildSnippet(card)}
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-white/35">
+                    <span>{formatDate(card.updated_at)}</span>
+                    <span>
+                      {String(card.card_type || "").toLowerCase() === "fluxograma"
+                        ? `${parseFlowchart(card.structure_json, card.title, card.content_text).nodes.length} blocos`
+                        : String(card.card_type || "").toLowerCase() === "checklist"
+                          ? `${getChecklistStats(parseChecklistContent(card.content_text)).checked}/${getChecklistStats(parseChecklistContent(card.content_text)).total || 0} concluídos`
+                          : "Texto"}
+                    </span>
+                  </div>
+                </button>
+              );
+            })
+          ) : (
+            <div className="rounded-[1.6rem] border border-dashed border-white/10 bg-white/[0.025] px-6 py-10 text-center text-sm leading-6 text-white/45">
+              Arraste cards para essa coluna ou crie um novo card.
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+function FlowchartCanvas({
+  flow,
+  selectedNodeId,
+  selectedEdgeId,
+  pendingConnectionNodeId,
+  onSelectNode,
+  onSelectEdge,
+  onMoveNode,
+  onHandleClick,
+  viewportClassName,
+}: {
+  flow: BobarFlowchart;
+  selectedNodeId: string | null;
+  selectedEdgeId: string | null;
+  pendingConnectionNodeId: string | null;
+  onSelectNode: (nodeId: string) => void;
+  onSelectEdge: (edgeId: string) => void;
+  onMoveNode: (nodeId: string, patch: Partial<BobarFlowNode>) => void;
+  onHandleClick: (nodeId: string, role: "source" | "target") => void;
+  viewportClassName?: string;
+}) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const gestureRef = React.useRef<{
+    nodeId: string;
+    startClientX: number;
+    startClientY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
+  const panGestureRef = React.useRef<{
+    startClientX: number;
+    startClientY: number;
+    originScrollLeft: number;
+    originScrollTop: number;
+    moved: boolean;
+  } | null>(null);
+  const [connectionPointer, setConnectionPointer] = React.useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [isPanning, setIsPanning] = React.useState(false);
+
+  const width = Math.max(1680, ...flow.nodes.map((node) => node.x + 760));
+  const height = Math.max(1480, ...flow.nodes.map((node) => node.y + 760));
+  const byId = React.useMemo(
+    () => new Map(flow.nodes.map((node) => [node.id, node])),
+    [flow.nodes],
+  );
+  const outgoingCountByNode = React.useMemo(() => {
+    const next = new Map<string, number>();
+    for (const edge of flow.edges) next.set(edge.source, (next.get(edge.source) || 0) + 1);
+    return next;
+  }, [flow.edges]);
+  const incomingCountByNode = React.useMemo(() => {
+    const next = new Map<string, number>();
+    for (const edge of flow.edges) next.set(edge.target, (next.get(edge.target) || 0) + 1);
+    return next;
+  }, [flow.edges]);
+  const pendingSourceNode = pendingConnectionNodeId
+    ? byId.get(pendingConnectionNodeId) || null
+    : null;
+
+  const updateConnectionPointer = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const bounds = container.getBoundingClientRect();
+    setConnectionPointer({
+      x: event.clientX - bounds.left + container.scrollLeft,
+      y: event.clientY - bounds.top + container.scrollTop,
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (!pendingSourceNode) {
+      setConnectionPointer(null);
+      return;
+    }
+
+    setConnectionPointer({
+      x: pendingSourceNode.x + 256,
+      y: pendingSourceNode.y + 76,
+    });
+  }, [pendingSourceNode]);
+
+  React.useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const panGesture = panGestureRef.current;
+      if (panGesture) {
+        const container = containerRef.current;
+        if (!container) return;
+        const dx = event.clientX - panGesture.startClientX;
+        const dy = event.clientY - panGesture.startClientY;
+        if (!panGesture.moved && Math.hypot(dx, dy) > 3) panGesture.moved = true;
+        container.scrollLeft = panGesture.originScrollLeft - dx;
+        container.scrollTop = panGesture.originScrollTop - dy;
+        return;
+      }
+
+      const gesture = gestureRef.current;
+      if (!gesture) return;
+      const dx = event.clientX - gesture.startClientX;
+      const dy = event.clientY - gesture.startClientY;
+      if (!gesture.moved && Math.hypot(dx, dy) > 4) gesture.moved = true;
+      if (!gesture.moved) return;
+
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const edge = 72;
+        const speed = 28;
+        if (event.clientY > rect.bottom - edge) container.scrollTop += speed;
+        if (event.clientY < rect.top + edge) container.scrollTop -= speed;
+        if (event.clientX > rect.right - edge) container.scrollLeft += speed;
+        if (event.clientX < rect.left + edge) container.scrollLeft -= speed;
+      }
+
+      onMoveNode(gesture.nodeId, {
+        x: clampPosition(gesture.originX + dx, 32, width - 320),
+        y: clampPosition(gesture.originY + dy, 32, height - 220),
+      });
+    };
+
+    const handlePointerUp = () => {
+      const panGesture = panGestureRef.current;
+      if (panGesture) {
+        panGestureRef.current = null;
+        setIsPanning(false);
+        return;
+      }
+
+      const gesture = gestureRef.current;
+      if (!gesture) return;
+      if (!gesture.moved) onSelectNode(gesture.nodeId);
+      gestureRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [height, onMoveNode, onSelectNode, width]);
+
+  return (
+    <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#040914]">
+      <div className="border-b border-white/10 px-5 py-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-100">
+            Fluxograma
+          </Badge>
+          <Badge className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
+            {flow.nodes.length} blocos
+          </Badge>
+          <Badge className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
+            {flow.edges.length} conexões
+          </Badge>
+          {pendingSourceNode ? (
+            <Badge className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100">
+              Escolha o destino da nova conexão
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+
+      <div
+        ref={containerRef}
+        onPointerDown={(event) => {
+          const container = containerRef.current;
+          if (!container) return;
+
+          const isDirectCanvasTarget = event.target === event.currentTarget;
+          const isMiddleMouse = event.button === 1;
+          const isLeftMouseCanvasDrag = event.button === 0 && isDirectCanvasTarget;
+
+          if (!isMiddleMouse && !isLeftMouseCanvasDrag) return;
+
+          event.preventDefault();
+          panGestureRef.current = {
+            startClientX: event.clientX,
+            startClientY: event.clientY,
+            originScrollLeft: container.scrollLeft,
+            originScrollTop: container.scrollTop,
+            moved: false,
+          };
+          setIsPanning(true);
+        }}
+        onAuxClick={(event) => {
+          if (event.button === 1) event.preventDefault();
+        }}
+        onWheel={(event) => {
+          const container = containerRef.current;
+          if (!container) return;
+
+          const hasVerticalOverflow = container.scrollHeight > container.clientHeight;
+          const hasHorizontalOverflow = container.scrollWidth > container.clientWidth;
+          if (!hasVerticalOverflow && !hasHorizontalOverflow) return;
+
+          const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? container.clientHeight : 1;
+          const deltaX = event.deltaX * unit;
+          const deltaY = event.deltaY * unit;
+          const prefersHorizontal = event.shiftKey || (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 0);
+
+          event.preventDefault();
+
+          if (prefersHorizontal && hasHorizontalOverflow) {
+            container.scrollLeft += deltaX || deltaY;
+            return;
+          }
+
+          if (hasVerticalOverflow) {
+            container.scrollTop += deltaY || deltaX;
+          }
+
+          if (Math.abs(deltaX) > 0 && hasHorizontalOverflow) {
+            container.scrollLeft += deltaX;
+          }
+        }}
+        onPointerMove={pendingSourceNode ? updateConnectionPointer : undefined}
+        className={cn(
+          "relative overflow-auto overscroll-none bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.08),transparent_35%),linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:auto,32px_32px,32px_32px]",
+          isPanning && "cursor-grabbing select-none",
+          viewportClassName || "h-[min(78vh,900px)]",
+        )}
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none", touchAction: "none" }}
+      >
+        <div className="relative min-h-full" style={{ width, height }}>
+          <svg className="pointer-events-none absolute inset-0 h-full w-full">
+            {flow.edges.map((edge) => {
+              const source = byId.get(edge.source);
+              const target = byId.get(edge.target);
+              if (!source || !target) return null;
+              const selected = edge.id === selectedEdgeId;
+              return (
+                <path
+                  key={edge.id}
+                  d={buildEdgePath(source, target)}
+                  fill="none"
+                  stroke={selected ? "rgba(34,211,238,0.95)" : "rgba(148,163,184,0.45)"}
+                  strokeWidth={selected ? 3 : 2}
+                  strokeLinecap="round"
+                  className="pointer-events-auto cursor-pointer transition"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectEdge(edge.id);
+                  }}
+                />
+              );
+            })}
+
+            {pendingSourceNode && connectionPointer ? (
+              <path
+                d={buildConnectionPath(
+                  pendingSourceNode.x + 256,
+                  pendingSourceNode.y + 76,
+                  connectionPointer.x,
+                  connectionPointer.y,
+                )}
+                fill="none"
+                stroke="rgba(34,211,238,0.85)"
+                strokeWidth={2}
+                strokeDasharray="10 8"
+                strokeLinecap="round"
+              />
+            ) : null}
+          </svg>
+
+          {flow.nodes.map((node) => {
+            const selected = node.id === selectedNodeId;
+            const isPendingSource = node.id === pendingConnectionNodeId;
+            const incomingCount = incomingCountByNode.get(node.id) || 0;
+            const outgoingCount = outgoingCountByNode.get(node.id) || 0;
+            const sections = parseFlowContentSections(node.content);
+
+            return (
+              <div
+                key={node.id}
+                role="button"
+                tabIndex={0}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.preventDefault();
+                  gestureRef.current = {
+                    nodeId: node.id,
+                    startClientX: event.clientX,
+                    startClientY: event.clientY,
+                    originX: node.x,
+                    originY: node.y,
+                    moved: false,
+                  };
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelectNode(node.id);
+                  }
+                }}
+                className={cn(
+                  "absolute w-72 cursor-grab overflow-hidden rounded-[1.8rem] border p-4 shadow-[0_20px_40px_rgba(0,0,0,0.28)] transition active:cursor-grabbing",
+                  selected
+                    ? "border-cyan-300/55 bg-[#10213d] ring-2 ring-cyan-300/25"
+                    : "border-white/10 bg-[#0b1426]/95 hover:border-white/20",
+                )}
+                style={{ left: node.x, top: node.y }}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <Badge className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                        {nodeKindLabel(node.kind)}
+                      </Badge>
+                      {node.time ? (
+                        <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                          {node.time}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="break-words text-2xl font-black leading-tight text-white">
+                      {node.title || "Bloco sem título"}
+                    </div>
+                  </div>
+                  <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/45">
+                    <GripVertical className="h-4 w-4" />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {sections.action ? (
+                    <div className="rounded-[1.3rem] border border-cyan-400/15 bg-cyan-400/[0.06] px-3 py-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                        Ação
+                      </div>
+                      <div className="mt-1 break-words text-sm leading-6 text-cyan-50/90">
+                        {sections.action}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {sections.speech ? (
+                    <div className="rounded-[1.3rem] border border-violet-400/15 bg-violet-400/[0.06] px-3 py-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-100/70">
+                        Fala
+                      </div>
+                      <div className="mt-1 break-words text-sm leading-6 text-violet-50/90">
+                        {sections.speech}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {sections.other ? (
+                    <div className="rounded-[1.3rem] border border-white/10 bg-white/[0.035] px-3 py-3">
+                      <div className="break-words text-sm leading-6 text-white/65">
+                        {sections.other}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {!sections.action && !sections.speech && !sections.other ? (
+                    <div className="rounded-[1.3rem] border border-white/10 bg-white/[0.035] px-3 py-3 text-sm leading-6 text-white/55">
+                      Sem conteúdo.
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    title={pendingSourceNode && pendingSourceNode.id !== node.id ? "Concluir conexão aqui" : "Selecionar entrada"}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onHandleClick(node.id, "target");
+                    }}
+                    className="h-4 w-4 rounded-full bg-cyan-300/80 shadow-[0_0_0_6px_rgba(34,211,238,0.12)] transition hover:scale-110 hover:bg-cyan-200"
+                  >
+                    <span className="sr-only">Entrada</span>
+                  </button>
+
+                  <div className="text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
+                    {isPendingSource ? "Conexão iniciada" : `${incomingCount} entr. · ${outgoingCount} saíd.`}
+                  </div>
+
+                  <button
+                    type="button"
+                    title={isPendingSource ? "Cancelar nova conexão" : "Iniciar nova conexão"}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onHandleClick(node.id, "source");
+                    }}
+                    className={cn(
+                      "h-4 w-4 rounded-full transition hover:scale-110",
+                      isPendingSource
+                        ? "bg-cyan-300 shadow-[0_0_0_6px_rgba(34,211,238,0.18)]"
+                        : "bg-violet-300/80 shadow-[0_0_0_6px_rgba(167,139,250,0.12)] hover:bg-violet-200",
+                    )}
+                  >
+                    <span className="sr-only">Saída</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function ChecklistEditor({
+  items,
+  summary,
+  onToggleItem,
+  onChangeItemText,
+  onAddItem,
+  onRemoveItem,
+  onClearCompleted,
+}: {
+  items: ChecklistItem[];
+  summary: { total: number; checked: number; pending: number };
+  onToggleItem: (itemId: string) => void;
+  onChangeItemText: (itemId: string, value: string) => void;
+  onAddItem: () => void;
+  onRemoveItem: (itemId: string) => void;
+  onClearCompleted: () => void;
+}) {
+  const progress = summary.total ? Math.round((summary.checked / summary.total) * 100) : 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+        Checklist do card
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.035] px-4 py-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
+            Itens
+          </div>
+          <div className="mt-2 text-2xl font-black text-white">{summary.total}</div>
+        </div>
+
+        <div className="rounded-[1.6rem] border border-emerald-400/15 bg-emerald-400/10 px-4 py-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100/70">
+            Concluídos
+          </div>
+          <div className="mt-2 text-2xl font-black text-white">{summary.checked}</div>
+        </div>
+
+        <div className="rounded-[1.6rem] border border-amber-400/15 bg-amber-400/10 px-4 py-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100/70">
+            Pendentes
+          </div>
+          <div className="mt-2 text-2xl font-black text-white">{summary.pending}</div>
+        </div>
+      </div>
+
+      <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-white">Progresso do checklist</div>
+            <div className="text-sm text-white/55">
+              Marque os itens concluídos e mantenha o card operacional de verdade.
+            </div>
+          </div>
+          <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-sm font-semibold text-cyan-100">
+            {progress}%
+          </div>
+        </div>
+
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full bg-cyan-300/80 transition-all"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {items.map((item, index) => (
+          <div
+            key={item.id}
+            className={cn(
+              "flex items-center gap-3 rounded-[1.5rem] border p-3 transition",
+              item.checked
+                ? "border-emerald-400/20 bg-emerald-400/10"
+                : "border-white/10 bg-white/[0.035]",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => onToggleItem(item.id)}
+              className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border transition",
+                item.checked
+                  ? "border-emerald-300/40 bg-emerald-300/20 text-emerald-100"
+                  : "border-white/10 bg-[#0a1225] text-white/45 hover:border-cyan-300/40 hover:text-cyan-100",
+              )}
+              aria-label={item.checked ? "Desmarcar item" : "Marcar item"}
+            >
+              <Check className="h-5 w-5" />
+            </button>
+
+            <Input
+              value={item.text}
+              onChange={(event) => onChangeItemText(item.id, event.target.value)}
+              placeholder={`Item ${index + 1}`}
+              className={cn(
+                "h-12 border-white/10 bg-[#0a1225]",
+                item.checked && "text-white/60 line-through",
+              )}
+            />
+
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-11 w-11 shrink-0 rounded-2xl"
+              onClick={() => onRemoveItem(item.id)}
+              aria-label={`Remover item ${index + 1}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" className="h-11 rounded-2xl" onClick={onAddItem}>
+          <Plus className="h-4 w-4" />
+          Adicionar item
+        </Button>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 rounded-2xl"
+          onClick={onClearCompleted}
+          disabled={!summary.checked}
+        >
+          <Trash2 className="h-4 w-4" />
+          Limpar concluídos
+        </Button>
+      </div>
+
+      <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
+        Cada linha agora é um item real com check individual. O texto livre continua nas
+        observações do card, não dentro do checklist.
+      </div>
+    </div>
+  );
+}
+
+
+
+function FlowEditorInspector({
+  selectedNode,
+  selectedEdge,
+  selectedEdgeNodes,
+  pendingConnectionNode,
+  onPatchNode,
+  onDeleteSelectedEdge,
+  className,
+  contentClassName,
+}: {
+  selectedNode: BobarFlowNode | null;
+  selectedEdge: BobarFlowEdge | null;
+  selectedEdgeNodes: { source: BobarFlowNode; target: BobarFlowNode } | null;
+  pendingConnectionNode: BobarFlowNode | null;
+  onPatchNode: (nodeId: string, patch: Partial<BobarFlowNode>) => void;
+  onDeleteSelectedEdge: () => void;
+  className?: string;
+  contentClassName?: string;
+}) {
+  return (
+    <Card
+      variant="glass"
+      className={cn("rounded-[2rem] border-white/10 bg-[#06101f]", className)}
+    >
+      <CardHeader>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+          Inspector
+        </div>
+        <CardTitle className="text-2xl font-black text-white">
+          {selectedNode
+            ? "Editar bloco"
+            : selectedEdge
+              ? "Conexão selecionada"
+              : pendingConnectionNode
+                ? "Finalizar conexão"
+                : "Selecione um item"}
+        </CardTitle>
+        <CardDescription className="text-white/55">
+          Edite o bloco ou a conexão selecionada.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className={cn("space-y-4", contentClassName)}>
+        {pendingConnectionNode ? (
+          <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
+            Nova conexão iniciada em <strong>{pendingConnectionNode.title}</strong>. Clique na
+            bolinha de entrada do destino para concluir. Se a bolinha já estiver ocupada, o clique
+            solta a conexão atual primeiro.
+          </div>
+        ) : null}
+
+        {selectedNode ? (
+          <>
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                Título do bloco
+              </div>
+              <Input
+                value={selectedNode.title}
+                onChange={(event) => onPatchNode(selectedNode.id, { title: event.target.value })}
+                className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                  Tempo
+                </div>
+                <Input
+                  value={selectedNode.time || ""}
+                  onChange={(event) => onPatchNode(selectedNode.id, { time: event.target.value })}
+                  placeholder="0-3s"
+                  className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                />
+              </div>
+
+              <SelectField
+                label="Tipo do bloco"
+                value={selectedNode.kind || "step"}
+                options={[
+                  { value: "step", label: "Passo" },
+                  { value: "hook", label: "Hook" },
+                  { value: "support", label: "Prova" },
+                  { value: "cta", label: "CTA" },
+                  { value: "timeline", label: "Linha do tempo" },
+                ]}
+                onChange={(value) => onPatchNode(selectedNode.id, { kind: value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                Conteúdo do bloco
+              </div>
+              <Textarea
+                value={selectedNode.content}
+                onChange={(event) => onPatchNode(selectedNode.id, { content: event.target.value })}
+                placeholder="Texto, fala, ação ou instrução desse bloco."
+                className="min-h-[220px] rounded-[1.6rem] border-cyan-400/15 bg-[#0a1225]"
+              />
+            </div>
+
+            <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
+              Para conectar, clique na bolinha de saída do bloco e depois na bolinha de entrada do
+              destino.
+            </div>
+          </>
+        ) : selectedEdge && selectedEdgeNodes ? (
+          <>
+            <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.035] px-4 py-4 text-sm leading-6 text-white/70">
+              Conexão entre <strong>{selectedEdgeNodes.source.title}</strong> e{" "}
+              <strong>{selectedEdgeNodes.target.title}</strong>.
+            </div>
+
+            <Button className="h-11 rounded-2xl" variant="outline" onClick={onDeleteSelectedEdge}>
+              <Unlink className="h-4 w-4" />
+              Remover conexão selecionada
+            </Button>
+          </>
+        ) : (
+          <EmptyState
+            title="Nada selecionado"
+            description="Clique em um bloco para editar ou em uma linha para remover a conexão."
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+export default function BobarPage() {
+  const [board, setBoard] = React.useState<BobarBoard | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+  const [activeView, setActiveView] = React.useState<BobarViewMode>("board");
+  const [selectedImportCardId, setSelectedImportCardId] = React.useState<number | null>(null);
+  const [hydratingImportId, setHydratingImportId] = React.useState<number | null>(null);
+  const [selectedCardId, setSelectedCardId] = React.useState<number | null>(null);
+  const [cardDraft, setCardDraft] = React.useState<CardEditorDraft | null>(null);
+  const [baselineDraft, setBaselineDraft] = React.useState<CardEditorDraft | null>(null);
+  const [checklistDraft, setChecklistDraft] = React.useState<ChecklistItem[]>([]);
+  const [baselineChecklist, setBaselineChecklist] = React.useState<ChecklistItem[]>([]);
+  const [flowDraft, setFlowDraft] = React.useState<BobarFlowchart | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = React.useState<string | null>(null);
+  const [pendingConnectionNodeId, setPendingConnectionNodeId] = React.useState<string | null>(null);
+  const [isFlowEditorOpen, setIsFlowEditorOpen] = React.useState(false);
+  const [templateKey, setTemplateKey] = React.useState("");
+  const [dragState, setDragState] = React.useState<DragCardState | null>(null);
+  const [dragOverColumnId, setDragOverColumnId] = React.useState<number | null>(null);
+  const [columnDialog, setColumnDialog] = React.useState<ColumnDialogState | null>(null);
+  const [columnNameDraft, setColumnNameDraft] = React.useState("");
+  const [deleteDialog, setDeleteDialog] = React.useState<DeleteDialogState | null>(null);
+  const hydrationLocksRef = React.useRef<Set<number>>(new Set());
+  const importMetaSyncRef = React.useRef<Set<number>>(new Set());
+
+
+  const allCards = React.useMemo(
+    () => board?.columns.flatMap((column) => column.cards) || [],
+    [board],
+  );
+  const importedCards = React.useMemo(
+    () => allCards.filter((card) => isAuthorityImportCard(card)),
+    [allCards],
+  );
+  const activeImportCard = React.useMemo(
+    () => importedCards.find((card) => card.id === selectedImportCardId) || importedCards[0] || null,
+    [importedCards, selectedImportCardId],
+  );
+  const activeWorkspaceColumnIds = React.useMemo(() => {
+    if (!activeImportCard || !board) return [];
+    const boardColumnIds = new Set(board.columns.map((column) => column.id));
+    return uniquePositiveIds(
+      getImportedWorkspaceColumnIds(activeImportCard),
+      inferImportedWorkspaceColumnIds(board, activeImportCard.id),
+    ).filter((columnId) => boardColumnIds.has(columnId));
+  }, [activeImportCard, board]);
+  const visibleColumns = React.useMemo(() => {
+    if (!board) return [];
+    if (activeView !== "imports" || !activeImportCard) return board.columns;
+    if (!activeWorkspaceColumnIds.length) return [];
+    const workspaceIds = new Set(activeWorkspaceColumnIds);
+    return board.columns.filter((column) => workspaceIds.has(column.id));
+  }, [activeImportCard, activeView, activeWorkspaceColumnIds, board]);
+  const cards = React.useMemo(
+    () => visibleColumns.flatMap((column) => column.cards),
+    [visibleColumns],
+  );
+  const selectedCard = React.useMemo(
+    () => findCard(board, selectedCardId),
+    [board, selectedCardId],
+  );
+  const activeImportAgent = React.useMemo(
+    () => authorityAgentByKey(extractAuthorityAgentKey(activeImportCard?.source_kind)),
+    [activeImportCard?.source_kind],
+  );
+  const activeImportTitle = React.useMemo(() => {
+    if (!activeImportCard) return "Roteiro importado";
+    const blueprint = buildImportedWorkspaceBlueprint(activeImportCard.content_text, activeImportCard.title);
+    return blueprint.title || activeImportCard.title;
+  }, [activeImportCard]);
+  const isImportMode = activeView === "imports";
+  const selectedCardType = String(
+    cardDraft?.card_type || selectedCard?.card_type || "",
+  ).toLowerCase();
+  const isChecklistCard = selectedCardType === "checklist";
+  const isFlowCard = selectedCardType === "fluxograma";
+  const boardHasColumns = Boolean(visibleColumns.length);
+  const selectedColumn = React.useMemo(
+    () =>
+      visibleColumns.find(
+        (column) => column.id === Number(cardDraft?.column_id ?? selectedCard?.column_id ?? 0),
+      ) || null,
+    [visibleColumns, cardDraft?.column_id, selectedCard?.column_id],
+  );
+  const recentCards = React.useMemo(
+    () =>
+      [...cards]
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice(0, 6),
+    [cards],
+  );
+
+  const templateOptions = React.useMemo<DropdownOption[]>(
+    () =>
+      CARD_TEMPLATES.map((template) => ({
+        value: template.key,
+        label: template.label,
+        description: template.description,
+      })),
+    [],
+  );
+
+  const cardTypeOptions = React.useMemo<DropdownOption[]>(
+    () =>
+      CARD_TYPE_OPTIONS.map((option) => ({
+        value: option.value,
+        label: option.label,
+      })),
+    [],
+  );
+
+  const columnOptions = React.useMemo<DropdownOption[]>(
+    () =>
+      visibleColumns.map((column) => ({
+        value: String(column.id),
+        label: column.name,
+      })),
+    [visibleColumns],
+  );
+
+  const selectedNode = React.useMemo(
+    () => (flowDraft?.nodes || []).find((node) => node.id === selectedNodeId) || null,
+    [flowDraft, selectedNodeId],
+  );
+
+  const selectedEdge = React.useMemo(
+    () => (flowDraft?.edges || []).find((edge) => edge.id === selectedEdgeId) || null,
+    [flowDraft, selectedEdgeId],
+  );
+
+  const activeFlow = React.useMemo(
+    () =>
+      selectedCard
+        ? flowDraft ||
+          parseFlowchart(selectedCard.structure_json, selectedCard.title, selectedCard.content_text)
+        : null,
+    [flowDraft, selectedCard],
+  );
+
+  const selectedEdgeNodes = React.useMemo(() => {
+    if (!selectedEdge || !activeFlow) return null;
+    const source = activeFlow.nodes.find((node) => node.id === selectedEdge.source) || null;
+    const target = activeFlow.nodes.find((node) => node.id === selectedEdge.target) || null;
+    if (!source || !target) return null;
+    return { source, target };
+  }, [activeFlow, selectedEdge]);
+
+  const pendingConnectionNode = React.useMemo(
+    () => (activeFlow?.nodes || []).find((node) => node.id === pendingConnectionNodeId) || null,
+    [activeFlow, pendingConnectionNodeId],
+  );
+
+  const checklistSummary = React.useMemo(
+    () => getChecklistStats(checklistDraft),
+    [checklistDraft],
+  );
+
+  const hasPendingChanges = React.useMemo(() => {
+    if (!selectedCard || !cardDraft || !baselineDraft) return false;
+    if (!shallowEqualDraft(cardDraft, baselineDraft)) return true;
+    if (isChecklistCard) {
+      return serializeChecklistContent(checklistDraft) !== serializeChecklistContent(baselineChecklist);
+    }
+    if (isFlowCard) {
+      const current = JSON.stringify(
+        flowDraft ||
+          parseFlowchart(
+            selectedCard.structure_json,
+            selectedCard.title,
+            selectedCard.content_text,
+          ),
+      );
+      const persisted = JSON.stringify(
+        parseFlowchart(selectedCard.structure_json, selectedCard.title, selectedCard.content_text),
+      );
+      return current !== persisted;
+    }
+    return false;
+  }, [
+    baselineChecklist,
+    baselineDraft,
+    cardDraft,
+    checklistDraft,
+    flowDraft,
+    isChecklistCard,
+    isFlowCard,
+    selectedCard,
+  ]);
+
+  const syncSelection = React.useCallback(
+    (nextBoard: BobarBoard | null, preferredCardId?: number | null) => {
+      const nextId =
+        preferredCardId && findCard(nextBoard, preferredCardId)
+          ? preferredCardId
+          : firstCardId(nextBoard);
+      setSelectedCardId(nextId);
+    },
+    [],
+  );
+
+  const loadBoard = React.useCallback(
+    async (preferredCardId?: number | null) => {
+      try {
+        setLoading(true);
+        const nextBoard = await bobarService.board();
+        setBoard(nextBoard);
+        syncSelection(nextBoard, preferredCardId);
+      } catch (error) {
+        toastApiError(error, "Não foi possível carregar o Bobar.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [syncSelection],
+  );
+
+  const updateImportWorkspaceColumns = React.useCallback(
+    async (
+      boardSnapshot: BobarBoard,
+      importCardId: number,
+      columnIds: number[],
+      preferredCardId?: number | null,
+    ) => {
+      const importCard = findCard(boardSnapshot, importCardId);
+      if (!importCard) return boardSnapshot;
+
+      const normalizedColumnIds = uniquePositiveIds(columnIds);
+      const currentColumnIds = uniquePositiveIds(getImportedWorkspaceColumnIds(importCard));
+
+      const isSameColumns =
+        normalizedColumnIds.length === currentColumnIds.length &&
+        normalizedColumnIds.every((value, index) => value === currentColumnIds[index]);
+
+      if (isSameColumns) {
+        return boardSnapshot;
+      }
+
+      const nextStructureJson = writeImportedWorkspaceMeta(importCard.structure_json, {
+        version: 1,
+        title: buildImportedWorkspaceBlueprint(importCard.content_text, importCard.title).title,
+        column_ids: normalizedColumnIds,
+        created_at: new Date().toISOString(),
+      });
+
+      const nextBoard = await bobarService.updateCard(importCardId, {
+        structure_json: nextStructureJson,
+      });
+
+      setBoard(nextBoard);
+      syncSelection(nextBoard, preferredCardId ?? selectedCardId);
+      return nextBoard;
+    },
+    [selectedCardId, syncSelection],
+  );
+
+  const ensureImportWorkspace = React.useCallback(
+    async (importCard: BobarCard) => {
+      if (!board) return null;
+
+      const existingWorkspaceIds = uniquePositiveIds(
+        getImportedWorkspaceColumnIds(importCard),
+        inferImportedWorkspaceColumnIds(board, importCard.id),
+      ).filter((columnId) => board.columns.some((column) => column.id === columnId));
+
+      if (existingWorkspaceIds.length) {
+        return board;
+      }
+
+      if (hydrationLocksRef.current.has(importCard.id)) {
+        return board;
+      }
+
+      const blueprint = buildImportedWorkspaceBlueprint(importCard.content_text, importCard.title);
+      const createdColumnIds: number[] = [];
+      let preferredWorkspaceCardId: number | null = null;
+      let workingBoard = board;
+
+      try {
+        hydrationLocksRef.current.add(importCard.id);
+        setBusy(true);
+        setHydratingImportId(importCard.id);
+
+        for (const columnBlueprint of blueprint.columns) {
+          const beforeColumnCreation = workingBoard;
+          workingBoard = await bobarService.createColumn({ name: columnBlueprint.name });
+          const createdColumnId = diffNewColumnId(beforeColumnCreation, workingBoard);
+          if (!createdColumnId) {
+            throw new Error("Não foi possível identificar a nova coluna importada.");
+          }
+
+          createdColumnIds.push(createdColumnId);
+
+          for (const cardBlueprint of columnBlueprint.cards) {
+            const beforeCardCreation = workingBoard;
+            workingBoard = await bobarService.createCard({
+              ...cardBlueprint,
+              column_id: createdColumnId,
+              source_kind: buildAuthorityWorkspaceSourceKind(importCard.id),
+              source_label: importCard.source_label || "Importado",
+            });
+            preferredWorkspaceCardId = preferredWorkspaceCardId || diffNewCardId(beforeCardCreation, workingBoard);
+          }
+        }
+
+        const finalWorkspaceColumnIds = uniquePositiveIds(
+          createdColumnIds,
+          inferImportedWorkspaceColumnIds(workingBoard, importCard.id),
+        );
+
+        workingBoard = await updateImportWorkspaceColumns(
+          workingBoard,
+          importCard.id,
+          finalWorkspaceColumnIds,
+          preferredWorkspaceCardId,
+        );
+
+        const workspaceColumns = workingBoard.columns.filter((column) =>
+          finalWorkspaceColumnIds.includes(column.id),
+        );
+        setSelectedImportCardId(importCard.id);
+        syncSelection(
+          workingBoard,
+          preferredWorkspaceCardId || firstCardIdFromColumns(workspaceColumns),
+        );
+        toastSuccess("Roteiro importado montado no quadro.");
+        return workingBoard;
+      } catch (error) {
+        toastApiError(error, "Não foi possível abrir esse roteiro importado no quadro.");
+        return null;
+      } finally {
+        hydrationLocksRef.current.delete(importCard.id);
+        setBusy(false);
+        setHydratingImportId(null);
+      }
+    },
+    [board, syncSelection, updateImportWorkspaceColumns],
+  );
+
+  React.useEffect(() => {
+    void loadBoard();
+  }, [loadBoard]);
+
+  React.useEffect(() => {
+    if (!importedCards.length) {
+      setSelectedImportCardId(null);
+      if (activeView === "imports") setActiveView("board");
+      return;
+    }
+
+    if (!selectedImportCardId || !importedCards.some((card) => card.id === selectedImportCardId)) {
+      setSelectedImportCardId(importedCards[0].id);
+    }
+  }, [activeView, importedCards, selectedImportCardId]);
+
+  React.useEffect(() => {
+    if (!board || !activeImportCard || loading) return;
+    const inferredColumnIds = inferImportedWorkspaceColumnIds(board, activeImportCard.id);
+    if (!inferredColumnIds.length) return;
+    if (getImportedWorkspaceColumnIds(activeImportCard).length) return;
+    if (importMetaSyncRef.current.has(activeImportCard.id)) return;
+
+    importMetaSyncRef.current.add(activeImportCard.id);
+    void updateImportWorkspaceColumns(board, activeImportCard.id, inferredColumnIds, selectedCardId).finally(() => {
+      importMetaSyncRef.current.delete(activeImportCard.id);
+    });
+  }, [activeImportCard, board, loading, selectedCardId, updateImportWorkspaceColumns]);
+
+  React.useEffect(() => {
+    if (!isImportMode || !activeImportCard || loading) return;
+    if (hydratingImportId === activeImportCard.id) return;
+    if (hydrationLocksRef.current.has(activeImportCard.id)) return;
+    if (activeWorkspaceColumnIds.length) return;
+    void ensureImportWorkspace(activeImportCard);
+  }, [
+    activeImportCard,
+    activeWorkspaceColumnIds.length,
+    ensureImportWorkspace,
+    hydratingImportId,
+    isImportMode,
+    loading,
+  ]);
+
+  React.useEffect(() => {
+    if (!cards.length) {
+      setSelectedCardId(null);
+      return;
+    }
+
+    if (!selectedCardId || !cards.some((card) => card.id === selectedCardId)) {
+      setSelectedCardId(cards[0].id);
+    }
+  }, [cards, selectedCardId]);
+
+  React.useEffect(() => {
+    if (!selectedCard) {
+      setCardDraft(null);
+      setBaselineDraft(null);
+      setChecklistDraft([]);
+      setBaselineChecklist([]);
+      setFlowDraft(null);
+      setTemplateKey("");
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setPendingConnectionNodeId(null);
+      return;
+    }
+
+    const draft: CardEditorDraft = {
+      title: selectedCard.title || "",
+      card_type: selectedCard.card_type || "manual",
+      column_id: selectedCard.column_id,
+      content_text: selectedCard.content_text || "",
+      note: selectedCard.note || "",
+    };
+
+    const nextChecklist = parseChecklistContent(selectedCard.content_text || "");
+
+    setCardDraft(draft);
+    setBaselineDraft(draft);
+    setChecklistDraft(nextChecklist);
+    setBaselineChecklist(nextChecklist);
+    const nextFlow = parseFlowchart(
+      selectedCard.structure_json,
+      selectedCard.title,
+      selectedCard.content_text,
+    );
+    setFlowDraft(nextFlow);
+    setTemplateKey(readTemplateKeyFromStructure(selectedCard.structure_json));
+    setSelectedNodeId(nextFlow.nodes[0]?.id || null);
+    setSelectedEdgeId(null);
+    setPendingConnectionNodeId(null);
+  }, [selectedCard]);
+
+  const runBoardMutation = React.useCallback(
+    async (
+      task: () => Promise<BobarBoard>,
+      successMessage?: string,
+      preferredCardId?: number | null,
+    ) => {
+      try {
+        setBusy(true);
+        const nextBoard = await task();
+        setBoard(nextBoard);
+        syncSelection(nextBoard, preferredCardId ?? selectedCardId);
+        if (successMessage) toastSuccess(successMessage);
+        return nextBoard;
+      } catch (error) {
+        toastApiError(error);
+        return null;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [selectedCardId, syncSelection],
+  );
+
+  const openCreateColumnDialog = React.useCallback(() => {
+    setColumnNameDraft("");
+    setColumnDialog({ mode: "create", column: null });
+  }, []);
+
+  const handleRenameColumn = React.useCallback((column: BobarColumn) => {
+    setColumnNameDraft(column.name);
+    setColumnDialog({ mode: "rename", column });
+  }, []);
+
+  const handleSubmitColumnDialog = React.useCallback(
+    async (event?: React.FormEvent) => {
+      event?.preventDefault();
+      const name = columnNameDraft.trim();
+      if (!name || !columnDialog) return;
+
+      if (columnDialog.mode === "create") {
+        if (isImportMode && activeImportCard && board) {
+          try {
+            setBusy(true);
+            const createdBoard = await bobarService.createColumn({ name });
+            const createdColumnId = diffNewColumnId(board, createdBoard);
+            if (!createdColumnId) {
+              throw new Error("Não foi possível identificar a nova coluna criada.");
+            }
+
+            const nextColumnIds = [...activeWorkspaceColumnIds, createdColumnId];
+            const syncedBoard = await updateImportWorkspaceColumns(
+              createdBoard,
+              activeImportCard.id,
+              nextColumnIds,
+              selectedCardId,
+            );
+
+            setColumnDialog(null);
+            setColumnNameDraft("");
+            setBoard(syncedBoard);
+            toastSuccess("Coluna criada dentro do roteiro importado.");
+          } catch (error) {
+            toastApiError(error, "Não foi possível criar a nova coluna.");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+
+        const nextBoard = await runBoardMutation(
+          () => bobarService.createColumn({ name }),
+          "Coluna criada.",
+        );
+        if (nextBoard) {
+          setColumnDialog(null);
+          setColumnNameDraft("");
+        }
+        return;
+      }
+
+      if (name === columnDialog.column.name) {
+        setColumnDialog(null);
+        return;
+      }
+
+      const nextBoard = await runBoardMutation(
+        () => bobarService.renameColumn(columnDialog.column.id, { name }),
+        "Coluna atualizada.",
+      );
+
+      if (nextBoard) {
+        setColumnDialog(null);
+        setColumnNameDraft("");
+      }
+    },
+    [
+      activeImportCard,
+      activeWorkspaceColumnIds,
+      board,
+      columnDialog,
+      columnNameDraft,
+      isImportMode,
+      runBoardMutation,
+      selectedCardId,
+      updateImportWorkspaceColumns,
+    ],
+  );
+
+  const handleDeleteColumn = React.useCallback((column: BobarColumn) => {
+    setDeleteDialog({ type: "column", column });
+  }, []);
+
+  const handleCreateCard = React.useCallback(
+    async (columnId?: number) => {
+      const fallbackColumnId = columnId || visibleColumns[0]?.id;
+      if (!fallbackColumnId) {
+        toastInfo("Crie uma coluna antes de adicionar cards.");
+        return;
+      }
+
+      await runBoardMutation(
+        () =>
+          bobarService.createCard({
+            column_id: fallbackColumnId,
+            title: "Novo card",
+            note: "",
+            content_text: "",
+            card_type: "manual",
+          }),
+        "Card criado.",
+      );
+    },
+    [runBoardMutation, visibleColumns],
+  );
+
+  const handleCleanupImportDuplicates = React.useCallback(async () => {
+    if (!activeImportCard) {
+      toastInfo("Selecione um roteiro importado para limpar os duplicados.");
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const nextBoard = await bobarService.cleanupImportDuplicates(activeImportCard.id);
+      setBoard(nextBoard);
+      setSelectedImportCardId(activeImportCard.id);
+
+      const nextImportCard = findCard(nextBoard, activeImportCard.id);
+      const nextWorkspaceIds = nextImportCard
+        ? uniquePositiveIds(
+            getImportedWorkspaceColumnIds(nextImportCard),
+            inferImportedWorkspaceColumnIds(nextBoard, activeImportCard.id),
+          ).filter((columnId) => nextBoard.columns.some((column) => column.id === columnId))
+        : [];
+
+      const nextWorkspaceColumns = nextBoard.columns.filter((column) =>
+        nextWorkspaceIds.includes(column.id),
+      );
+
+      syncSelection(
+        nextBoard,
+        firstCardIdFromColumns(nextWorkspaceColumns) || selectedCardId,
+      );
+
+      toastSuccess("Limpeza segura concluída. Os duplicados antigos foram removidos.");
+    } catch (error) {
+      toastApiError(error, "Não foi possível limpar os duplicados antigos.");
+    } finally {
+      setBusy(false);
+    }
+  }, [activeImportCard, selectedCardId, syncSelection]);
+
+
+  const handleSetImportProgressStatus = React.useCallback(
+    async (card: BobarCard, status: ImportProgressStatus) => {
+      if (readImportProgressStatus(card.structure_json) === status) return;
+
+      try {
+        setBusy(true);
+        const nextBoard = await bobarService.updateCard(card.id, {
+          structure_json: writeImportProgressStatus(card.structure_json, status),
+        });
+        setBoard(nextBoard);
+        setSelectedImportCardId(card.id);
+        syncSelection(nextBoard, selectedCardId);
+        toastSuccess(`Status atualizado para ${formatImportProgressLabel(status)}.`);
+      } catch (error) {
+        toastApiError(error, "Não foi possível atualizar o status da base importada.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [selectedCardId, syncSelection],
+  );
+
+  const handleStartDragCard = React.useCallback(
+    (card: BobarCard, event: React.DragEvent<HTMLButtonElement>) => {
+      setDragState({ cardId: card.id, fromColumnId: card.column_id });
+      setDragOverColumnId(card.column_id);
+      event.dataTransfer.effectAllowed = "move";
+    },
+    [],
+  );
+
+  const handleEndDragCard = React.useCallback(() => {
+    setDragState(null);
+    setDragOverColumnId(null);
+  }, []);
+
+  const handleDropColumn = React.useCallback(
+    async (columnId: number) => {
+      const drag = dragState;
+      setDragState(null);
+      setDragOverColumnId(null);
+      if (!drag) return;
+
+      const targetColumn = visibleColumns.find((column) => column.id === columnId);
+      if (
+        !targetColumn ||
+        (drag.fromColumnId === columnId &&
+          targetColumn.cards.some((card) => card.id === drag.cardId))
+      )
+        return;
+
+      await runBoardMutation(
+        () =>
+          bobarService.moveCard(drag.cardId, {
+            column_id: columnId,
+            position: targetColumn.cards.length,
+          }),
+        "Card movido.",
+        drag.cardId,
+      );
+    },
+    [dragState, runBoardMutation, visibleColumns],
+  );
+
+  const handleSaveCard = React.useCallback(async () => {
+    if (!selectedCard || !cardDraft) return;
+
+    const normalizedFlow = isFlowCard
+      ? flowDraft && flowDraft.nodes.length
+        ? flowDraft
+        : parseFlowchart(selectedCard.structure_json, cardDraft.title, cardDraft.content_text)
+      : null;
+
+    const checklistContent = isChecklistCard
+      ? serializeChecklistContent(checklistDraft)
+      : cardDraft.content_text;
+
+    const payload = {
+      title: cardDraft.title.trim() || "Card sem título",
+      card_type: String(cardDraft.card_type || "manual"),
+      column_id: Number(cardDraft.column_id),
+      note: cardDraft.note,
+      content_text: normalizedFlow ? flowToContentText(normalizedFlow) : checklistContent,
+      structure_json: normalizedFlow
+        ? JSON.stringify({
+            ...normalizedFlow,
+            meta: { ...(normalizedFlow.meta || {}), templateKey: templateKey || null, grid: 32 },
+          })
+        : "",
+    };
+
+    await runBoardMutation(
+      () => bobarService.updateCard(selectedCard.id, payload),
+      "Card salvo.",
+      selectedCard.id,
+    );
+  }, [
+    cardDraft,
+    checklistDraft,
+    flowDraft,
+    isChecklistCard,
+    isFlowCard,
+    runBoardMutation,
+    selectedCard,
+    templateKey,
+  ]);
+
+  const openDeleteSelectedCardDialog = React.useCallback(() => {
+    if (!selectedCard) return;
+    setDeleteDialog({ type: "card", card: selectedCard });
+  }, [selectedCard]);
+
+  const handleConfirmDelete = React.useCallback(async () => {
+    if (!deleteDialog) return;
+
+    if (deleteDialog.type === "column") {
+      if (isImportMode && activeImportCard && board) {
+        const targetColumnId = deleteDialog.column.id;
+        const remainingWorkspaceColumns = visibleColumns.filter((column) => column.id !== targetColumnId);
+
+        if (!remainingWorkspaceColumns.length) {
+          toastInfo("Mantenha pelo menos uma coluna no roteiro importado.");
+          return;
+        }
+
+        try {
+          setBusy(true);
+          let workingBoard = board;
+          const destinationColumnId = remainingWorkspaceColumns[0].id;
+          const sourceColumn = workingBoard.columns.find((column) => column.id === targetColumnId) || null;
+
+          for (const card of sourceColumn?.cards || []) {
+            workingBoard = await bobarService.moveCard(card.id, {
+              column_id: destinationColumnId,
+              position:
+                (workingBoard.columns.find((column) => column.id === destinationColumnId)?.cards.length || 0),
+            });
+          }
+
+          workingBoard = await bobarService.deleteColumn(targetColumnId);
+          const nextWorkspaceColumnIds = activeWorkspaceColumnIds.filter((columnId) => columnId !== targetColumnId);
+          workingBoard = await updateImportWorkspaceColumns(
+            workingBoard,
+            activeImportCard.id,
+            nextWorkspaceColumnIds,
+            selectedCardId,
+          );
+
+          setDeleteDialog(null);
+          setBoard(workingBoard);
+          toastSuccess("Coluna removida do roteiro importado.");
+        } catch (error) {
+          toastApiError(error, "Não foi possível remover a coluna importada.");
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+
+      const nextBoard = await runBoardMutation(
+        () => bobarService.deleteColumn(deleteDialog.column.id),
+        "Coluna removida.",
+      );
+      if (nextBoard) setDeleteDialog(null);
+      return;
+    }
+
+    const deletingId = deleteDialog.card.id;
+    const nextBoard = await runBoardMutation(
+      () => bobarService.deleteCard(deletingId),
+      "Card removido.",
+    );
+    if (nextBoard) setDeleteDialog(null);
+  }, [
+    activeImportCard,
+    activeWorkspaceColumnIds,
+    board,
+    deleteDialog,
+    isImportMode,
+    runBoardMutation,
+    selectedCardId,
+    updateImportWorkspaceColumns,
+    visibleColumns,
+  ]);
+
+  const applyTemplateByKey = React.useCallback((nextTemplateKey: string) => {
+    if (!nextTemplateKey) {
+      setTemplateKey("");
+      return;
+    }
+
+    const template = CARD_TEMPLATES.find((item) => item.key === nextTemplateKey);
+    if (!template) return;
+
+    const nextChecklist =
+      template.cardType === "checklist"
+        ? parseChecklistContent(template.contentText)
+        : normalizeChecklistItems([createChecklistItem()]);
+
+    setTemplateKey(nextTemplateKey);
+    setCardDraft((current) =>
+      current
+        ? {
+            ...current,
+            title: template.title,
+            note: template.note,
+            card_type: template.cardType,
+            content_text:
+              template.cardType === "checklist"
+                ? serializeChecklistContent(nextChecklist)
+                : template.contentText,
+          }
+        : current,
+    );
+    setChecklistDraft(nextChecklist);
+
+    if (template.structure) {
+      const cloned = cloneFlow(template.structure);
+      setFlowDraft({
+        ...cloned,
+        meta: { ...(cloned.meta || {}), templateKey: template.key, grid: 32 },
+      });
+      setSelectedNodeId(cloned.nodes[0]?.id || null);
+      setSelectedEdgeId(null);
+      setPendingConnectionNodeId(null);
+    } else {
+      setFlowDraft(null);
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setPendingConnectionNodeId(null);
+    }
+
+    toastSuccess("Template aplicado automaticamente.");
+  }, []);
+
+  const handleCardTypeChange = React.useCallback(
+    (value: string) => {
+      setCardDraft((current) => {
+        if (!current) return current;
+
+        if (value === "checklist") {
+          const nextChecklist = parseChecklistContent(current.content_text || selectedCard?.content_text);
+          setChecklistDraft(nextChecklist);
+          return {
+            ...current,
+            card_type: value,
+            content_text: serializeChecklistContent(nextChecklist),
+          };
+        }
+
+        if (value === "fluxograma") {
+          setFlowDraft((currentFlow) => {
+            if (currentFlow?.nodes.length) {
+              setSelectedNodeId(currentFlow.nodes[0]?.id || null);
+              setSelectedEdgeId(null);
+              setPendingConnectionNodeId(null);
+              return currentFlow;
+            }
+
+            const nextFlow = parseFlowchart(
+              "",
+              current.title || selectedCard?.title || "",
+              current.content_text || selectedCard?.content_text || "",
+            );
+            setSelectedNodeId(nextFlow.nodes[0]?.id || null);
+            setSelectedEdgeId(null);
+            setPendingConnectionNodeId(null);
+            return nextFlow;
+          });
+        }
+
+        return {
+          ...current,
+          card_type: value,
+        };
+      });
+    },
+    [selectedCard],
+  );
+
+  const updateChecklistDraft = React.useCallback(
+    (updater: ChecklistItem[] | ((current: ChecklistItem[]) => ChecklistItem[])) => {
+      setChecklistDraft((current) => {
+        const nextRaw =
+          typeof updater === "function"
+            ? (updater as (current: ChecklistItem[]) => ChecklistItem[])(current)
+            : updater;
+        const nextItems = normalizeChecklistItems(nextRaw);
+        setCardDraft((draft) =>
+          draft
+            ? {
+                ...draft,
+                content_text: serializeChecklistContent(nextItems),
+              }
+            : draft,
+        );
+        return nextItems;
+      });
+    },
+    [],
+  );
+
+  const handleChecklistItemToggle = React.useCallback(
+    (itemId: string) => {
+      updateChecklistDraft((current) =>
+        current.map((item) =>
+          item.id === itemId ? { ...item, checked: !item.checked } : item,
+        ),
+      );
+    },
+    [updateChecklistDraft],
+  );
+
+  const handleChecklistItemTextChange = React.useCallback(
+    (itemId: string, value: string) => {
+      updateChecklistDraft((current) =>
+        current.map((item) => (item.id === itemId ? { ...item, text: value } : item)),
+      );
+    },
+    [updateChecklistDraft],
+  );
+
+  const handleAddChecklistItem = React.useCallback(() => {
+    updateChecklistDraft((current) => [...current, createChecklistItem()]);
+  }, [updateChecklistDraft]);
+
+  const handleRemoveChecklistItem = React.useCallback(
+    (itemId: string) => {
+      updateChecklistDraft((current) => current.filter((item) => item.id !== itemId));
+    },
+    [updateChecklistDraft],
+  );
+
+  const handleClearCompletedChecklistItems = React.useCallback(() => {
+    updateChecklistDraft((current) => current.filter((item) => !item.checked));
+  }, [updateChecklistDraft]);
+
+  const setNodePatch = React.useCallback((nodeId: string, patch: Partial<BobarFlowNode>) => {
+    setFlowDraft((current) => {
+      const source = current || { nodes: [], edges: [], meta: { grid: 32 } };
+      return {
+        ...source,
+        nodes: source.nodes.map((node, index) =>
+          node.id === nodeId ? normalizeFlowNode({ ...node, ...patch }, index) : node,
+        ),
+      };
+    });
+  }, []);
+
+  const handleSelectNode = React.useCallback((nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+  }, []);
+
+
+  const handleConnectionHandleClick = React.useCallback(
+    (nodeId: string, role: "source" | "target") => {
+      const base =
+        flowDraft ||
+        parseFlowchart(
+          selectedCard?.structure_json,
+          cardDraft?.title || selectedCard?.title || "Novo fluxo",
+          cardDraft?.content_text || selectedCard?.content_text || "",
+        );
+
+      setSelectedNodeId(nodeId);
+      setSelectedEdgeId(null);
+
+      if (role === "source") {
+        setPendingConnectionNodeId((current) => (current === nodeId ? null : nodeId));
+        if (!flowDraft) setFlowDraft(base);
+        return;
+      }
+
+      if (!pendingConnectionNodeId || pendingConnectionNodeId === nodeId) {
+        setPendingConnectionNodeId(null);
+        if (!flowDraft) setFlowDraft(base);
+        return;
+      }
+
+      const duplicated = base.edges.some(
+        (edge) => edge.source === pendingConnectionNodeId && edge.target === nodeId,
+      );
+      if (duplicated) {
+        setPendingConnectionNodeId(null);
+        return;
+      }
+
+      const createdEdge = {
+        id: newEdgeId(),
+        source: pendingConnectionNodeId,
+        target: nodeId,
+        label: "",
+      };
+
+      setFlowDraft({
+        ...base,
+        edges: dedupeEdges([...base.edges, createdEdge]),
+      });
+      setSelectedEdgeId(createdEdge.id);
+      setPendingConnectionNodeId(null);
+    },
+    [cardDraft?.content_text, cardDraft?.title, flowDraft, pendingConnectionNodeId, selectedCard],
+  );
+
+  const handleAddNode = React.useCallback(() => {
+    setFlowDraft((current) => {
+      const base =
+        current ||
+        parseFlowchart("", cardDraft?.title || "Novo fluxo", cardDraft?.content_text || "");
+      const anchor =
+        base.nodes.find((node) => node.id === selectedNodeId) ||
+        base.nodes[base.nodes.length - 1] ||
+        null;
+      const node = normalizeFlowNode(
+        {
+          id: newNodeId(),
+          title: `Bloco ${base.nodes.length + 1}`,
+          content: "",
+          kind: "step",
+          x: anchor ? anchor.x + 300 : 80,
+          y: anchor ? anchor.y : 80,
+        },
+        base.nodes.length,
+      );
+      return {
+        ...base,
+        nodes: [...base.nodes, node],
+      };
+    });
+    setPendingConnectionNodeId(null);
+  }, [cardDraft?.content_text, cardDraft?.title, selectedNodeId]);
+
+  const handleDeleteSelectedNode = React.useCallback(() => {
+    if (!selectedNodeId) return;
+    setFlowDraft((current) => {
+      if (!current) return current;
+      const nextNodes = current.nodes.filter((node) => node.id !== selectedNodeId);
+      const nextEdges = current.edges.filter(
+        (edge) => edge.source !== selectedNodeId && edge.target !== selectedNodeId,
+      );
+      const nextFlow = {
+        ...current,
+        nodes: nextNodes,
+        edges: nextEdges,
+      };
+      setSelectedNodeId(nextNodes[0]?.id || null);
+      setSelectedEdgeId(null);
+      return nextFlow;
+    });
+    if (pendingConnectionNodeId === selectedNodeId) {
+      setPendingConnectionNodeId(null);
+    }
+  }, [pendingConnectionNodeId, selectedNodeId]);
+
+  const handleDeleteSelectedEdge = React.useCallback(() => {
+    if (!selectedEdgeId) return;
+    setFlowDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        edges: current.edges.filter((edge) => edge.id !== selectedEdgeId),
+      };
+    });
+    setSelectedEdgeId(null);
+    setPendingConnectionNodeId(null);
+  }, [selectedEdgeId]);
+
+  const handleAutoArrange = React.useCallback(() => {
+    setFlowDraft((current) => (current ? autoArrangeFlow(current) : current));
+    setPendingConnectionNodeId(null);
+    toastSuccess("Fluxograma reorganizado em ordem de fluxo.");
+  }, []);
+
+  const handleExportText = React.useCallback(() => {
+    if (!selectedCard) return;
+    const element = document.createElement("a");
+    const blob = new Blob([selectedCard.content_text || ""], { type: "text/plain;charset=utf-8" });
+    element.href = URL.createObjectURL(blob);
+    element.download = `${selectedCard.title || "card"}.txt`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+    URL.revokeObjectURL(element.href);
+  }, [selectedCard]);
+
+
+  const openFlowEditor = React.useCallback(() => {
+    if (!isFlowCard) return;
+    setIsFlowEditorOpen(true);
+  }, [isFlowCard]);
+
+  const closeFlowEditor = React.useCallback(() => {
+    setIsFlowEditorOpen(false);
+    setPendingConnectionNodeId(null);
+  }, []);
+
+  React.useEffect(() => {
+    setIsFlowEditorOpen(false);
+    setPendingConnectionNodeId(null);
+  }, [selectedCardId]);
+
+  React.useEffect(() => {
+    if (isFlowCard) return;
+    setIsFlowEditorOpen(false);
+  }, [isFlowCard]);
+
+  React.useEffect(() => {
+    if (!isFlowEditorOpen) return;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [isFlowEditorOpen]);
+
+  React.useEffect(() => {
+    if (!isFlowEditorOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsFlowEditorOpen(false);
+        setPendingConnectionNodeId(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFlowEditorOpen]);
+
+  const flowEditorOverlay =
+    isFlowEditorOpen && isFlowCard && activeFlow && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[2147483647] h-screen w-screen overflow-hidden bg-[#020611] text-white"
+            style={{ position: "fixed", inset: 0 }}
+          >
+            <div className="flex h-screen w-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.08),transparent_28%),#020611]">
+              <div className="shrink-0 border-b border-white/10 bg-[#040914]/95 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
+                <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                    <Button
+                      variant="outline"
+                      className="h-11 w-full rounded-2xl sm:w-auto"
+                      onClick={closeFlowEditor}
+                    >
+                      Voltar
+                    </Button>
+
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                        Fluxograma · tela cheia
+                      </div>
+                      <div className="truncate text-xl font-black text-white sm:text-2xl">
+                        {cardDraft?.title?.trim() || selectedCard?.title || "Fluxograma"}
+                      </div>
+                      <div className="text-sm text-white/55">
+                        Edite blocos e conexões no canvas.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      className="h-11 rounded-2xl"
+                      variant="outline"
+                      onClick={handleAddNode}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Novo bloco
+                    </Button>
+                    <Button
+                      className="h-11 rounded-2xl"
+                      variant="outline"
+                      onClick={handleAutoArrange}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Auto-organizar
+                    </Button>
+                    <Button
+                      className="h-11 rounded-2xl"
+                      variant="outline"
+                      onClick={handleDeleteSelectedNode}
+                      disabled={!selectedNodeId}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remover bloco
+                    </Button>
+                    <Button
+                      className="h-11 rounded-2xl"
+                      variant="outline"
+                      onClick={handleDeleteSelectedEdge}
+                      disabled={!selectedEdgeId}
+                    >
+                      <Unlink className="h-4 w-4" />
+                      Remover conexão
+                    </Button>
+                    <Button
+                      className="h-11 rounded-2xl px-6"
+                      onClick={() => void handleSaveCard()}
+                      disabled={busy || !hasPendingChanges}
+                    >
+                      {busy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      Salvar card
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
+                <div className="flex h-full min-h-0 flex-col gap-4 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_420px]">
+                  <div className="min-h-0 min-w-0 overflow-hidden">
+                    <FlowchartCanvas
+                      flow={activeFlow}
+                      selectedNodeId={selectedNodeId}
+                      selectedEdgeId={selectedEdgeId}
+                      pendingConnectionNodeId={pendingConnectionNodeId}
+                      onSelectNode={handleSelectNode}
+                      onSelectEdge={(edgeId) => {
+                        setSelectedEdgeId(edgeId);
+                        setSelectedNodeId(null);
+                        setPendingConnectionNodeId(null);
+                      }}
+                      onMoveNode={setNodePatch}
+                      onHandleClick={handleConnectionHandleClick}
+                      viewportClassName="h-full min-h-[55vh] 2xl:min-h-0"
+                    />
+                  </div>
+
+                  <FlowEditorInspector
+                    selectedNode={selectedNode}
+                    selectedEdge={selectedEdge}
+                    selectedEdgeNodes={selectedEdgeNodes}
+                    pendingConnectionNode={pendingConnectionNode}
+                    onPatchNode={setNodePatch}
+                    onDeleteSelectedEdge={handleDeleteSelectedEdge}
+                    className="flex h-full min-h-0 flex-col overflow-hidden"
+                    contentClassName="min-h-0 flex-1 overflow-y-auto pb-6"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  const selectedTemplate = CARD_TEMPLATES.find((template) => template.key === templateKey) || null;
+  const ActiveImportIcon = activeImportAgent?.Icon || AUTHORITY_AGENTS[0]?.Icon;
+
+  return (
+    <div className="min-h-screen bg-[#020611] px-4 py-6 text-white sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-[1820px] flex-col gap-6">
+        <Card
+          variant="glass"
+          className="overflow-hidden rounded-[2.4rem] border-cyan-400/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_28%),#040914]"
+        >
+          <CardHeader className="gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_560px] xl:items-start">
+            <div className="max-w-5xl">
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-100">
+                <Sparkles className="h-4 w-4" />
+                Bobar · quadro premium
+              </div>
+              <CardTitle className="max-w-4xl text-4xl font-black tracking-tight text-white sm:text-5xl">
+                {isImportMode
+                  ? "Abra uma base importada e toque a execução no mesmo quadro do Bobar."
+                  : "Organize cards, roteiros e fluxogramas com clareza desde o primeiro acesso."}
+              </CardTitle>
+              <CardDescription className="mt-4 max-w-3xl text-base leading-8 text-white/65">
+                {isImportMode
+                  ? "Selecione a base importada, marque o estágio e abra o quadro sem cards estáticos nem telas paralelas."
+                  : "O foco aqui é reduzir ruído: quadro visual previsível, edição contextual e fluxograma que ensina o uso enquanto a pessoa trabalha."}
+              </CardDescription>
+
+              <div className="mt-6 grid gap-3 lg:grid-cols-3">
+                <GuideStep
+                  step="01"
+                  title={isImportMode ? "Escolha a base" : "Monte a estrutura"}
+                  description={
+                    isImportMode
+                      ? "Selecione um roteiro importado. A base vira colunas editáveis no quadro, em vez de ficar presa num card único."
+                      : "Crie colunas que representem etapa, status ou área de trabalho. Isso já deixa o quadro legível para quem acabou de entrar."
+                  }
+                />
+                <GuideStep
+                  step="02"
+                  title={isImportMode ? "Edite no quadro" : "Abasteça com cards"}
+                  description={
+                    isImportMode
+                      ? "O conteúdo importado usa os mesmos cards do Bobar: checklist, conteúdo e fluxograma."
+                      : "Use cards para roteiros, checklists, ideias e materiais operacionais. Tudo fica com o mesmo padrão visual e de edição."
+                  }
+                />
+                <GuideStep
+                  step="03"
+                  title={isImportMode ? "Expanda sem travar" : "Desenhe o fluxo"}
+                  description={
+                    isImportMode
+                      ? "Crie novas colunas, reorganize a execução e refine o fluxograma segundo a segundo sem sair dessa tela."
+                      : "Quando precisar de processo, transforme o card em fluxograma e conecte os blocos por clique, sem menus escondidos."
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <StatChip
+                  icon={<FilePlus2 className="h-5 w-5" />}
+                  label="Cards"
+                  value={board?.total_cards || 0}
+                />
+                <StatChip
+                  icon={<Sparkles className="h-5 w-5" />}
+                  label="Importados"
+                  value={countImportedCards(board)}
+                />
+                <StatChip
+                  icon={<GitBranch className="h-5 w-5" />}
+                  label="Fluxogramas"
+                  value={countFlowchartCards(board)}
+                />
+                <StatChip
+                  icon={<LayoutTemplate className="h-5 w-5" />}
+                  label="Com template"
+                  value={countTemplateCards(board)}
+                />
+              </div>
+
+              <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.035] p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-white">Modo de trabalho</div>
+                    <div className="mt-1 text-sm leading-6 text-white/55">
+                      Alterne entre o quadro geral e os roteiros importados sem perder contexto.
+                    </div>
+                  </div>
+                  {selectedCard ? (
+                    <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                      Editando agora
+                    </Badge>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Button
+                    className="h-12 rounded-2xl px-6"
+                    variant={activeView === "board" ? "default" : "outline"}
+                    onClick={() => setActiveView("board")}
+                  >
+                    <FolderKanban className="h-4 w-4" />
+                    Quadro
+                  </Button>
+                  <Button
+                    className="h-12 rounded-2xl px-6"
+                    variant={activeView === "imports" ? "default" : "outline"}
+                    onClick={() => setActiveView("imports")}
+                  >
+                    <Inbox className="h-4 w-4" />
+                    Importados
+                  </Button>
+                  <Button
+                    className="h-12 rounded-2xl px-6"
+                    onClick={openCreateColumnDialog}
+                    disabled={busy || (isImportMode && !activeImportCard)}
+                  >
+                    <Columns3 className="h-4 w-4" />
+                    Criar coluna
+                  </Button>
+                  <Button
+                    className="h-12 rounded-2xl px-6"
+                    variant="outline"
+                    onClick={() => void handleCreateCard()}
+                    disabled={busy || !boardHasColumns}
+                  >
+                    <FilePlus2 className="h-4 w-4" />
+                    Novo card
+                  </Button>
+                  {isImportMode ? (
+                    <Button
+                      className="h-12 rounded-2xl px-6"
+                      variant="outline"
+                      onClick={() => void handleCleanupImportDuplicates()}
+                      disabled={busy || !activeImportCard}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Limpar duplicados
+                    </Button>
+                  ) : null}
+                  <div className="flex min-h-12 min-w-[280px] flex-1 items-center rounded-[1.4rem] border border-white/10 bg-white/[0.03] px-4 text-sm text-white/60">
+                    {isImportMode && activeImportCard ? (
+                      <span className="truncate">
+                        Importado ativo:{" "}
+                        <span className="font-semibold text-white">{activeImportTitle}</span>
+                      </span>
+                    ) : selectedCard ? (
+                      <span className="truncate">
+                        Card selecionado:{" "}
+                        <span className="font-semibold text-white">{selectedCard.title}</span>
+                      </span>
+                    ) : boardHasColumns ? (
+                      "Selecione um card no quadro para abrir o editor."
+                    ) : (
+                      "Crie a primeira coluna para começar a montar o quadro."
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+
+        {activeView === "imports" ? (
+          <div className="grid gap-6">
+            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+              <CardHeader>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                  Importados
+                </div>
+                <CardTitle className="text-3xl font-black text-white">
+                  Escolha a base do quadro
+                </CardTitle>
+                <CardDescription className="max-w-3xl text-white/55">
+                  Escolha a base que vai abrir no quadro e acompanhe o estágio de execução de cada importação.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {importedCards.length ? (
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {importedCards.map((card) => {
+                      const agent = authorityAgentByKey(extractAuthorityAgentKey(card.source_kind));
+                      const AgentIcon = agent?.Icon || AUTHORITY_AGENTS[0]?.Icon;
+                      const title = buildImportedWorkspaceBlueprint(card.content_text, card.title).title;
+                      const ready = getImportedWorkspaceColumnIds(card).length > 0;
+                      const status = readImportProgressStatus(card.structure_json);
+
+                      return (
+                        <div
+                          key={card.id}
+                          className={cn(
+                            "rounded-[1.8rem] border p-4 transition",
+                            activeImportCard?.id === card.id
+                              ? "border-cyan-400/35 bg-cyan-400/10 ring-2 ring-cyan-400/20"
+                              : "border-white/10 bg-white/[0.03]",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setSelectedImportCardId(card.id)}
+                            className="w-full text-left"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[1.25rem] bg-cyan-400/10 text-cyan-100">
+                                {AgentIcon ? <AgentIcon className="h-11 w-11" /> : <Sparkles className="h-5 w-5" />}
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                  <Badge className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]", importProgressBadgeClasses(status))}>
+                                    {formatImportProgressLabel(status)}
+                                  </Badge>
+                                  <Badge className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
+                                    {hydratingImportId === card.id ? "Montando" : ready ? "Pronto" : "Importado"}
+                                  </Badge>
+                                </div>
+                                <div className="truncate text-sm font-semibold text-cyan-100">
+                                  {card.source_label || agent?.name || "Agente"}
+                                </div>
+                                <div className="mt-1 break-words text-2xl font-black leading-tight text-white">
+                                  {title}
+                                </div>
+                                <div className="mt-2 text-sm text-white/45">{formatDate(card.updated_at)}</div>
+                              </div>
+                            </div>
+                          </button>
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {IMPORT_PROGRESS_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleSetImportProgressStatus(card, option.value);
+                                }}
+                                disabled={busy}
+                                className={cn(
+                                  "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition disabled:cursor-not-allowed disabled:opacity-60",
+                                  importProgressButtonClasses(status === option.value, option.value),
+                                )}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="Nenhum roteiro importado ainda"
+                    description="Quando a pessoa clicar em Mandar pro Bobar, a base importada aparece aqui pronta para virar um quadro editável."
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card variant="glass" className="hidden rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+              <CardHeader className="gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[1.6rem] bg-cyan-400/10 text-cyan-100">
+                    {ActiveImportIcon ? <ActiveImportIcon className="h-12 w-12" /> : <Sparkles className="h-6 w-6" />}
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                      Importado no quadro
+                    </div>
+                    <CardTitle className="mt-2 max-w-4xl break-words text-3xl font-black text-white sm:text-4xl">
+                      {activeImportTitle}
+                    </CardTitle>
+                    <CardDescription className="mt-2 text-base leading-7 text-white/60">
+                      {activeImportCard
+                        ? `${activeImportCard.source_label || activeImportAgent?.name || "Agente"} · atualizado em ${formatDate(activeImportCard.updated_at)}`
+                        : "Selecione um roteiro importado para abrir a base no quadro visual."}
+                    </CardDescription>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                    3 colunas-base
+                  </Badge>
+                  <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                    Fluxograma editável
+                  </Badge>
+                  <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                    Mesmo quadro do Bobar
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="rounded-[1.9rem] border border-white/10 bg-white/[0.035] p-5">
+                  <div className="text-base font-semibold text-white">
+                    A base importada agora abre como quadro real, não como card estático.
+                  </div>
+                  <div className="mt-3 text-sm leading-7 text-white/60">
+                    Cada seção vira card editável nas colunas certas. O roteiro segundo a segundo já entra como fluxograma do Bobar, então a pessoa pode ajustar blocos, conexões e ordem sem refazer tudo.
+                  </div>
+                </div>
+
+                <div className="rounded-[1.9rem] border border-cyan-400/15 bg-cyan-400/[0.07] p-5 text-sm leading-7 text-cyan-50/90">
+                  {hydratingImportId && activeImportCard?.id === hydratingImportId
+                    ? "Montando as colunas e os cards importados agora. Assim que terminar, o quadro fica pronto para edição."
+                    : activeImportCard
+                      ? activeWorkspaceColumnIds.length
+                        ? "Quadro importado pronto. Você já pode editar cards, criar novas colunas e ajustar o fluxograma."
+                        : "Clique no roteiro para o Bobar materializar a base em colunas reais."
+                      : "Selecione um roteiro importado para começar."}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+
+        <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+          <CardHeader className="gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                {isImportMode ? "Quadro importado" : "Quadro visual"}
+              </div>
+              <CardTitle className="mt-2 text-3xl font-black text-white">
+                {isImportMode ? activeImportTitle : "Cards organizados por coluna"}
+              </CardTitle>
+              <CardDescription className="mt-2 max-w-4xl text-white/55">
+                {isImportMode
+                  ? "Agora essa base roda no mesmo quadro visual do Bobar. Arraste cards, crie novas colunas, edite checklists e abra o roteiro segundo a segundo no fluxograma."
+                  : "O quadro precisa ser escaneável em segundos. Clique para editar, arraste para mover e use os botões da própria coluna para ajustes estruturais."}
+              </CardDescription>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                {visibleColumns.length || 0} colunas
+              </Badge>
+              <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                {cards.length} cards
+              </Badge>
+              {selectedCard ? (
+                <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                  {typeLabel(cardDraft?.card_type)}
+                </Badge>
+              ) : null}
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            {loading || (isImportMode && hydratingImportId === activeImportCard?.id && !visibleColumns.length) ? (
+              <div className="flex min-h-[260px] flex-col items-center justify-center gap-3">
+                <Loader2 className="h-7 w-7 animate-spin text-cyan-200" />
+                <div className="text-sm text-white/55">
+                  {isImportMode ? "Montando o quadro importado..." : "Carregando Bobar..."}
+                </div>
+              </div>
+            ) : visibleColumns.length ? (
+              <div className="overflow-x-auto pb-4">
+                <div className="flex min-w-max gap-5">
+                  {visibleColumns.map((column) => (
+                    <ColumnLane
+                      key={column.id}
+                      column={column}
+                      selectedCardId={selectedCardId}
+                      onSelectCard={setSelectedCardId}
+                      onCreateCard={(columnId) => void handleCreateCard(columnId)}
+                      onRenameColumn={handleRenameColumn}
+                      onDeleteColumn={handleDeleteColumn}
+                      dragState={dragState}
+                      dragOverColumnId={dragOverColumnId}
+                      onStartDragCard={handleStartDragCard}
+                      onEndDragCard={handleEndDragCard}
+                      onDragColumn={(columnId) =>
+                        setDragOverColumnId(columnId > 0 ? columnId : null)
+                      }
+                      onDropColumn={(columnId) => void handleDropColumn(columnId)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <EmptyState
+                  title={isImportMode ? "Escolha um roteiro importado" : "Nenhuma coluna criada ainda"}
+                  description={
+                    isImportMode
+                      ? "Selecione um item em Importados para o Bobar abrir a base nas 3 colunas editáveis e no fluxograma."
+                      : "Comece criando a primeira coluna do fluxo. Isso organiza o quadro e evita uma tela vazia sem direção para quem está acessando pela primeira vez."
+                  }
+                />
+                <div className="flex justify-center">
+                  <Button
+                    className="h-12 rounded-2xl px-6"
+                    onClick={isImportMode ? () => setActiveView("imports") : openCreateColumnDialog}
+                  >
+                    {isImportMode ? <Inbox className="h-4 w-4" /> : <Columns3 className="h-4 w-4" />}
+                    {isImportMode ? "Ver importados" : "Criar primeira coluna"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
+          <Card
+            id="bobar-editor"
+            variant="glass"
+            className="overflow-visible rounded-[2.2rem] border-cyan-400/10 bg-[#040914]"
+          >
+            <CardHeader className="gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                    Editor principal
+                  </div>
+                  <CardTitle className="mt-2 break-words text-3xl font-black text-white">
+                    {selectedCard?.title || "Selecione um card"}
+                  </CardTitle>
+                  <CardDescription className="mt-2 max-w-3xl text-white/55">
+                    {selectedCard
+                      ? "Edite os metadados, o conteúdo e, se necessário, o fluxograma. A interface foi organizada para deixar ação e contexto no lugar certo."
+                      : "Escolha um card no quadro para abrir o editor completo. Enquanto isso, o painel lateral mostra como a experiência funciona."}
+                  </CardDescription>
+                </div>
+
+                {selectedCard ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]",
+                        typeBadgeClasses(cardDraft?.card_type),
+                      )}
+                    >
+                      {typeLabel(cardDraft?.card_type)}
+                    </Badge>
+                    <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-white/55">
+                      Atualizado {formatDate(selectedCard.updated_at)}
+                    </Badge>
+                    {hasPendingChanges ? (
+                      <Badge className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                        Alterações pendentes
+                      </Badge>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </CardHeader>
+
+            <CardContent className="space-y-6">
+              {selectedCard && cardDraft ? (
+                <>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <SelectField
+                      label="Tipo do card"
+                      value={String(cardDraft.card_type || "")}
+                      options={cardTypeOptions}
+                      onChange={handleCardTypeChange}
+                    />
+
+                    <SelectField
+                      label="Template"
+                      value={templateKey}
+                      options={templateOptions}
+                      placeholder="Escolha um template"
+                      onChange={applyTemplateByKey}
+                    />
+                  </div>
+
+                  {selectedTemplate ? (
+                    <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
+                      <div className="font-semibold text-white">{selectedTemplate.label}</div>
+                      <div className="mt-1">{selectedTemplate.description}</div>
+                    </div>
+                  ) : null}
+
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                        Título do card
+                      </div>
+                      <Input
+                        value={cardDraft.title}
+                        onChange={(event) =>
+                          setCardDraft((current) =>
+                            current ? { ...current, title: event.target.value } : current,
+                          )
+                        }
+                        placeholder="Dê um nome claro para o card"
+                        className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                      />
+                    </div>
+
+                    <SelectField
+                      label="Coluna"
+                      value={String(cardDraft.column_id)}
+                      options={columnOptions}
+                      onChange={(value) =>
+                        setCardDraft((current) =>
+                          current ? { ...current, column_id: Number(value) } : current,
+                        )
+                      }
+                    />
+                  </div>
+
+                  {isFlowCard ? (
+                    <div className="flex flex-wrap items-center gap-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
+                      <Button className="h-11 rounded-2xl" onClick={openFlowEditor}>
+                        <Pencil className="h-4 w-4" />
+                        Editar fluxograma
+                      </Button>
+
+                      <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
+                        {activeFlow?.nodes.length || 0} blocos
+                      </Badge>
+
+                      <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
+                        {activeFlow?.edges.length || 0} conexões
+                      </Badge>
+                    </div>
+                  ) : null}
+
+                  {isFlowCard ? (
+                    <Card variant="glass" className="rounded-[2rem] border-white/10 bg-[#06101f]">
+                      <CardHeader className="gap-4">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                          Fluxograma em tela cheia
+                        </div>
+                        <CardTitle className="text-2xl font-black text-white">
+                          Edite o fluxo fora do layout apertado
+                        </CardTitle>
+                        <CardDescription className="text-white/55">
+                          O editor do fluxograma agora abre ocupando a tela toda, inclusive por
+                          cima do menu lateral, com botão de voltar e todos os controles de edição.
+                        </CardDescription>
+                      </CardHeader>
+
+                      <CardContent className="space-y-5">
+                        <div className="grid gap-3 lg:grid-cols-3">
+                          <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.035] px-4 py-4">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
+                              Blocos
+                            </div>
+                            <div className="mt-2 text-2xl font-black text-white">
+                              {activeFlow?.nodes.length || 0}
+                            </div>
+                          </div>
+
+                          <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.035] px-4 py-4">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
+                              Conexões
+                            </div>
+                            <div className="mt-2 text-2xl font-black text-white">
+                              {activeFlow?.edges.length || 0}
+                            </div>
+                          </div>
+
+                          <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
+                            Para mexer no fluxo, abra o editor em tela cheia. Lá ficam o canvas, o
+                            inspector e os botões de edição.
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Button className="h-11 rounded-2xl" onClick={openFlowEditor}>
+                            <Pencil className="h-4 w-4" />
+                            Editar fluxograma
+                          </Button>
+
+                          {pendingConnectionNode ? (
+                            <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-3 text-sm leading-6 text-cyan-50/85">
+                              Conexão iniciada em <strong>{pendingConnectionNode.title}</strong>.
+                            </div>
+                          ) : null}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : isChecklistCard ? (
+                    <ChecklistEditor
+                      items={checklistDraft}
+                      summary={checklistSummary}
+                      onToggleItem={handleChecklistItemToggle}
+                      onChangeItemText={handleChecklistItemTextChange}
+                      onAddItem={handleAddChecklistItem}
+                      onRemoveItem={handleRemoveChecklistItem}
+                      onClearCompleted={handleClearCompletedChecklistItems}
+                    />
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                        Conteúdo do card
+                      </div>
+                      <Textarea
+                        value={cardDraft.content_text}
+                        onChange={(event) =>
+                          setCardDraft((current) =>
+                            current ? { ...current, content_text: event.target.value } : current,
+                          )
+                        }
+                        placeholder="Cole aqui o roteiro, checklist, ideia ou texto operacional."
+                        className="min-h-[420px] rounded-[1.8rem] border-cyan-400/15 bg-[#0a1225]"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                      Observações
+                    </div>
+                    <Textarea
+                      value={cardDraft.note}
+                      onChange={(event) =>
+                        setCardDraft((current) =>
+                          current ? { ...current, note: event.target.value } : current,
+                        )
+                      }
+                      placeholder="Contexto, observações operacionais, responsáveis ou qualquer informação que ajude outra pessoa a entender esse card."
+                      className="min-h-[140px] rounded-[1.6rem] border-cyan-400/15 bg-[#0a1225]"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] px-4 py-4">
+                    <div className="text-sm text-white/60">
+                      {hasPendingChanges
+                        ? "Existem alterações pendentes no card."
+                        : "Tudo salvo ou sem alterações pendentes."}
+                    </div>
+                    <Button
+                      className="h-12 rounded-2xl px-6"
+                      onClick={() => void handleSaveCard()}
+                      disabled={busy || !hasPendingChanges}
+                    >
+                      {busy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      Salvar card
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <EmptyState
+                  title="Selecione um card para editar"
+                  description="Clique em qualquer card do quadro para abrir o editor. A organização agora está pensada para deixar claro o que editar, onde salvar e como navegar."
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="space-y-6">
+            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+              <CardHeader>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                  Contexto do card
+                </div>
+                <CardTitle className="text-3xl font-black text-white">
+                  Painel lateral útil
+                </CardTitle>
+                <CardDescription className="text-white/55">
+                  Em vez de repetir informação, o lado direito mostra contexto, status e atalhos que
+                  ajudam na tomada de decisão.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {selectedCard ? (
+                  <>
+                    <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-5">
+                      <div className="mb-4 flex items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-200">
+                          <FolderKanban className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="break-words text-base font-semibold text-white">
+                            {selectedCard.title}
+                          </div>
+                          <div className="text-sm text-white/45">
+                            {typeLabel(cardDraft?.card_type)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <InfoRow label="Coluna" value={selectedColumn?.name || "—"} emphasized />
+                        <InfoRow label="Origem" value={selectedCard.source_label || "Manual"} />
+                        <InfoRow
+                          label="Última atualização"
+                          value={formatDate(selectedCard.updated_at)}
+                        />
+                        <InfoRow
+                          label="Status"
+                          value={
+                            hasPendingChanges ? (
+                              <span className="font-semibold text-amber-100">
+                                Alterações pendentes
+                              </span>
+                            ) : (
+                              <span className="font-semibold text-emerald-100">Sem pendências</span>
+                            )
+                          }
+                        />
+                        {String(cardDraft?.card_type || "").toLowerCase() === "checklist" ? (
+                          <InfoRow
+                            label="Checklist"
+                            value={`${checklistSummary.checked}/${checklistSummary.total} concluídos`}
+                          />
+                        ) : null}
+                        {String(cardDraft?.card_type || "").toLowerCase() === "fluxograma" ? (
+                          <InfoRow
+                            label="Estrutura"
+                            value={`${(flowDraft || parseFlowchart(selectedCard.structure_json, selectedCard.title, selectedCard.content_text)).nodes.length} blocos`}
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      <Button
+                        className="h-11 rounded-2xl"
+                        onClick={() => void handleSaveCard()}
+                        disabled={busy || !hasPendingChanges}
+                      >
+                        {busy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Save className="h-4 w-4" />
+                        )}
+                        Salvar card
+                      </Button>
+                      <Button
+                        className="h-11 rounded-2xl"
+                        variant="outline"
+                        onClick={handleExportText}
+                      >
+                        <FilePlus2 className="h-4 w-4" />
+                        Baixar texto
+                      </Button>
+                      <Button
+                        className="h-11 rounded-2xl text-red-200 hover:text-red-100"
+                        variant="outline"
+                        onClick={openDeleteSelectedCardDialog}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Excluir card
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <EmptyState
+                    title="Sem card selecionado"
+                    description="Escolha um card no quadro para ver contexto, status e ações rápidas neste painel."
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+              <CardHeader>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                  Guia rápido
+                </div>
+                <CardTitle className="text-3xl font-black text-white">
+                  Primeiros passos claros
+                </CardTitle>
+                <CardDescription className="text-white/55">
+                  O objetivo aqui é fazer a pessoa entender o fluxo sem depender de tentativa e
+                  erro.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-5">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
+                    <Columns3 className="h-4 w-4 text-cyan-200" />
+                    Estruture primeiro
+                  </div>
+                  <div className="text-sm leading-6 text-white/60">
+                    Pense nas colunas como etapas do processo. Quando isso fica claro, o quadro
+                    inteiro fica mais intuitivo.
+                  </div>
+                </div>
+
+                <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-5">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
+                    <MousePointerClick className="h-4 w-4 text-cyan-200" />
+                    Clique, depois edite
+                  </div>
+                  <div className="text-sm leading-6 text-white/60">
+                    O clique no card abre o editor completo. No fluxograma, o clique também serve
+                    para conectar blocos sem abrir menus extras.
+                  </div>
+                </div>
+
+                <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-5">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
+                    <Link2 className="h-4 w-4 text-cyan-200" />
+                    Fluxo legível
+                  </div>
+                  <div className="text-sm leading-6 text-white/60">
+                    Use rótulos nas conexões apenas quando agregarem contexto. O importante é que
+                    outra pessoa consiga entender o caminho olhando rápido.
+                  </div>
+                </div>
+
+                <div className="rounded-[1.8rem] border border-dashed border-cyan-400/20 bg-cyan-400/8 p-5 text-sm leading-6 text-cyan-50/90">
+                  Dica prática: cards simples resolvem melhor conteúdo textual. Reserve o fluxograma
+                  para sequência, decisão, narrativa visual ou dependência entre etapas.
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+              <CardHeader>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                  Últimos cards
+                </div>
+                <CardTitle className="text-3xl font-black text-white">
+                  Continue de onde parou
+                </CardTitle>
+                <CardDescription className="text-white/55">
+                  Lista rápida para retomar o trabalho sem procurar pelo quadro inteiro.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {recentCards.length ? (
+                  recentCards.map((card) => (
+                    <button
+                      key={card.id}
+                      type="button"
+                      onClick={() => setSelectedCardId(card.id)}
+                      className={cn(
+                        "w-full rounded-[1.4rem] border px-4 py-3 text-left transition",
+                        selectedCardId === card.id
+                          ? "border-cyan-300/50 bg-cyan-400/10"
+                          : "border-white/10 bg-white/[0.03] hover:bg-white/[0.05]",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="break-words text-sm font-medium text-white">
+                            {card.title}
+                          </div>
+                          <div className="mt-1 text-xs text-white/45">
+                            {typeLabel(card.card_type)} · {formatDate(card.updated_at)}
+                          </div>
+                        </div>
+                        <ArrowRight className="h-4 w-4 shrink-0 text-white/35" />
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <EmptyState
+                    title="Nenhum card ainda"
+                    description="Quando os cards forem criados, esta área ajuda a retomar o trabalho mais recente."
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+
+      {flowEditorOverlay}
+
+      <Dialog
+        open={Boolean(columnDialog)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setColumnDialog(null);
+            setColumnNameDraft("");
+          }
+        }}
+      >
+        <DialogContent>
+          <form className="space-y-5" onSubmit={handleSubmitColumnDialog}>
+            <DialogHeader>
+              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                <Columns3 className="h-3.5 w-3.5" />
+                {columnDialog?.mode === "rename" ? "Editar estrutura" : "Nova estrutura"}
+              </div>
+              <DialogTitle>
+                {columnDialog?.mode === "rename" ? "Renomear coluna" : "Criar coluna"}
+              </DialogTitle>
+              <DialogDescription>
+                {columnDialog?.mode === "rename"
+                  ? "Use um nome direto e previsível. Isso melhora a leitura do quadro para qualquer pessoa que entrar depois."
+                  : "Crie uma coluna com nome objetivo. Bons exemplos: Entrada, Em produção, Revisão, Publicado."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                Nome da coluna
+              </div>
+              <Input
+                value={columnNameDraft}
+                onChange={(event) => setColumnNameDraft(event.target.value)}
+                placeholder="Ex.: Em produção"
+                autoFocus
+                className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 rounded-2xl"
+                onClick={() => setColumnDialog(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                className="h-11 rounded-2xl"
+                disabled={busy || !columnNameDraft.trim()}
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {columnDialog?.mode === "rename" ? "Salvar nome" : "Criar coluna"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteDialog)} onOpenChange={(open) => !open && setDeleteDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-red-100">
+              <CircleAlert className="h-3.5 w-3.5" />
+              Ação destrutiva
+            </div>
+            <DialogTitle>
+              {deleteDialog?.type === "column" ? "Excluir coluna" : "Excluir card"}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteDialog?.type === "column"
+                ? `A coluna "${deleteDialog.column.name}" será removida. Os cards serão movidos automaticamente para outra coluna pelo backend.`
+                : `O card "${deleteDialog?.type === "card" ? deleteDialog.card.title : ""}" será excluído permanentemente.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-white/60">
+            Confirme apenas se tiver certeza. A interface foi ajustada para evitar pop-ups nativos e
+            deixar essa decisão mais clara.
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 rounded-2xl"
+              onClick={() => setDeleteDialog(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="h-11 rounded-2xl"
+              onClick={() => void handleConfirmDelete()}
+              disabled={busy}
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Confirmar exclusão
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

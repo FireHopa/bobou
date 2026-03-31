@@ -1,0 +1,1532 @@
+from __future__ import annotations
+import json
+import uuid
+import hashlib
+import io
+import re
+import httpx
+import asyncio
+import os
+from typing import Any, Dict, List, Optional
+from fastapi.responses import StreamingResponse
+from urllib.parse import urlencode
+
+try:
+    import pypdf
+except ImportError:
+    pypdf = None
+try:
+    import docx
+except ImportError:
+    docx = None
+
+from datetime import datetime, timedelta
+
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, UploadFile, File, Response
+from fastapi.middleware.cors import CORSMiddleware
+from sqlmodel import Session, select
+
+from .config import CORS_ALLOWED_ORIGINS, LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_REDIRECT_URI
+from .credits import (
+    CREDIT_ACTION_HEADER,
+    CREDIT_CHARGED_HEADER,
+    CREDIT_HEADER,
+    attach_credit_headers,
+    charge_credits,
+    ensure_credits,
+)
+from .db import init_db, get_session, engine
+from .models import Robot, ChatMessage, CompetitionAnalysis, SkyBobJob, AuthorityEdit, AuthorityAgentRun, BusinessCore, User
+from .schemas import (
+    BriefingIn,
+    RobotOut,
+    RobotDetail,
+    RobotUpdateIn,
+    ChatIn,
+    ChatMessageOut,
+    MessageUpdateIn,
+    AuthorityAssistantIn,
+    AuthorityAssistantOut,
+    AuthorityEditOut,
+    AuthorityAgentRunIn,
+    AuthorityAgentHistoryOut,
+    AuthorityAgentRunOut,
+    CompetitionFindRequest,
+    CompetitionAnalyzeRequest,
+    CompetitionJobV2Out,
+    CompetitionReportV2Out,
+    CompetitionFindOut,
+    LinkedInConnectIn
+)
+from .ai import build_robot_from_briefing, chat_with_robot, transcribe_audio, find_competitors, build_competition_result, authority_assistant, run_authority_agent, suggest_video_format_for_theme, generate_skybob_study, generate_skybob_catalog_analysis
+
+from .deps import get_current_user
+from .auth import router as auth_router
+from .bobar import router as bobar_router
+from pydantic import BaseModel
+
+
+class SuggestThemesRequest(BaseModel):
+    agent_key: str
+    task: str
+    nucleus: dict
+
+
+class SuggestVideoFormatRequest(BaseModel):
+    agent_key: str
+    theme: str
+    nucleus: dict
+
+
+class SkyBobRunRequest(BaseModel):
+    nucleus: dict
+    preferences: Optional[dict] = None
+    previous_study: Optional[dict] = None
+    catalog_analysis: Optional[dict] = None
+    mode: str = "full"
+
+
+class SkyBobCatalogRequest(BaseModel):
+    nucleus: dict
+
+
+app = FastAPI(title="Authority Robot Panel API")
+
+app.include_router(auth_router)
+app.include_router(bobar_router)
+
+
+async def extract_text_from_file(file: UploadFile) -> str:
+    content = await file.read()
+    filename = file.filename.lower()
+    text = ""
+
+    if filename.endswith(".pdf"):
+        if not pypdf:
+            raise HTTPException(status_code=500, detail="pypdf não instalado no backend.")
+        try:
+            reader = pypdf.PdfReader(io.BytesIO(content))
+            for page in reader.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text += extracted + "\n"
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Erro ao ler o PDF: {str(e)}")
+
+    elif filename.endswith(".docx"):
+        if not docx:
+            raise HTTPException(status_code=500, detail="python-docx não instalado.")
+        try:
+            doc = docx.Document(io.BytesIO(content))
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Erro ao ler o DOCX: {str(e)}")
+
+    elif filename.endswith(".txt") or filename.endswith(".md") or filename.endswith(".csv"):
+        try:
+            text = content.decode("utf-8")
+        except Exception:
+            text = content.decode("latin-1", errors="ignore")
+    else:
+        raise HTTPException(status_code=400, detail="Formato não suportado. Utilize PDF, DOCX, TXT ou MD.")
+
+    return text.strip()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=[
+        CREDIT_HEADER,
+        CREDIT_CHARGED_HEADER,
+        CREDIT_ACTION_HEADER,
+    ],
+)
+
+
+@app.on_event("startup")
+def _startup():
+    init_db()
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True, "ts": datetime.utcnow().isoformat() + "Z"}
+
+
+BUSINESS_CORE_PUBLIC_IDS = {"business-core", "business-core-global"}
+
+
+def _business_core_public_id_for_user(user_id: int) -> str:
+    return f"business-core-user-{user_id}"
+
+
+def _is_business_core_alias(public_id: str) -> bool:
+    return public_id in BUSINESS_CORE_PUBLIC_IDS
+
+
+def _is_system_business_core_robot(robot: Robot, current_user: Optional[User] = None) -> bool:
+    if not robot.public_id:
+        return False
+    if robot.public_id in BUSINESS_CORE_PUBLIC_IDS:
+        return True
+    if current_user and robot.public_id == _business_core_public_id_for_user(current_user.id):
+        return True
+    return robot.public_id.startswith("business-core-user-")
+
+
+def _copy_business_core_data(source: BusinessCore, target: BusinessCore) -> BusinessCore:
+    fields_to_copy = (
+        "company_name",
+        "city_state",
+        "service_area",
+        "main_audience",
+        "services_products",
+        "real_differentials",
+        "restrictions",
+        "reviews",
+        "testimonials",
+        "usable_links_texts",
+        "site",
+        "instagram",
+        "linkedin",
+        "youtube",
+        "tiktok",
+        "owner_name",
+        "forbidden_content",
+        "google_business_profile",
+        "knowledge_text",
+        "knowledge_files_json",
+        "skybob",
+    )
+    for field_name in fields_to_copy:
+        setattr(target, field_name, getattr(source, field_name, getattr(target, field_name, "")))
+    target.updated_at = datetime.utcnow()
+    return target
+
+
+def _try_migrate_legacy_global_business_core(session: Session, current_user: User, core: BusinessCore) -> None:
+    has_payload = any(
+        bool((getattr(core, field_name, "") or "").strip())
+        for field_name in (
+            "company_name",
+            "services_products",
+            "main_audience",
+            "real_differentials",
+            "knowledge_text",
+            "skybob",
+        )
+    )
+    if has_payload:
+        return
+
+    users = session.exec(select(User)).all()
+    if len(users) != 1 or users[0].id != current_user.id:
+        return
+
+    legacy_robot = session.exec(select(Robot).where(Robot.public_id == "business-core-global")).first()
+    if not legacy_robot:
+        return
+
+    legacy_core = session.exec(select(BusinessCore).where(BusinessCore.robot_id == legacy_robot.id)).first()
+    if not legacy_core:
+        return
+
+    _copy_business_core_data(legacy_core, core)
+    session.add(core)
+    session.commit()
+    session.refresh(core)
+
+
+def _ensure_business_core_robot(session: Session, current_user: User) -> Robot:
+    scoped_public_id = _business_core_public_id_for_user(current_user.id)
+    robot = session.exec(
+        select(Robot).where(Robot.public_id == scoped_public_id, Robot.user_id == current_user.id)
+    ).first()
+    if robot:
+        return robot
+
+    robot = Robot(
+        user_id=current_user.id,
+        public_id=scoped_public_id,
+        title="[SISTEMA] Núcleo da Empresa",
+        description="Armazena os ficheiros e estudos do Núcleo da Empresa deste utilizador.",
+        system_instructions="Não usado diretamente no chat.",
+    )
+    session.add(robot)
+    session.commit()
+    session.refresh(robot)
+    return robot
+
+
+def _get_business_core(session: Session, current_user: User, create: bool = True) -> Optional[BusinessCore]:
+    robot = _ensure_business_core_robot(session, current_user)
+    core = session.exec(select(BusinessCore).where(BusinessCore.robot_id == robot.id)).first()
+
+    if core or not create:
+        return core
+
+    core = BusinessCore(robot_id=robot.id)
+    session.add(core)
+    session.commit()
+    session.refresh(core)
+    _try_migrate_legacy_global_business_core(session, current_user, core)
+    return core
+
+
+def _inject_business_core_knowledge(nucleus: dict, session: Session, current_user: User) -> dict:
+    scoped = _normalize_nucleus(nucleus or {})
+    core = _get_business_core(session, current_user, create=True)
+    if core and getattr(core, "knowledge_text", None):
+        scoped["conhecimento_anexado"] = core.knowledge_text
+    return scoped
+
+
+def _get_robot_or_404(public_id: str, session: Session, current_user: User) -> Robot:
+    if _is_business_core_alias(public_id):
+        return _ensure_business_core_robot(session, current_user)
+
+    robot = session.exec(select(Robot).where(Robot.public_id == public_id, Robot.user_id == current_user.id)).first()
+    if not robot:
+        raise HTTPException(status_code=404, detail="Assistente não encontrado ou não tem permissão para aceder.")
+    return robot
+
+def _normalize_chat_message_content(role: str, content: str) -> str:
+    if role != "assistant":
+        return content
+    try:
+        from .ai import _unwrap_simple_json_answer
+        normalized = _unwrap_simple_json_answer(content)
+        return normalized or content
+    except Exception:
+        return content
+
+
+@app.get("/api/robots", response_model=list[RobotOut])
+def list_robots(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robots = [
+        robot
+        for robot in session.exec(
+            select(Robot)
+            .where(Robot.user_id == current_user.id)
+            .order_by(Robot.created_at.desc())
+        ).all()
+        if not _is_system_business_core_robot(robot, current_user)
+    ]
+    return [
+        RobotOut(
+            public_id=r.public_id,
+            title=r.title,
+            description=r.description or "",
+            avatar_data=r.avatar_data,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in robots
+    ]
+
+
+@app.get("/api/robots/{public_id}", response_model=RobotDetail)
+def get_robot(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    return RobotDetail(
+        public_id=robot.public_id,
+        title=robot.title,
+        description=robot.description or "",
+        avatar_data=robot.avatar_data,
+        system_instructions=robot.system_instructions,
+        created_at=robot.created_at.isoformat(),
+        knowledge_files_json=robot.knowledge_files_json
+    )
+
+
+@app.delete("/api/robots/{public_id}")
+def delete_robot(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    msgs = session.exec(select(ChatMessage).where(ChatMessage.robot_id == robot.id)).all()
+    for m in msgs:
+        session.delete(m)
+    session.delete(robot)
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/robots", response_model=RobotOut)
+def create_robot(
+    brief: BriefingIn,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "robot_create")
+    try:
+        built = build_robot_from_briefing(brief.model_dump())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    action = charge_credits(session, current_user, "robot_create")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+    robot = Robot(
+        user_id=current_user.id,
+        public_id=uuid.uuid4().hex,
+        title=built["title"],
+        description=built.get("description") or "",
+        avatar_data=None,
+        system_instructions=built["system_instructions"],
+    )
+    session.add(robot)
+    session.commit()
+    session.refresh(robot)
+
+    return RobotOut(
+        public_id=robot.public_id,
+        title=robot.title,
+        description=robot.description or "",
+        avatar_data=robot.avatar_data,
+        created_at=robot.created_at.isoformat(),
+    )
+
+
+@app.patch("/api/robots/{public_id}", response_model=RobotDetail)
+def update_robot(public_id: str, body: RobotUpdateIn, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    data = body.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(robot, k, v)
+    session.add(robot)
+    session.commit()
+    session.refresh(robot)
+    return RobotDetail(
+        public_id=robot.public_id,
+        title=robot.title,
+        description=robot.description or "",
+        avatar_data=robot.avatar_data,
+        system_instructions=robot.system_instructions,
+        created_at=robot.created_at.isoformat(),
+        knowledge_files_json=robot.knowledge_files_json
+    )
+
+
+@app.get("/api/robots/{public_id}/business-core")
+def get_business_core(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    core = _get_business_core(session, current_user, create=True) if _is_business_core_alias(public_id) else session.exec(
+        select(BusinessCore).where(BusinessCore.robot_id == robot.id)
+    ).first()
+
+    if not core:
+        core = BusinessCore(robot_id=robot.id)
+        session.add(core)
+        session.commit()
+        session.refresh(core)
+
+    return core
+
+
+@app.patch("/api/robots/{public_id}/business-core")
+def update_business_core(public_id: str, payload: dict, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    core = _get_business_core(session, current_user, create=True) if _is_business_core_alias(public_id) else session.exec(
+        select(BusinessCore).where(BusinessCore.robot_id == robot.id)
+    ).first()
+
+    if not core:
+        core = BusinessCore(robot_id=robot.id)
+        session.add(core)
+
+    for k, v in payload.items():
+        if hasattr(core, k) and v is not None and k not in ("id", "robot_id"):
+            setattr(core, k, v)
+
+    core.updated_at = datetime.utcnow()
+    session.add(core)
+    session.commit()
+    session.refresh(core)
+    return core
+
+
+@app.get("/api/robots/{public_id}/messages", response_model=list[ChatMessageOut])
+def list_messages(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    msgs = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.robot_id == robot.id)
+        .order_by(ChatMessage.created_at.asc())
+    ).all()
+    return [
+        ChatMessageOut(
+            id=m.id,
+            role=m.role,
+            content=_normalize_chat_message_content(m.role, m.content),
+            created_at=m.created_at.isoformat(),
+        )
+        for m in msgs
+    ]
+
+
+@app.post("/api/robots/{public_id}/authority-assistant", response_model=AuthorityAssistantOut)
+def authority_assistant_route(
+    public_id: str,
+    body: AuthorityAssistantIn,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    ensure_credits(current_user, "authority_assistant_edit")
+
+    edits = session.exec(
+        select(AuthorityEdit)
+        .where(AuthorityEdit.robot_id == robot.id)
+        .order_by(AuthorityEdit.created_at.desc())
+    ).all()
+    edits_history = []
+    for e in edits[:30]:
+        try:
+            changes = json.loads(e.changes_json or "[]")
+        except Exception:
+            changes = []
+        edits_history.append(
+            {
+                "id": e.id,
+                "created_at": e.created_at.isoformat(),
+                "user_message": e.user_message,
+                "summary": e.summary or "",
+                "changes_made": changes,
+                "before_score": e.before_score,
+                "after_score": e.after_score,
+            }
+        )
+
+    before_instructions = robot.system_instructions or ""
+    before_hash = hashlib.sha256(before_instructions.encode("utf-8")).hexdigest()
+
+    result = authority_assistant(
+        robot_system_instructions=before_instructions,
+        user_message=body.message,
+        history=body.history or [],
+        authority_edits_history=edits_history,
+    )
+
+    if result.get("apply_change") and result.get("updated_system_instructions"):
+        updated = str(result["updated_system_instructions"])
+        after_hash = hashlib.sha256(updated.encode("utf-8")).hexdigest()
+
+        exists = session.exec(
+            select(AuthorityEdit).where(
+                AuthorityEdit.robot_id == robot.id,
+                AuthorityEdit.after_hash == after_hash,
+            )
+        ).first()
+
+        if not exists:
+            robot.system_instructions = updated
+            session.add(robot)
+            session.commit()
+            session.refresh(robot)
+
+            changes_made = result.get("changes_made") or []
+            summary = ""
+            if isinstance(changes_made, list) and changes_made:
+                summary = "; ".join(
+                    [str(c.get("title") or c.get("change") or c.get("what") or "").strip() for c in changes_made]
+                )[:280]
+
+            edit = AuthorityEdit(
+                robot_id=robot.id,
+                user_message=str(body.message),
+                assistant_reply=str(result.get("assistant_reply") or ""),
+                changes_json=json.dumps(changes_made, ensure_ascii=False),
+                summary=summary,
+                before_score=int(result.get("before_score") or 0),
+                after_score=int(result.get("after_score") or 0),
+                before_hash=before_hash,
+                after_hash=after_hash,
+            )
+            session.add(edit)
+            session.commit()
+
+    action = charge_credits(session, current_user, "authority_assistant_edit")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+    return AuthorityAssistantOut(
+        apply_change=bool(result.get("apply_change") or False),
+        before_score=int(result.get("before_score") or 0),
+        after_score=int(result.get("after_score") or 0),
+        criteria=list(result.get("criteria") or []),
+        changes_made=list(result.get("changes_made") or []),
+        suggestions=list(result.get("suggestions") or []),
+        updated_system_instructions=result.get("updated_system_instructions"),
+        assistant_reply=str(result.get("assistant_reply") or ""),
+    )
+
+
+@app.get("/api/robots/{public_id}/authority-edits", response_model=list[AuthorityEditOut])
+def list_authority_edits(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    edits = session.exec(
+        select(AuthorityEdit)
+        .where(AuthorityEdit.robot_id == robot.id)
+        .order_by(AuthorityEdit.created_at.desc())
+    ).all()
+    out: list[AuthorityEditOut] = []
+    for e in edits:
+        try:
+            changes = json.loads(e.changes_json or "[]")
+        except Exception:
+            changes = []
+        out.append(
+            AuthorityEditOut(
+                id=e.id,
+                created_at=e.created_at.isoformat(),
+                user_message=e.user_message,
+                summary=e.summary or "",
+                changes_made=changes,
+                before_score=e.before_score,
+                after_score=e.after_score,
+            )
+        )
+    return out
+
+
+@app.delete("/api/robots/{public_id}/messages")
+def clear_messages(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    msgs = session.exec(select(ChatMessage).where(ChatMessage.robot_id == robot.id)).all()
+    for m in msgs:
+        session.delete(m)
+    session.commit()
+    return {"ok": True}
+
+
+@app.patch("/api/robots/{public_id}/messages/{message_id}", response_model=ChatMessageOut)
+def update_message(public_id: str, message_id: int, body: MessageUpdateIn, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    msg = session.exec(
+        select(ChatMessage).where(ChatMessage.id == message_id, ChatMessage.robot_id == robot.id)
+    ).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Mensagem não encontrada")
+    if msg.role != "user":
+        raise HTTPException(status_code=400, detail="Só é permitido editar mensagens do utilizador")
+
+    msg.content = body.content
+    session.add(msg)
+    session.commit()
+    session.refresh(msg)
+    return ChatMessageOut(
+        id=msg.id,
+        role=msg.role,
+        content=_normalize_chat_message_content(msg.role, msg.content),
+        created_at=msg.created_at.isoformat(),
+    )
+
+
+@app.post("/api/robots/{public_id}/audio", response_model=ChatMessageOut)
+async def chat_audio(
+    public_id: str,
+    response: Response,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    ensure_credits(current_user, "robot_audio_message")
+    audio_bytes = await file.read()
+    try:
+        text = transcribe_audio(audio_bytes, filename=file.filename or "audio.webm")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Falha ao transcrever o áudio: {e}")
+
+    msgs = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.robot_id == robot.id)
+        .order_by(ChatMessage.created_at.asc())
+    ).all()
+    history = [{"role": m.role, "content": m.content} for m in msgs][-20:]
+
+    user_msg = ChatMessage(robot_id=robot.id, role="user", content=text)
+    session.add(user_msg)
+    session.commit()
+    session.refresh(user_msg)
+
+    try:
+        answer = chat_with_robot(robot.system_instructions, history, text)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    assistant_msg = ChatMessage(robot_id=robot.id, role="assistant", content=answer)
+    session.add(assistant_msg)
+
+    action = charge_credits(session, current_user, "robot_audio_message")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+    session.add(assistant_msg)
+    session.commit()
+    session.refresh(assistant_msg)
+
+    return ChatMessageOut(
+        id=assistant_msg.id,
+        role=assistant_msg.role,
+        content=_normalize_chat_message_content(assistant_msg.role, assistant_msg.content),
+        created_at=assistant_msg.created_at.isoformat(),
+    )
+
+
+@app.post("/api/robots/{public_id}/chat", response_model=ChatMessageOut)
+def chat(
+    public_id: str,
+    body: ChatIn,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    ensure_credits(current_user, "robot_chat_message")
+    msgs = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.robot_id == robot.id)
+        .order_by(ChatMessage.created_at.asc())
+    ).all()
+    history = [{"role": m.role, "content": m.content} for m in msgs][-20:]
+
+    user_msg = ChatMessage(robot_id=robot.id, role="user", content=body.message)
+    session.add(user_msg)
+    session.commit()
+    session.refresh(user_msg)
+
+    try:
+        answer = chat_with_robot(
+            robot.system_instructions,
+            history,
+            body.message,
+            use_web=body.use_web,
+            web_max_results=body.web_max_results,
+            web_allowed_domains=body.web_allowed_domains
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    assistant_msg = ChatMessage(robot_id=robot.id, role="assistant", content=answer)
+    session.add(assistant_msg)
+
+    action = charge_credits(session, current_user, "robot_chat_message")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+    session.add(assistant_msg)
+    session.commit()
+    session.refresh(assistant_msg)
+
+    return ChatMessageOut(
+        id=assistant_msg.id,
+        role=assistant_msg.role,
+        content=_normalize_chat_message_content(assistant_msg.role, assistant_msg.content),
+        created_at=assistant_msg.created_at.isoformat(),
+    )
+
+
+def _update_analysis(session, obj, **kwargs):
+    for k, v in kwargs.items():
+        setattr(obj, k, v)
+    obj.updated_at = datetime.utcnow()
+    session.add(obj)
+    session.commit()
+    session.refresh(obj)
+
+
+def _build_skybob_job_payload(job: SkyBobJob) -> dict:
+    return {
+        "job_id": job.public_id,
+        "status": job.status,
+        "stage": job.stage,
+        "progress": job.progress,
+        "mode": job.mode,
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+    }
+
+
+def _update_skybob_job(session: Session, job: SkyBobJob, **kwargs) -> SkyBobJob:
+    for key, value in kwargs.items():
+        setattr(job, key, value)
+    job.updated_at = datetime.utcnow()
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def _run_skybob_job(public_id: str):
+    with Session(engine) as session:
+        job = None
+        try:
+            job = session.exec(select(SkyBobJob).where(SkyBobJob.public_id == public_id)).first()
+            if not job:
+                return
+
+            user = session.get(User, job.user_id) if job.user_id else None
+            if not user:
+                _update_skybob_job(
+                    session,
+                    job,
+                    status="error",
+                    stage="Usuário da missão não encontrado",
+                    progress=1.0,
+                    error="Usuário responsável pela missão não encontrado.",
+                )
+                return
+
+            nucleus = json.loads(job.nucleus_json or "{}")
+            preferences = json.loads(job.preferences_json or "{}")
+            previous_study = json.loads(job.previous_study_json or "{}")
+            catalog_analysis = json.loads(job.catalog_analysis_json or "{}") or None
+
+            _update_skybob_job(session, job, status="running", stage="Lendo o núcleo da empresa", progress=0.12)
+
+            if not catalog_analysis:
+                _update_skybob_job(session, job, stage="Mapeando serviços e sinais do nicho", progress=0.34)
+                catalog_analysis = generate_skybob_catalog_analysis(nucleus)
+                _update_skybob_job(
+                    session,
+                    job,
+                    stage="Catálogo interpretado e pronto para a IA",
+                    progress=0.56,
+                    catalog_analysis_json=json.dumps(catalog_analysis, ensure_ascii=False),
+                )
+            else:
+                _update_skybob_job(session, job, stage="Usando catálogo já validado", progress=0.48)
+
+            _update_skybob_job(session, job, stage="IA montando estudo e Hook Lab", progress=0.78)
+            study = generate_skybob_study(
+                nucleus,
+                preferences=preferences or {},
+                previous_study=previous_study or {},
+                catalog_analysis=catalog_analysis,
+                mode=job.mode or "full",
+            )
+
+            result_payload = dict(study or {})
+            if catalog_analysis and not result_payload.get("catalog_analysis"):
+                result_payload["catalog_analysis"] = catalog_analysis
+
+            core = _get_business_core(session, user, create=True)
+            if core:
+                core.skybob = result_payload.get("serialized_text") or ""
+                core.updated_at = datetime.utcnow()
+                session.add(core)
+                session.commit()
+
+            _update_skybob_job(session, job, stage="Salvando resultado da missão", progress=0.94)
+            _update_skybob_job(
+                session,
+                job,
+                status="done",
+                stage="Concluído",
+                progress=1.0,
+                result_json=json.dumps(result_payload, ensure_ascii=False),
+            )
+        except Exception as e:
+            if job:
+                _update_skybob_job(
+                    session,
+                    job,
+                    status="error",
+                    stage="Erro no processamento",
+                    progress=1.0,
+                    error=str(e),
+                )
+
+
+
+def _domain(url: str) -> str:
+    from urllib.parse import urlparse
+    try:
+        return urlparse(url).netloc
+    except Exception:
+        return url
+
+
+def _run_analysis_job(public_id: str):
+    from sqlmodel import Session
+    from .db import engine
+    import json
+    from .ai import build_competition_result
+
+    with Session(engine) as session:
+        obj = None
+        try:
+            obj = session.exec(select(CompetitionAnalysis).where(CompetitionAnalysis.public_id == public_id)).first()
+            if not obj:
+                return
+
+            _update_analysis(session, obj, status="running", stage="Coletando sinais públicos", progress=0.15)
+
+            instagrams = json.loads(obj.instagrams_json or "[]")
+            sites = json.loads(obj.sites_json or "[]")
+            company = json.loads(obj.company_json or "{}") if obj.company_json else {}
+
+            competitors = []
+            for s in sites:
+                competitors.append({"name": _domain(s), "website_url": s})
+
+            _update_analysis(session, obj, stage="Analisando presença digital", progress=0.40)
+            _update_analysis(session, obj, stage="Consolidando inteligência", progress=0.75)
+
+            result = build_competition_result(company=company, competitors=competitors[:3])
+
+            _update_analysis(session, obj, status="done", stage="Concluído", progress=1.0, result_json=json.dumps(result, ensure_ascii=False))
+
+        except Exception as e:
+            if obj:
+                _update_analysis(session, obj, status="error", stage="Erro no processamento", progress=1.0, error=str(e))
+
+
+@app.post("/api/competition/find-competitors", response_model=CompetitionFindOut)
+def competition_find_competitors_v2(
+    payload: CompetitionFindRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "competition_find_competitors")
+    briefing = payload.briefing.model_dump()
+    mapped = {
+        "company_name": briefing.get("nome_empresa"),
+        "niche": briefing.get("segmento"),
+        "region": briefing.get("cidade_estado"),
+        "services": briefing.get("servicos"),
+        "audience": briefing.get("publico_alvo"),
+        "offer": briefing.get("servicos"),
+    }
+    data = find_competitors(mapped)
+    action = charge_credits(session, current_user, "competition_find_competitors")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+    return data
+
+
+@app.post("/api/competition/analyze", response_model=CompetitionJobV2Out)
+def competition_analyze_v2(
+    payload: CompetitionAnalyzeRequest,
+    bg: BackgroundTasks,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "competition_analyze")
+    public_id = str(uuid.uuid4())
+    instas = payload.instagrams or []
+    sites = payload.sites or []
+    briefing = payload.briefing.model_dump() if payload.briefing else None
+
+    obj = CompetitionAnalysis(
+        user_id=current_user.id,
+        public_id=public_id,
+        instagrams_json=json.dumps(instas, ensure_ascii=False),
+        sites_json=json.dumps(sites, ensure_ascii=False),
+        company_json=json.dumps(briefing or {}, ensure_ascii=False),
+        status="queued",
+        stage="Na fila",
+        progress=0.0,
+    )
+    session.add(obj)
+    session.commit()
+    session.refresh(obj)
+
+    bg.add_task(_run_analysis_job, obj.public_id)
+
+    action = charge_credits(session, current_user, "competition_analyze")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+    return CompetitionJobV2Out(
+        job_id=obj.public_id,
+        report_id=obj.public_id,
+        status=obj.status,
+        stage=obj.stage,
+        progress=obj.progress,
+    )
+
+
+@app.get("/api/competition/jobs/{job_id}", response_model=CompetitionJobV2Out)
+def competition_job_v2(job_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    obj = session.exec(select(CompetitionAnalysis).where(CompetitionAnalysis.public_id == job_id, CompetitionAnalysis.user_id == current_user.id)).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    return CompetitionJobV2Out(
+        job_id=obj.public_id,
+        report_id=obj.public_id,
+        status=obj.status,
+        stage=obj.stage,
+        progress=obj.progress,
+        error=obj.error,
+        warning=None
+    )
+
+
+@app.get("/api/competition/reports/{report_id}", response_model=CompetitionReportV2Out)
+def competition_report_v2(report_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    obj = session.exec(select(CompetitionAnalysis).where(CompetitionAnalysis.public_id == report_id, CompetitionAnalysis.user_id == current_user.id)).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
+
+    if obj.status == "error":
+        raise HTTPException(status_code=400, detail=f"Erro no processamento: {obj.error}")
+
+    if obj.status not in ("done", "partial_data"):
+        raise HTTPException(status_code=409, detail="Relatório ainda não está pronto")
+
+    try:
+        result = json.loads(obj.result_json or "{}")
+    except Exception:
+        result = {}
+
+    return CompetitionReportV2Out(report_id=obj.public_id, status=obj.status, result=result)
+
+
+def _normalize_nucleus(nucleus: dict) -> dict:
+    def norm(v):
+        if v is None:
+            return "não informado"
+        if isinstance(v, str) and not v.strip():
+            return "não informado"
+        if isinstance(v, list) and len(v) == 0:
+            return "não informado"
+        return v
+
+    out = {}
+    for k, v in (nucleus or {}).items():
+        if isinstance(v, dict):
+            out[k] = {kk: norm(vv) for kk, vv in v.items()}
+        else:
+            out[k] = norm(v)
+    return out
+
+
+@app.get("/api/authority-agents/history", response_model=AuthorityAgentHistoryOut)
+def authority_agents_history(client_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    items = session.exec(
+        select(AuthorityAgentRun)
+        .where(AuthorityAgentRun.user_id == current_user.id)
+        .order_by(AuthorityAgentRun.created_at.desc())
+        .limit(50)
+    ).all()
+
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "agent_key": r.agent_key,
+                "output_text": r.output_text,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in items
+        ]
+    }
+
+
+@app.get("/api/authority-agents/run/{run_id}", response_model=AuthorityAgentRunOut)
+def authority_agents_get_run(run_id: int, client_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    run = session.get(AuthorityAgentRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Execução não encontrada.")
+    if run.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Acesso negado para esta execução.")
+    return {
+        "id": run.id,
+        "agent_key": run.agent_key,
+        "output_text": run.output_text,
+        "created_at": run.created_at.isoformat(),
+    }
+
+
+@app.patch("/api/authority-agents/run/{run_id}", response_model=AuthorityAgentRunOut)
+def authority_agents_update_run(run_id: int, payload: dict, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    run = session.get(AuthorityAgentRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Execução não encontrada.")
+    if run.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Acesso negado para esta execução.")
+
+    if "output_text" in payload:
+        run.output_text = payload["output_text"]
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+
+    return {
+        "id": run.id,
+        "agent_key": run.agent_key,
+        "output_text": run.output_text,
+        "created_at": run.created_at.isoformat(),
+    }
+
+
+@app.post("/api/authority-agents/run", response_model=AuthorityAgentRunOut)
+def authority_agents_run(
+    payload: AuthorityAgentRunIn,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "authority_agent_run")
+
+    nucleus = _inject_business_core_knowledge(payload.nucleus, session, current_user)
+
+    try:
+        output = run_authority_agent(payload.agent_key, nucleus)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    action = charge_credits(session, current_user, "authority_agent_run")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+    run = AuthorityAgentRun(
+        user_id=current_user.id,
+        client_id=payload.client_id,
+        agent_key=payload.agent_key,
+        nucleus_json=json.dumps(nucleus, ensure_ascii=False),
+        output_text=output,
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+
+    return {
+        "id": run.id,
+        "agent_key": run.agent_key,
+        "output_text": run.output_text,
+        "created_at": run.created_at.isoformat(),
+    }
+
+
+@app.post("/api/robots/{public_id}/authority-agents/run", response_model=AuthorityAgentRunOut)
+def authority_agents_run_compat(
+    public_id: str,
+    payload: AuthorityAgentRunIn,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    return authority_agents_run(payload, response, session, current_user)
+
+
+@app.get("/api/robots/{public_id}/authority-agents/cooldown")
+def authority_agents_cooldown(public_id: str, agent_key: str, client_id: str = "", session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    return {"cooldown_seconds": 0}
+
+
+@app.post("/api/robots/{public_id}/upload-knowledge", response_model=RobotDetail)
+async def upload_robot_knowledge(
+    public_id: str,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    robot = _get_robot_or_404(public_id, session, current_user)
+
+    text = await extract_text_from_file(file)
+    if not text:
+        raise HTTPException(status_code=400, detail="Ficheiro vazio ou sem texto legível.")
+
+    separator = f"\n\n=== CONTEÚDO DO FICHEIRO: {file.filename} ===\n"
+    robot.system_instructions += f"{separator}{text}"
+
+    try:
+        files_list = json.loads(robot.knowledge_files_json or "[]")
+    except Exception:
+        files_list = []
+
+    files_list.append({"filename": file.filename, "uploaded_at": datetime.utcnow().isoformat()})
+    robot.knowledge_files_json = json.dumps(files_list, ensure_ascii=False)
+
+    session.add(robot)
+    session.commit()
+    session.refresh(robot)
+
+    return RobotDetail(
+        public_id=robot.public_id,
+        title=robot.title,
+        description=robot.description or "",
+        avatar_data=robot.avatar_data,
+        system_instructions=robot.system_instructions,
+        created_at=robot.created_at.isoformat(),
+        knowledge_files_json=robot.knowledge_files_json
+    )
+
+
+@app.delete("/api/robots/{public_id}/knowledge-files/{filename}")
+def delete_robot_file(public_id: str, filename: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    try:
+        files_list = json.loads(robot.knowledge_files_json or "[]")
+    except Exception:
+        files_list = []
+
+    new_list = [f for f in files_list if f.get("filename") != filename]
+    robot.knowledge_files_json = json.dumps(new_list, ensure_ascii=False)
+
+    if robot.system_instructions:
+        pattern = rf"\n\n=== CONTEÚDO DO FICHEIRO: {re.escape(filename)} ===\n.*?(?=\n\n=== CONTEÚDO DO FICHEIRO:|$)"
+        robot.system_instructions = re.sub(pattern, "", robot.system_instructions, flags=re.DOTALL)
+
+    session.add(robot)
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/robots/{public_id}/business-core/upload-knowledge")
+async def upload_business_core_knowledge(
+    public_id: str,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    core = session.exec(select(BusinessCore).where(BusinessCore.robot_id == robot.id)).first()
+
+    if not core:
+        core = BusinessCore(robot_id=robot.id)
+        session.add(core)
+
+    text = await extract_text_from_file(file)
+    if not text:
+        raise HTTPException(status_code=400, detail="Ficheiro vazio ou sem texto.")
+
+    current_knowledge = getattr(core, 'knowledge_text', '') or ""
+    separator = f"\n\n=== MATERIAIS DE APOIO: {file.filename} ===\n"
+    core.knowledge_text = f"{current_knowledge}{separator}{text}"
+
+    try:
+        files_list = json.loads(core.knowledge_files_json or "[]")
+    except Exception:
+        files_list = []
+
+    files_list.append({"filename": file.filename, "uploaded_at": datetime.utcnow().isoformat()})
+    core.knowledge_files_json = json.dumps(files_list, ensure_ascii=False)
+
+    core.updated_at = datetime.utcnow()
+    session.add(core)
+    session.commit()
+    session.refresh(core)
+
+    return core
+
+
+@app.delete("/api/robots/{public_id}/business-core/files/{filename}")
+def delete_business_core_file(public_id: str, filename: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    core = session.exec(select(BusinessCore).where(BusinessCore.robot_id == robot.id)).first()
+
+    if not core:
+        raise HTTPException(status_code=404, detail="Núcleo não encontrado")
+
+    try:
+        files_list = json.loads(core.knowledge_files_json or "[]")
+    except Exception:
+        files_list = []
+
+    new_list = [f for f in files_list if f.get("filename") != filename]
+    core.knowledge_files_json = json.dumps(new_list, ensure_ascii=False)
+
+    if getattr(core, 'knowledge_text', None):
+        pattern = rf"\n\n=== MATERIAIS DE APOIO: {re.escape(filename)} ===\n.*?(?=\n\n=== MATERIAIS DE APOIO:|$)"
+        core.knowledge_text = re.sub(pattern, "", core.knowledge_text, flags=re.DOTALL)
+
+    session.add(core)
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/authority-agents/suggest-themes")
+def authority_agents_suggest_themes(
+    payload: SuggestThemesRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "authority_agent_theme_suggestion")
+
+    from .ai import suggest_themes_for_task
+    try:
+        themes = suggest_themes_for_task(payload.agent_key, payload.nucleus, payload.task)
+
+        action = charge_credits(session, current_user, "authority_agent_theme_suggestion")
+        attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+        return {"themes": themes}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/authority-agents/suggest-video-format")
+def authority_agents_suggest_video_format(
+    payload: SuggestVideoFormatRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "authority_agent_video_format_suggestion")
+    nucleus = _inject_business_core_knowledge(payload.nucleus or {}, session, current_user)
+
+    try:
+        result = suggest_video_format_for_theme(payload.agent_key, nucleus, payload.theme)
+        action = charge_credits(session, current_user, "authority_agent_video_format_suggestion")
+        attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+@app.post("/api/skybob/preflight")
+def skybob_preflight(
+    payload: SkyBobCatalogRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "skybob_preflight")
+    nucleus = _inject_business_core_knowledge(payload.nucleus or {}, session, current_user)
+
+    try:
+        result = generate_skybob_catalog_analysis(nucleus)
+        action = charge_credits(session, current_user, "skybob_preflight")
+        attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/skybob/jobs")
+def skybob_start_job(
+    payload: SkyBobRunRequest,
+    bg: BackgroundTasks,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "skybob_full_run")
+    nucleus = _inject_business_core_knowledge(payload.nucleus or {}, session, current_user)
+
+    job = SkyBobJob(
+        user_id=current_user.id,
+        public_id=uuid.uuid4().hex,
+        mode=payload.mode or "full",
+        nucleus_json=json.dumps(nucleus, ensure_ascii=False),
+        preferences_json=json.dumps(payload.preferences or {}, ensure_ascii=False),
+        previous_study_json=json.dumps(payload.previous_study or {}, ensure_ascii=False),
+        catalog_analysis_json=json.dumps(payload.catalog_analysis or {}, ensure_ascii=False),
+        status="queued",
+        stage="Missão na fila",
+        progress=0.04,
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+
+    action = charge_credits(session, current_user, "skybob_full_run")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+    bg.add_task(_run_skybob_job, job.public_id)
+    return _build_skybob_job_payload(job)
+
+
+@app.get("/api/skybob/jobs/{job_id}")
+def skybob_get_job(job_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    job = session.exec(
+        select(SkyBobJob).where(SkyBobJob.public_id == job_id, SkyBobJob.user_id == current_user.id)
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Missão do SkyBob não encontrada.")
+    return _build_skybob_job_payload(job)
+
+
+@app.get("/api/skybob/jobs/{job_id}/result")
+def skybob_get_job_result(job_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    job = session.exec(
+        select(SkyBobJob).where(SkyBobJob.public_id == job_id, SkyBobJob.user_id == current_user.id)
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Missão do SkyBob não encontrada.")
+    if job.status == "error":
+        raise HTTPException(status_code=400, detail=job.error or "A missão do SkyBob terminou com erro.")
+    if job.status != "done":
+        raise HTTPException(status_code=409, detail="A missão do SkyBob ainda não terminou.")
+
+    try:
+        result = json.loads(job.result_json or "{}")
+    except Exception:
+        result = {}
+
+    return {
+        **_build_skybob_job_payload(job),
+        "result": result,
+    }
+
+
+@app.post("/api/skybob/run")
+def skybob_run(
+    payload: SkyBobRunRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_credits(current_user, "skybob_refine_run")
+    nucleus = _inject_business_core_knowledge(payload.nucleus or {}, session, current_user)
+
+    try:
+        study = generate_skybob_study(
+            nucleus,
+            preferences=payload.preferences or {},
+            previous_study=payload.previous_study or {},
+            catalog_analysis=payload.catalog_analysis or None,
+            mode=payload.mode or "full",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    action = charge_credits(session, current_user, "skybob_refine_run")
+    attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
+
+    core = _get_business_core(session, current_user, create=True)
+    if core:
+        core.skybob = study.get("serialized_text") or ""
+        core.updated_at = datetime.utcnow()
+        session.add(core)
+        session.commit()
+
+    return study
+
+# ==========================================
+# ROTAS DO LINKEDIN OAUTH2
+# ==========================================
+
+@app.get("/api/linkedin/auth-url")
+def get_linkedin_auth_url(current_user: User = Depends(get_current_user)):
+    scopes = "w_member_social openid profile email"
+    params = {
+        "response_type": "code",
+        "client_id": LINKEDIN_CLIENT_ID,
+        "redirect_uri": LINKEDIN_REDIRECT_URI,
+        "state": uuid.uuid4().hex,
+        "scope": scopes
+    }
+    url = f"https://www.linkedin.com/oauth/v2/authorization?{urlencode(params)}"
+    return {"url": url}
+
+
+@app.post("/api/linkedin/connect")
+async def connect_linkedin(payload: LinkedInConnectIn, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    token_url = "https://www.linkedin.com/oauth/v2/accessToken"
+    data = {
+        "grant_type": "authorization_code",
+        "code": payload.code,
+        "client_id": LINKEDIN_CLIENT_ID,
+        "client_secret": LINKEDIN_CLIENT_SECRET,
+        "redirect_uri": LINKEDIN_REDIRECT_URI
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(token_url, data=data)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Erro ao ligar ao LinkedIn: {resp.text}")
+
+        token_data = resp.json()
+        access_token = token_data.get("access_token")
+        expires_in = token_data.get("expires_in", 0)
+
+        profile_url = "https://api.linkedin.com/v2/userinfo"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        prof_resp = await client.get(profile_url, headers=headers)
+
+        if prof_resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Erro ao obter perfil: {prof_resp.text}")
+
+        prof_data = prof_resp.json()
+        linkedin_urn = f"urn:li:person:{prof_data.get('sub')}"
+
+        current_user.linkedin_access_token = access_token
+        current_user.linkedin_token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+        current_user.linkedin_urn = linkedin_urn
+
+        session.add(current_user)
+        session.commit()
+
+        return {"ok": True, "message": "Conta do LinkedIn conectada com sucesso!"}
+
+
+@app.post("/api/linkedin/publish")
+async def publish_linkedin(payload: dict, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    if not current_user.linkedin_access_token or not current_user.linkedin_urn:
+        raise HTTPException(status_code=400, detail="LinkedIn não está conectado nesta conta.")
+
+    url = "https://api.linkedin.com/v2/ugcPosts"
+    headers = {
+        "Authorization": f"Bearer {current_user.linkedin_access_token}",
+        "X-Restli-Protocol-Version": "2.0.0",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "author": current_user.linkedin_urn,
+        "lifecycleState": "PUBLISHED",
+        "specificContent": {
+            "com.linkedin.ugc.ShareContent": {
+                "shareCommentary": {"text": payload.get("text")},
+                "shareMediaCategory": "NONE"
+            }
+        },
+        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, headers=headers, json=data)
+        if resp.status_code != 201:
+            raise HTTPException(status_code=400, detail=f"Erro da API do LinkedIn: {resp.text}")
+
+    return {"ok": True}
+
+# ==========================================
+# ROTAS ADICIONAIS (IMAGE ENGINE & INSTAGRAM)
+# ==========================================
+
+from .image_engine import router as image_engine_router
+app.include_router(image_engine_router)
+
+from .instagram import router as instagram_router
+app.include_router(instagram_router)
+
+from .facebook import router as facebook_router
+app.include_router(facebook_router)
+
+from .youtube import router as youtube_router
+app.include_router(youtube_router)
+
+from .tiktok import router as tiktok_router
+app.include_router(tiktok_router)
+
+from .google_business_profile import router as google_business_router
+app.include_router(google_business_router)
+
+@app.get("/api/health")
+async def healthcheck():
+    return {
+        "ok": True,
+        "service": "bobou-backend"
+    }
+
+@app.get("/health")
+async def healthcheck():
+    return {
+        "ok": True,
+        "service": "bobou-backend"
+    }
