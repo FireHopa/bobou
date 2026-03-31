@@ -7,6 +7,8 @@ import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import LandingPage from "@/pages/LandingPage";
+import TermsOfServicePage from "@/pages/TermsOfServicePage";
+import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 import JourneyPage from "@/pages/JourneyPage";
 import DashboardPage from "@/pages/DashboardPage";
 import RobotDetailPage from "@/pages/RobotDetailPage";
@@ -31,6 +33,8 @@ import SkyBobPage from "@/pages/SkyBobPage";
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
+  { path: "/termos-de-servico", element: <TermsOfServicePage /> },
+  { path: "/politica-de-privacidade", element: <PrivacyPolicyPage /> },
   { path: "/auth/linkedin/callback", element: <LinkedInCallbackPage /> },
   { path: "/auth/facebook/callback", element: <FacebookCallbackPage /> },
   { path: "/auth/youtube/callback", element: <YouTubeCallbackPage /> },
