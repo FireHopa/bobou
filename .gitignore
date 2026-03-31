@@ -13,11 +13,14 @@ frontend-src/.env.production
 # Node
 frontend-src/node_modules/
 frontend-src/dist/
+frontend-src/*.tsbuildinfo
 
 # Editor / OS
 .vscode/
 .idea/
 .DS_Store
+**/*.code-workspace
+**/desktop.ini
 
 # Logs
 *.log
