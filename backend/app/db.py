@@ -70,6 +70,9 @@ def _ensure_sqlite_columns() -> None:
             "google_business_location_store_code": "TEXT",
             "google_business_location_category": "TEXT",
             "google_business_locations_json": "TEXT",
+            "profile_image_data": "TEXT",
+            "profile_image_mime_type": "TEXT",
+            "profile_image_updated_at": "TIMESTAMP",
             "skybob": "TEXT",
         },
     )

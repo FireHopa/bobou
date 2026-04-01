@@ -62,6 +62,10 @@ def _ensure_configured() -> None:
         raise HTTPException(status_code=500, detail="Configuração do TikTok OAuth incompleta no backend.")
 
 
+def _ensure_connect_enabled() -> None:
+    raise HTTPException(status_code=503, detail="Integração com TikTok em manutenção no momento.")
+
+
 def _token_is_expired(expires_at: Optional[datetime]) -> bool:
     if not expires_at:
         return True
@@ -261,6 +265,7 @@ def get_auth_url(
     code_challenge: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ):
+    _ensure_connect_enabled()
     _ensure_configured()
     final_state = state or secrets.token_urlsafe(24)
     final_code_challenge = str(code_challenge or "").strip()
@@ -283,6 +288,7 @@ def get_auth_url(
 
 @router.post("/connect")
 async def connect_tiktok(payload: dict, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    _ensure_connect_enabled()
     _ensure_configured()
     code = str(payload.get("code") or "").strip()
     code_verifier = str(payload.get("code_verifier") or "").strip()

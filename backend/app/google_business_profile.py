@@ -89,6 +89,10 @@ def _ensure_configured() -> None:
         raise HTTPException(status_code=500, detail="Configuração do Google Business Profile OAuth incompleta no backend.")
 
 
+def _ensure_connect_enabled() -> None:
+    raise HTTPException(status_code=503, detail="Integração com Perfil de Empresa Google em manutenção no momento.")
+
+
 def _token_is_expired(expires_at: Optional[datetime]) -> bool:
     if not expires_at:
         return True
@@ -244,6 +248,7 @@ async def _hydrate_locations(access_token: str) -> tuple[Optional[dict], list[di
 
 @router.get("/auth-url")
 def get_auth_url(current_user: User = Depends(get_current_user)):
+    _ensure_connect_enabled()
     _ensure_configured()
     state = secrets.token_urlsafe(24)
     params = {
@@ -261,6 +266,7 @@ def get_auth_url(current_user: User = Depends(get_current_user)):
 
 @router.post("/connect")
 async def connect_google_business(payload: ConnectRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    _ensure_connect_enabled()
     token_data = await _exchange_code(payload.code)
     access_token = token_data.get("access_token")
     refresh_token = token_data.get("refresh_token") or current_user.google_business_refresh_token

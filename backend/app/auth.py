@@ -1,5 +1,12 @@
+from __future__ import annotations
+
+import base64
+import io
+from datetime import datetime, timezone
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -18,17 +25,31 @@ from .security import create_access_token, get_password_hash, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticação"])
 
+PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+PROFILE_IMAGE_OUTPUT_SIZE = 384
+PROFILE_IMAGE_MIME_TYPE = "image/webp"
+
 
 class CreditPlanActivateIn(BaseModel):
     plan_id: str
 
 
-def _token_payload(user: User, access_token: str) -> dict:
+class AccountProfileUpdateIn(BaseModel):
+    full_name: str
+
+
+def _resample_filter() -> int:
+    return Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+
+
+def _build_profile_image_url(user: User) -> str | None:
+    if not user.profile_image_data or not user.profile_image_mime_type:
+        return None
+    return f"data:{user.profile_image_mime_type};base64,{user.profile_image_data}"
+
+
+def _user_payload(user: User) -> dict:
     return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user_email": user.email,
-        "user_name": user.full_name,
         "credits": user.credits,
         "has_linkedin": bool(user.linkedin_urn),
         "has_instagram": bool(user.instagram_account_id and user.instagram_meta_access_token),
@@ -45,7 +66,64 @@ def _token_payload(user: User, access_token: str) -> dict:
         "has_google_business_profile": bool(user.google_business_refresh_token),
         "google_business_account_display_name": user.google_business_account_display_name,
         "google_business_location_title": user.google_business_location_title,
+        "profile_image_url": _build_profile_image_url(user),
     }
+
+
+def _token_payload(user: User, access_token: str) -> dict:
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_email": user.email,
+        "user_name": user.full_name,
+        **_user_payload(user),
+    }
+
+
+def _me_payload(user: User) -> dict:
+    return {
+        "email": user.email,
+        "full_name": user.full_name,
+        "google_id": user.google_id,
+        **_user_payload(user),
+    }
+
+
+def _normalize_full_name(full_name: str | None) -> str:
+    normalized = " ".join(str(full_name or "").strip().split())
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Informe um nome válido para a conta.")
+    if len(normalized) > 120:
+        raise HTTPException(status_code=400, detail="O nome da conta deve ter no máximo 120 caracteres.")
+    return normalized
+
+
+async def _prepare_profile_image(file: UploadFile) -> str:
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Nenhuma imagem foi enviada.")
+    if len(raw_bytes) > PROFILE_IMAGE_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="A imagem de perfil deve ter no máximo 5 MB.")
+
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as image:
+            processed = ImageOps.exif_transpose(image)
+            has_alpha = processed.mode in {"RGBA", "LA"} or (processed.mode == "P" and "transparency" in processed.info)
+            processed = ImageOps.fit(
+                processed.convert("RGBA" if has_alpha else "RGB"),
+                (PROFILE_IMAGE_OUTPUT_SIZE, PROFILE_IMAGE_OUTPUT_SIZE),
+                method=_resample_filter(),
+            )
+            buffer = io.BytesIO()
+            processed.save(buffer, format="WEBP", quality=84, method=6)
+    except UnidentifiedImageError as exc:
+        raise HTTPException(status_code=400, detail="Arquivo inválido. Envie uma imagem PNG, JPG ou WEBP.") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Não foi possível processar a imagem enviada.") from exc
+
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 def check_and_reset_credits(user: User, session: Session) -> User:
@@ -136,27 +214,55 @@ def get_me(
 ):
     current_user = check_and_reset_credits(current_user, session)
     attach_credit_headers(response, current_user)
-    return {
-        "email": current_user.email,
-        "full_name": current_user.full_name,
-        "google_id": current_user.google_id,
-        "credits": current_user.credits,
-        "has_linkedin": bool(current_user.linkedin_urn),
-        "has_instagram": bool(current_user.instagram_account_id and current_user.instagram_meta_access_token),
-        "instagram_username": current_user.instagram_username,
-        "has_facebook": bool(current_user.facebook_page_id and current_user.facebook_page_access_token),
-        "facebook_page_name": current_user.facebook_page_name,
-        "facebook_page_username": current_user.facebook_page_username,
-        "has_youtube": bool(current_user.youtube_channel_id and current_user.youtube_refresh_token),
-        "youtube_channel_title": current_user.youtube_channel_title,
-        "youtube_channel_handle": current_user.youtube_channel_handle,
-        "has_tiktok": bool(current_user.tiktok_open_id and current_user.tiktok_refresh_token),
-        "tiktok_display_name": current_user.tiktok_display_name,
-        "tiktok_username": current_user.tiktok_username,
-        "has_google_business_profile": bool(current_user.google_business_refresh_token),
-        "google_business_account_display_name": current_user.google_business_account_display_name,
-        "google_business_location_title": current_user.google_business_location_title,
-    }
+    return _me_payload(current_user)
+
+
+@router.put("/profile")
+def update_profile(
+    payload: AccountProfileUpdateIn,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.full_name = _normalize_full_name(payload.full_name)
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    attach_credit_headers(response, current_user)
+    return _me_payload(current_user)
+
+
+@router.post("/profile-image")
+async def upload_profile_image(
+    response: Response,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.profile_image_data = await _prepare_profile_image(file)
+    current_user.profile_image_mime_type = PROFILE_IMAGE_MIME_TYPE
+    current_user.profile_image_updated_at = datetime.now(timezone.utc)
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    attach_credit_headers(response, current_user)
+    return _me_payload(current_user)
+
+
+@router.delete("/profile-image")
+def delete_profile_image(
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.profile_image_data = None
+    current_user.profile_image_mime_type = None
+    current_user.profile_image_updated_at = None
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    attach_credit_headers(response, current_user)
+    return _me_payload(current_user)
 
 
 @router.get("/credits/catalog")

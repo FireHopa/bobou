@@ -37,6 +37,7 @@ class Token(BaseModel):
     has_google_business_profile: bool = False
     google_business_account_display_name: Optional[str] = None
     google_business_location_title: Optional[str] = None
+    profile_image_url: Optional[str] = None
 # =====================================
 
 class BriefingIn(BaseModel):

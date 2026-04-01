@@ -73,6 +73,10 @@ class User(SQLModel, table=True):
     google_business_location_category: Optional[str] = Field(default=None)
     google_business_locations_json: Optional[str] = Field(default="[]")
 
+    profile_image_data: Optional[str] = Field(default=None)
+    profile_image_mime_type: Optional[str] = Field(default=None)
+    profile_image_updated_at: Optional[datetime] = Field(default=None)
+
     created_at: datetime = Field(default_factory=utcnow)
 
 
