@@ -38,10 +38,104 @@ const VIDEO_FORMAT_OPTIONS = [
 ];
 
 export const YOUTUBE_TASKS: AuthorityTask[] = [
-  { title: "Roteiro de Vídeo Longo (Conteúdo Pilar)", inputMode: "theme", aiSuggestions: true },
-  { title: "Roteiro de Shorts / Vídeo Curto", inputMode: "theme", aiSuggestions: true },
-  { title: "Títulos e Descrições Otimizadas (SEO/AEO)", inputMode: "theme", aiSuggestions: true },
-  { title: "Roteiro Institucional (Sobre a Empresa)", inputMode: "theme", aiSuggestions: true }
+  {
+    title: "Roteiro de Vídeo Longo (Conteúdo Pilar)",
+    description: "Transforma um tema importante do negócio em um roteiro profundo, gravável e com retenção de YouTube, equilibrando resposta cedo, didática e progressão lógica.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual é o tema principal do vídeo longo?",
+    inputPlaceholder: "Ex: Por que empresas boas continuam invisíveis no YouTube mesmo tendo conteúdo útil...",
+    submitLabel: "Gerar roteiro",
+    extraFields: [
+      {
+        key: "video_format",
+        label: "Formato do vídeo",
+        type: "select",
+        placeholder: "Escolha o formato do vídeo",
+        options: VIDEO_FORMAT_OPTIONS,
+        required: true,
+        aiRecommended: true,
+      },
+    ],
+  },
+  {
+    title: "Roteiro de Shorts / Vídeo Curto",
+    description: "Cria um roteiro curto, direto e nativo de Shorts, com promessa rápida, ritmo certo e gancho forte sem parecer clickbait forçado.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual é o tema principal do Shorts?",
+    inputPlaceholder: "Ex: O erro que faz vídeos promissores morrerem antes dos 5 segundos...",
+    submitLabel: "Gerar Shorts",
+    extraFields: [
+      {
+        key: "video_format",
+        label: "Formato do vídeo",
+        type: "select",
+        placeholder: "Escolha o formato do vídeo",
+        options: VIDEO_FORMAT_OPTIONS,
+        required: true,
+        aiRecommended: true,
+      },
+    ],
+  },
+  {
+    title: "Títulos e Descrições Otimizadas (SEO/AEO)",
+    description: "Gera títulos fortes, descrição otimizada, capítulos, palavras-chave e ângulos de thumbnail alinhados à busca, retenção e clareza semântica do YouTube.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual é o tema principal do vídeo?",
+    inputPlaceholder: "Ex: Como transformar conhecimento técnico em vídeos que geram autoridade no YouTube",
+    submitLabel: "Gerar títulos e descrição",
+    extraFields: [
+      {
+        key: "content_type",
+        label: "Esse conteúdo é",
+        type: "select",
+        placeholder: "Escolha o tipo de conteúdo",
+        options: [
+          { value: "video_longo", label: "vídeo longo" },
+          { value: "shorts", label: "shorts" },
+          { value: "video_institucional", label: "vídeo institucional" },
+          { value: "video_educativo", label: "vídeo educativo" },
+          { value: "estudo_de_caso", label: "estudo de caso" },
+        ],
+        required: true,
+      },
+      {
+        key: "content_goal",
+        label: "O objetivo principal é",
+        type: "select",
+        placeholder: "Escolha o objetivo principal",
+        options: [
+          { value: "gerar_descoberta", label: "gerar descoberta" },
+          { value: "gerar_autoridade", label: "gerar autoridade" },
+          { value: "gerar_cliques", label: "gerar cliques" },
+          { value: "gerar_conversao", label: "gerar conversão" },
+        ],
+        required: true,
+      },
+    ],
+  },
+  {
+    title: "Roteiro Institucional (Sobre a Empresa)",
+    description: "Estrutura um vídeo institucional com cara de YouTube: apresentação clara, contexto, credibilidade, diferenciais reais e fechamento útil, sem virar propaganda genérica.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual é o foco do vídeo institucional?",
+    inputPlaceholder: "Ex: Apresentar a empresa de forma confiável para quem chegou pelo canal...",
+    submitLabel: "Gerar roteiro institucional",
+    extraFields: [
+      {
+        key: "video_format",
+        label: "Formato do vídeo",
+        type: "select",
+        placeholder: "Escolha o formato do vídeo",
+        options: VIDEO_FORMAT_OPTIONS,
+        required: true,
+        aiRecommended: true,
+      },
+    ],
+  },
 ];
 
 export const INSTAGRAM_TASKS: AuthorityTask[] = [

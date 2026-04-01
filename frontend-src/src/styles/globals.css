@@ -209,26 +209,32 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar {
-    width: 8px;
+    width: 10px;
+    height: 10px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 999px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: rgba(0, 200, 232, 0.12);
+    background-color: rgba(0, 200, 232, 0.18);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
 
   .custom-scrollbar:hover::-webkit-scrollbar-thumb {
-    background-color: rgba(0, 200, 232, 0.22);
+    background-color: rgba(0, 200, 232, 0.28);
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(0, 200, 232, 0.35);
+    background-color: rgba(0, 200, 232, 0.38);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 

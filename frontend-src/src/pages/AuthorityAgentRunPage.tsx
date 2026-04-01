@@ -579,14 +579,16 @@ export default function AuthorityAgentRunPage() {
   async function executeTask(finalTheme: string, taskOverride?: AuthorityTask) {
     if (!agentKey) return;
     const activeTask = taskOverride || themeModalTask || undefined;
-    const isVideoScriptTask = (agentKey === "instagram" || agentKey === "tiktok") && activeTask?.title === "Roteiros";
+    const requiresVideoFormat = Boolean(
+      activeTask?.extraFields?.some((field) => field.key === "video_format" && field.required)
+    );
     const trimmedTheme = finalTheme.trim();
 
     let resolvedExtraFieldValues = { ...extraFieldValues };
     let resolvedRecommendation = videoFormatRecommendation;
 
     if (
-      isVideoScriptTask &&
+      requiresVideoFormat &&
       trimmedTheme &&
       !resolvedExtraFieldValues.video_format
     ) {

@@ -12,9 +12,7 @@ import {
   GripVertical,
   Inbox,
   LayoutTemplate,
-  Link2,
   Loader2,
-  MousePointerClick,
   Pencil,
   Plus,
   Save,
@@ -1069,18 +1067,27 @@ function GuideStep({
   step,
   title,
   description,
+  className,
 }: {
   step: string;
   title: string;
-  description: string;
+  description?: string;
+  className?: string;
 }) {
   return (
-    <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.035] p-4">
-      <div className="mb-3 inline-flex h-9 min-w-9 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100">
+    <div
+      className={cn(
+        "flex min-w-[184px] flex-1 items-center gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-4 py-3.5",
+        className,
+      )}
+    >
+      <div className="inline-flex h-11 min-w-11 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100">
         {step}
       </div>
-      <div className="text-sm font-semibold text-white">{title}</div>
-      <div className="mt-2 text-sm leading-6 text-white/55">{description}</div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold leading-5 text-white">{title}</div>
+        {description ? <div className="mt-1 text-sm leading-5 text-white/55">{description}</div> : null}
+      </div>
     </div>
   );
 }
@@ -1226,7 +1233,7 @@ function ColumnLane({
           </div>
         ) : null}
 
-        <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+        <div className="custom-scrollbar flex-1 space-y-3 overflow-y-auto pr-1">
           {column.cards.length ? (
             column.cards.map((card) => {
               const active = selectedCardId === card.id;
@@ -1522,12 +1529,32 @@ function FlowchartCanvas({
           }
         }}
         onPointerMove={pendingSourceNode ? updateConnectionPointer : undefined}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          const container = containerRef.current;
+          if (!container) return;
+
+          const step = event.shiftKey ? 220 : 96;
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            container.scrollLeft -= step;
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            container.scrollLeft += step;
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            container.scrollTop -= step;
+          } else if (event.key === "ArrowDown") {
+            event.preventDefault();
+            container.scrollTop += step;
+          }
+        }}
         className={cn(
-          "relative overflow-auto overscroll-none bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.08),transparent_35%),linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:auto,32px_32px,32px_32px]",
+          "custom-scrollbar relative overflow-auto overscroll-none bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.08),transparent_35%),linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:auto,32px_32px,32px_32px] outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/40",
           isPanning && "cursor-grabbing select-none",
           viewportClassName || "h-[min(78vh,900px)]",
         )}
-        style={{ scrollbarWidth: "none", msOverflowStyle: "none", touchAction: "none" }}
+        style={{ touchAction: "pan-x pan-y" }}
       >
         <div className="relative min-h-full" style={{ width, height }}>
           <svg className="pointer-events-none absolute inset-0 h-full w-full">
@@ -1606,7 +1633,7 @@ function FlowchartCanvas({
                     ? "border-cyan-300/55 bg-[#10213d] ring-2 ring-cyan-300/25"
                     : "border-white/10 bg-[#0b1426]/95 hover:border-white/20",
                 )}
-                style={{ left: node.x, top: node.y }}
+                style={{ left: node.x, top: node.y, touchAction: "none" }}
               >
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -1764,10 +1791,7 @@ function ChecklistEditor({
       <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-white">Progresso do checklist</div>
-            <div className="text-sm text-white/55">
-              Marque os itens concluídos e mantenha o card operacional de verdade.
-            </div>
+            <div className="text-sm font-semibold text-white">Progresso</div>
           </div>
           <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-sm font-semibold text-cyan-100">
             {progress}%
@@ -1848,11 +1872,6 @@ function ChecklistEditor({
           Limpar concluídos
         </Button>
       </div>
-
-      <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
-        Cada linha agora é um item real com check individual. O texto livre continua nas
-        observações do card, não dentro do checklist.
-      </div>
     </div>
   );
 }
@@ -1896,17 +1915,13 @@ function FlowEditorInspector({
                 ? "Finalizar conexão"
                 : "Selecione um item"}
         </CardTitle>
-        <CardDescription className="text-white/55">
-          Edite o bloco ou a conexão selecionada.
-        </CardDescription>
+
       </CardHeader>
 
       <CardContent className={cn("space-y-4", contentClassName)}>
         {pendingConnectionNode ? (
           <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
-            Nova conexão iniciada em <strong>{pendingConnectionNode.title}</strong>. Clique na
-            bolinha de entrada do destino para concluir. Se a bolinha já estiver ocupada, o clique
-            solta a conexão atual primeiro.
+            Conectando <strong>{pendingConnectionNode.title}</strong>. Clique na entrada do próximo bloco.
           </div>
         ) : null}
 
@@ -1963,15 +1978,13 @@ function FlowEditorInspector({
             </div>
 
             <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
-              Para conectar, clique na bolinha de saída do bloco e depois na bolinha de entrada do
-              destino.
+              Saída do bloco → entrada do destino.
             </div>
           </>
         ) : selectedEdge && selectedEdgeNodes ? (
           <>
             <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.035] px-4 py-4 text-sm leading-6 text-white/70">
-              Conexão entre <strong>{selectedEdgeNodes.source.title}</strong> e{" "}
-              <strong>{selectedEdgeNodes.target.title}</strong>.
+              <strong>{selectedEdgeNodes.source.title}</strong> → <strong>{selectedEdgeNodes.target.title}</strong>.
             </div>
 
             <Button className="h-11 rounded-2xl" variant="outline" onClick={onDeleteSelectedEdge}>
@@ -1982,7 +1995,7 @@ function FlowEditorInspector({
         ) : (
           <EmptyState
             title="Nada selecionado"
-            description="Clique em um bloco para editar ou em uma linha para remover a conexão."
+            description="Clique no bloco ou na conexão."
           />
         )}
       </CardContent>
@@ -3260,7 +3273,7 @@ export default function BobarPage() {
           variant="glass"
           className="overflow-hidden rounded-[2.4rem] border-cyan-400/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_28%),#040914]"
         >
-          <CardHeader className="gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_560px] xl:items-start">
+          <CardHeader className="gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_460px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_520px]">
             <div className="max-w-5xl">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-100">
                 <Sparkles className="h-4 w-4" />
@@ -3268,42 +3281,33 @@ export default function BobarPage() {
               </div>
               <CardTitle className="max-w-4xl text-4xl font-black tracking-tight text-white sm:text-5xl">
                 {isImportMode
-                  ? "Abra uma base importada e toque a execução no mesmo quadro do Bobar."
-                  : "Organize cards, roteiros e fluxogramas com clareza desde o primeiro acesso."}
+                  ? "Abra a base e siga no mesmo quadro."
+                  : "Cards e fluxos no mesmo quadro."}
               </CardTitle>
               <CardDescription className="mt-4 max-w-3xl text-base leading-8 text-white/65">
                 {isImportMode
-                  ? "Selecione a base importada, marque o estágio e abra o quadro sem cards estáticos nem telas paralelas."
-                  : "O foco aqui é reduzir ruído: quadro visual previsível, edição contextual e fluxograma que ensina o uso enquanto a pessoa trabalha."}
+                  ? "Abra e continue no quadro."
+                  : "Coluna, card e fluxo no mesmo lugar."}
               </CardDescription>
 
-              <div className="mt-6 grid gap-3 lg:grid-cols-3">
+              <div className="mt-6 flex flex-wrap gap-3">
                 <GuideStep
                   step="01"
-                  title={isImportMode ? "Escolha a base" : "Monte a estrutura"}
-                  description={
-                    isImportMode
-                      ? "Selecione um roteiro importado. A base vira colunas editáveis no quadro, em vez de ficar presa num card único."
-                      : "Crie colunas que representem etapa, status ou área de trabalho. Isso já deixa o quadro legível para quem acabou de entrar."
-                  }
+                  title={isImportMode ? "Escolha a base" : "Colunas"}
+                  description={isImportMode ? "Abra o roteiro." : "Nomes curtos."}
+                  className="sm:min-w-[220px]"
                 />
                 <GuideStep
                   step="02"
-                  title={isImportMode ? "Edite no quadro" : "Abasteça com cards"}
-                  description={
-                    isImportMode
-                      ? "O conteúdo importado usa os mesmos cards do Bobar: checklist, conteúdo e fluxograma."
-                      : "Use cards para roteiros, checklists, ideias e materiais operacionais. Tudo fica com o mesmo padrão visual e de edição."
-                  }
+                  title={isImportMode ? "Edite no quadro" : "Cards"}
+                  description={isImportMode ? "Tudo no mesmo padrão." : "Só o essencial."}
+                  className="sm:min-w-[220px]"
                 />
                 <GuideStep
                   step="03"
-                  title={isImportMode ? "Expanda sem travar" : "Desenhe o fluxo"}
-                  description={
-                    isImportMode
-                      ? "Crie novas colunas, reorganize a execução e refine o fluxograma segundo a segundo sem sair dessa tela."
-                      : "Quando precisar de processo, transforme o card em fluxograma e conecte os blocos por clique, sem menus escondidos."
-                  }
+                  title={isImportMode ? "Expanda sem travar" : "Fluxo"}
+                  description={isImportMode ? "Sem sair da tela." : "Só quando ajudar."}
+                  className="sm:min-w-[220px]"
                 />
               </div>
             </div>
@@ -3335,9 +3339,9 @@ export default function BobarPage() {
               <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.035] p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-white">Modo de trabalho</div>
+                    <div className="text-sm font-semibold text-white">Troca rápida</div>
                     <div className="mt-1 text-sm leading-6 text-white/55">
-                      Alterne entre o quadro geral e os roteiros importados sem perder contexto.
+                      Quadro e importados no mesmo fluxo.
                     </div>
                   </div>
                   {selectedCard ? (
@@ -3548,10 +3552,10 @@ export default function BobarPage() {
               <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="rounded-[1.9rem] border border-white/10 bg-white/[0.035] p-5">
                   <div className="text-base font-semibold text-white">
-                    A base importada agora abre como quadro real, não como card estático.
+                    A base importada vira quadro real.
                   </div>
                   <div className="mt-3 text-sm leading-7 text-white/60">
-                    Cada seção vira card editável nas colunas certas. O roteiro segundo a segundo já entra como fluxograma do Bobar, então a pessoa pode ajustar blocos, conexões e ordem sem refazer tudo.
+                    Cada seção entra como card editável, sem ficar presa em um card único.
                   </div>
                 </div>
 
@@ -3576,12 +3580,12 @@ export default function BobarPage() {
                 {isImportMode ? "Quadro importado" : "Quadro visual"}
               </div>
               <CardTitle className="mt-2 text-3xl font-black text-white">
-                {isImportMode ? activeImportTitle : "Cards organizados por coluna"}
+                {isImportMode ? activeImportTitle : "Quadro por coluna"}
               </CardTitle>
               <CardDescription className="mt-2 max-w-4xl text-white/55">
                 {isImportMode
-                  ? "Agora essa base roda no mesmo quadro visual do Bobar. Arraste cards, crie novas colunas, edite checklists e abra o roteiro segundo a segundo no fluxograma."
-                  : "O quadro precisa ser escaneável em segundos. Clique para editar, arraste para mover e use os botões da própria coluna para ajustes estruturais."}
+                  ? "Arraste cards, crie colunas e edite a base no mesmo quadro."
+                  : "Bateu o olho, entendeu. Clique para editar e arraste para mover."}
               </CardDescription>
             </div>
 
@@ -3609,7 +3613,7 @@ export default function BobarPage() {
                 </div>
               </div>
             ) : visibleColumns.length ? (
-              <div className="overflow-x-auto pb-4">
+              <div className="custom-scrollbar overflow-x-auto pb-4">
                 <div className="flex min-w-max gap-5">
                   {visibleColumns.map((column) => (
                     <ColumnLane
@@ -3635,11 +3639,11 @@ export default function BobarPage() {
             ) : (
               <div className="space-y-5">
                 <EmptyState
-                  title={isImportMode ? "Escolha um roteiro importado" : "Nenhuma coluna criada ainda"}
+                  title={isImportMode ? "Escolha um roteiro importado" : "Sem colunas ainda"}
                   description={
                     isImportMode
-                      ? "Selecione um item em Importados para o Bobar abrir a base nas 3 colunas editáveis e no fluxograma."
-                      : "Comece criando a primeira coluna do fluxo. Isso organiza o quadro e evita uma tela vazia sem direção para quem está acessando pela primeira vez."
+                      ? "Selecione um item em Importados para abrir a base no quadro."
+                      : "Crie a primeira coluna para dar forma ao quadro."
                   }
                 />
                 <div className="flex justify-center">
@@ -3656,11 +3660,11 @@ export default function BobarPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-6 2xl:items-start 2xl:grid-cols-[minmax(0,1fr)_360px]">
           <Card
             id="bobar-editor"
             variant="glass"
-            className="overflow-visible rounded-[2.2rem] border-cyan-400/10 bg-[#040914]"
+            className="self-start overflow-visible rounded-[2.2rem] border-cyan-400/10 bg-[#040914]"
           >
             <CardHeader className="gap-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3673,8 +3677,8 @@ export default function BobarPage() {
                   </CardTitle>
                   <CardDescription className="mt-2 max-w-3xl text-white/55">
                     {selectedCard
-                      ? "Edite os metadados, o conteúdo e, se necessário, o fluxograma. A interface foi organizada para deixar ação e contexto no lugar certo."
-                      : "Escolha um card no quadro para abrir o editor completo. Enquanto isso, o painel lateral mostra como a experiência funciona."}
+                      ? "Edite sem sair do quadro."
+                      : "Selecione um card."}
                   </CardDescription>
                 </div>
 
@@ -3724,7 +3728,6 @@ export default function BobarPage() {
                   {selectedTemplate ? (
                     <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
                       <div className="font-semibold text-white">{selectedTemplate.label}</div>
-                      <div className="mt-1">{selectedTemplate.description}</div>
                     </div>
                   ) : null}
 
@@ -3808,11 +3811,6 @@ export default function BobarPage() {
                               {activeFlow?.edges.length || 0}
                             </div>
                           </div>
-
-                          <div className="rounded-[1.6rem] border border-cyan-400/15 bg-cyan-400/8 px-4 py-4 text-sm leading-6 text-cyan-50/85">
-                            Para mexer no fluxo, abra o editor em tela cheia. Lá ficam o canvas, o
-                            inspector e os botões de edição.
-                          </div>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3">
@@ -3851,8 +3849,8 @@ export default function BobarPage() {
                             current ? { ...current, content_text: event.target.value } : current,
                           )
                         }
-                        placeholder="Cole aqui o roteiro, checklist, ideia ou texto operacional."
-                        className="min-h-[420px] rounded-[1.8rem] border-cyan-400/15 bg-[#0a1225]"
+                        placeholder="Escreva o conteúdo principal do card."
+                        className="custom-scrollbar min-h-[320px] rounded-[1.8rem] border-cyan-400/15 bg-[#0a1225]"
                       />
                     </div>
                   )}
@@ -3868,16 +3866,16 @@ export default function BobarPage() {
                           current ? { ...current, note: event.target.value } : current,
                         )
                       }
-                      placeholder="Contexto, observações operacionais, responsáveis ou qualquer informação que ajude outra pessoa a entender esse card."
-                      className="min-h-[140px] rounded-[1.6rem] border-cyan-400/15 bg-[#0a1225]"
+                      placeholder="Observações rápidas, responsáveis ou contexto do card."
+                      className="custom-scrollbar min-h-[120px] rounded-[1.6rem] border-cyan-400/15 bg-[#0a1225]"
                     />
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] px-4 py-4">
                     <div className="text-sm text-white/60">
                       {hasPendingChanges
-                        ? "Existem alterações pendentes no card."
-                        : "Tudo salvo ou sem alterações pendentes."}
+                        ? "Alterações pendentes."
+                        : "Sem alterações pendentes."}
                     </div>
                     <Button
                       className="h-12 rounded-2xl px-6"
@@ -3895,8 +3893,8 @@ export default function BobarPage() {
                 </>
               ) : (
                 <EmptyState
-                  title="Selecione um card para editar"
-                  description="Clique em qualquer card do quadro para abrir o editor. A organização agora está pensada para deixar claro o que editar, onde salvar e como navegar."
+                  title="Selecione um card"
+                  description="Clique em um card para abrir o editor."
                 />
               )}
             </CardContent>
@@ -3908,12 +3906,9 @@ export default function BobarPage() {
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
                   Contexto do card
                 </div>
-                <CardTitle className="text-3xl font-black text-white">
-                  Painel lateral útil
-                </CardTitle>
+                <CardTitle className="text-3xl font-black text-white">Resumo rápido</CardTitle>
                 <CardDescription className="text-white/55">
-                  Em vez de repetir informação, o lado direito mostra contexto, status e atalhos que
-                  ajudam na tomada de decisão.
+                  Contexto e ações sem repetir o editor.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -3987,7 +3982,7 @@ export default function BobarPage() {
                         onClick={handleExportText}
                       >
                         <FilePlus2 className="h-4 w-4" />
-                        Baixar texto
+                        Exportar texto
                       </Button>
                       <Button
                         className="h-11 rounded-2xl text-red-200 hover:text-red-100"
@@ -4001,8 +3996,8 @@ export default function BobarPage() {
                   </>
                 ) : (
                   <EmptyState
-                    title="Sem card selecionado"
-                    description="Escolha um card no quadro para ver contexto, status e ações rápidas neste painel."
+                    title="Nenhum card aberto"
+                    description="Selecione um card para ver contexto e ações."
                   />
                 )}
               </CardContent>
@@ -4011,68 +4006,9 @@ export default function BobarPage() {
             <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
               <CardHeader>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-                  Guia rápido
-                </div>
-                <CardTitle className="text-3xl font-black text-white">
-                  Primeiros passos claros
-                </CardTitle>
-                <CardDescription className="text-white/55">
-                  O objetivo aqui é fazer a pessoa entender o fluxo sem depender de tentativa e
-                  erro.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-5">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                    <Columns3 className="h-4 w-4 text-cyan-200" />
-                    Estruture primeiro
-                  </div>
-                  <div className="text-sm leading-6 text-white/60">
-                    Pense nas colunas como etapas do processo. Quando isso fica claro, o quadro
-                    inteiro fica mais intuitivo.
-                  </div>
-                </div>
-
-                <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-5">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                    <MousePointerClick className="h-4 w-4 text-cyan-200" />
-                    Clique, depois edite
-                  </div>
-                  <div className="text-sm leading-6 text-white/60">
-                    O clique no card abre o editor completo. No fluxograma, o clique também serve
-                    para conectar blocos sem abrir menus extras.
-                  </div>
-                </div>
-
-                <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-5">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                    <Link2 className="h-4 w-4 text-cyan-200" />
-                    Fluxo legível
-                  </div>
-                  <div className="text-sm leading-6 text-white/60">
-                    Use rótulos nas conexões apenas quando agregarem contexto. O importante é que
-                    outra pessoa consiga entender o caminho olhando rápido.
-                  </div>
-                </div>
-
-                <div className="rounded-[1.8rem] border border-dashed border-cyan-400/20 bg-cyan-400/8 p-5 text-sm leading-6 text-cyan-50/90">
-                  Dica prática: cards simples resolvem melhor conteúdo textual. Reserve o fluxograma
-                  para sequência, decisão, narrativa visual ou dependência entre etapas.
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
-              <CardHeader>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
                   Últimos cards
                 </div>
-                <CardTitle className="text-3xl font-black text-white">
-                  Continue de onde parou
-                </CardTitle>
-                <CardDescription className="text-white/55">
-                  Lista rápida para retomar o trabalho sem procurar pelo quadro inteiro.
-                </CardDescription>
+                <CardTitle className="text-3xl font-black text-white">Retome rápido</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {recentCards.length ? (
@@ -4103,8 +4039,8 @@ export default function BobarPage() {
                   ))
                 ) : (
                   <EmptyState
-                    title="Nenhum card ainda"
-                    description="Quando os cards forem criados, esta área ajuda a retomar o trabalho mais recente."
+                    title="Sem cards recentes"
+                    description="Quando houver edição recente, ela aparece aqui."
                   />
                 )}
               </CardContent>
