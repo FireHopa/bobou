@@ -7,8 +7,6 @@ import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import LandingPage from "@/pages/LandingPage";
-import TermsOfServicePage from "@/pages/TermsOfServicePage";
-import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 import JourneyPage from "@/pages/JourneyPage";
 import DashboardPage from "@/pages/DashboardPage";
 import RobotDetailPage from "@/pages/RobotDetailPage";
@@ -29,17 +27,19 @@ import YouTubeCallbackPage from "@/pages/YouTubeCallbackPage";
 import TikTokCallbackPage from "@/pages/TikTokCallbackPage";
 import GoogleBusinessCallbackPage from "@/pages/GoogleBusinessCallbackPage";
 import SkyBobPage from "@/pages/SkyBobPage";
+import TermsOfServicePage from "@/pages/TermsOfServicePage";
+import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
-  { path: "/termos-de-servico", element: <TermsOfServicePage /> },
-  { path: "/politica-de-privacidade", element: <PrivacyPolicyPage /> },
   { path: "/auth/linkedin/callback", element: <LinkedInCallbackPage /> },
   { path: "/auth/facebook/callback", element: <FacebookCallbackPage /> },
   { path: "/auth/youtube/callback", element: <YouTubeCallbackPage /> },
   { path: "/auth/tiktok/callback", element: <TikTokCallbackPage /> },
   { path: "/auth/google-business/callback", element: <GoogleBusinessCallbackPage /> },
+  { path: "/termos-de-servico", element: <TermsOfServicePage /> },
+  { path: "/politica-de-privacidade", element: <PrivacyPolicyPage /> },
   {
     path: "/",
     element: <AppShell />,
