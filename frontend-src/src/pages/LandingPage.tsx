@@ -38,7 +38,7 @@ export function LandingPage() {
                 O Cérebro Digital da sua <span className="text-transparent bg-clip-text bg-gradient-to-r from-google-blue via-google-green to-google-yellow">Autoridade.</span>
               </h1>
               <p className="mt-6 max-w-xl text-pretty text-lg md:text-xl text-muted-foreground leading-relaxed">
-                Transforme seu conhecimento em um ecossistema de agentes especialistas, geração de imagem e operação no Bobar. Uma jornada guiada para criar instruções de alto impacto, produzir criativos e organizar execução real.
+                Transforme seu conhecimento em um ecossistema de autoridade: agentes especialistas, criativos prontos no Motor de Imagem e execução organizada no Bobar para sair do insight e chegar no resultado.
               </p>
             </MotionInView>
 
@@ -100,9 +100,9 @@ export function LandingPage() {
               <Badge variant="outline" className="mb-6 bg-background px-4 py-1.5 text-sm">
                 <TerminalSquare className="h-4 w-4 mr-2" /> Engenharia de Prompt Invisível
               </Badge>
-              <h2 className="text-4xl md:text-5xl font-bold tracking-tight">Projetado para ser citado por IAs.</h2>
+              <h2 className="text-4xl md:text-5xl font-bold tracking-tight">Autoridade que IA entende. Time executa.</h2>
               <p className="mt-6 text-xl text-muted-foreground leading-relaxed">
-                Seu robô não gera apenas texto. Ele nasce com a estrutura avançada (AIO, AEO, GEO), conversa com seu Motor de Imagem e encaixa a execução no Bobar para transformar autoridade em operação prática.
+                Seu robô nasce com a base AIO, AEO e GEO para ser entendido, citado e preferido por IAs e buscadores. Depois, o Motor de Imagem acelera os criativos e o Bobar organiza a operação para transformar autoridade em execução real.
               </p>
             </div>
           </MotionInView>

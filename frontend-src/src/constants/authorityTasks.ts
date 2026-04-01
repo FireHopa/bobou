@@ -38,104 +38,10 @@ const VIDEO_FORMAT_OPTIONS = [
 ];
 
 export const YOUTUBE_TASKS: AuthorityTask[] = [
-  {
-    title: "Roteiro de Vídeo Longo (Conteúdo Pilar)",
-    description: "Transforma um tema importante do negócio em um roteiro profundo, gravável e com retenção de YouTube, equilibrando resposta cedo, didática e progressão lógica.",
-    inputMode: "theme",
-    aiSuggestions: true,
-    inputLabel: "Qual é o tema principal do vídeo longo?",
-    inputPlaceholder: "Ex: Por que empresas boas continuam invisíveis no YouTube mesmo tendo conteúdo útil...",
-    submitLabel: "Gerar roteiro",
-    extraFields: [
-      {
-        key: "video_format",
-        label: "Formato do vídeo",
-        type: "select",
-        placeholder: "Escolha o formato do vídeo",
-        options: VIDEO_FORMAT_OPTIONS,
-        required: true,
-        aiRecommended: true,
-      },
-    ],
-  },
-  {
-    title: "Roteiro de Shorts / Vídeo Curto",
-    description: "Cria um roteiro curto, direto e nativo de Shorts, com promessa rápida, ritmo certo e gancho forte sem parecer clickbait forçado.",
-    inputMode: "theme",
-    aiSuggestions: true,
-    inputLabel: "Qual é o tema principal do Shorts?",
-    inputPlaceholder: "Ex: O erro que faz vídeos promissores morrerem antes dos 5 segundos...",
-    submitLabel: "Gerar Shorts",
-    extraFields: [
-      {
-        key: "video_format",
-        label: "Formato do vídeo",
-        type: "select",
-        placeholder: "Escolha o formato do vídeo",
-        options: VIDEO_FORMAT_OPTIONS,
-        required: true,
-        aiRecommended: true,
-      },
-    ],
-  },
-  {
-    title: "Títulos e Descrições Otimizadas (SEO/AEO)",
-    description: "Gera títulos fortes, descrição otimizada, capítulos, palavras-chave e ângulos de thumbnail alinhados à busca, retenção e clareza semântica do YouTube.",
-    inputMode: "theme",
-    aiSuggestions: true,
-    inputLabel: "Qual é o tema principal do vídeo?",
-    inputPlaceholder: "Ex: Como transformar conhecimento técnico em vídeos que geram autoridade no YouTube",
-    submitLabel: "Gerar títulos e descrição",
-    extraFields: [
-      {
-        key: "content_type",
-        label: "Esse conteúdo é",
-        type: "select",
-        placeholder: "Escolha o tipo de conteúdo",
-        options: [
-          { value: "video_longo", label: "vídeo longo" },
-          { value: "shorts", label: "shorts" },
-          { value: "video_institucional", label: "vídeo institucional" },
-          { value: "video_educativo", label: "vídeo educativo" },
-          { value: "estudo_de_caso", label: "estudo de caso" },
-        ],
-        required: true,
-      },
-      {
-        key: "content_goal",
-        label: "O objetivo principal é",
-        type: "select",
-        placeholder: "Escolha o objetivo principal",
-        options: [
-          { value: "gerar_descoberta", label: "gerar descoberta" },
-          { value: "gerar_autoridade", label: "gerar autoridade" },
-          { value: "gerar_cliques", label: "gerar cliques" },
-          { value: "gerar_conversao", label: "gerar conversão" },
-        ],
-        required: true,
-      },
-    ],
-  },
-  {
-    title: "Roteiro Institucional (Sobre a Empresa)",
-    description: "Estrutura um vídeo institucional com cara de YouTube: apresentação clara, contexto, credibilidade, diferenciais reais e fechamento útil, sem virar propaganda genérica.",
-    inputMode: "theme",
-    aiSuggestions: true,
-    inputLabel: "Qual é o foco do vídeo institucional?",
-    inputPlaceholder: "Ex: Apresentar a empresa de forma confiável para quem chegou pelo canal...",
-    submitLabel: "Gerar roteiro institucional",
-    extraFields: [
-      {
-        key: "video_format",
-        label: "Formato do vídeo",
-        type: "select",
-        placeholder: "Escolha o formato do vídeo",
-        options: VIDEO_FORMAT_OPTIONS,
-        required: true,
-        aiRecommended: true,
-      },
-    ],
-  },
+  { title: "Roteiro de Vídeo Longo (Conteúdo Pilar)", inputMode: "theme", aiSuggestions: true },
+  { title: "Roteiro de Shorts / Vídeo Curto", inputMode: "theme", aiSuggestions: true },
+  { title: "Títulos e Descrições Otimizadas (SEO/AEO)", inputMode: "theme", aiSuggestions: true },
+  { title: "Roteiro Institucional (Sobre a Empresa)", inputMode: "theme", aiSuggestions: true }
 ];
 
 export const INSTAGRAM_TASKS: AuthorityTask[] = [
@@ -352,10 +258,157 @@ export const SITE_TASKS: AuthorityTask[] = [
 ];
 
 export const DECISION_CONTENT_TASKS: AuthorityTask[] = [
-  { title: "FAQ Focado em Quebra de Objeções", inputMode: "theme", aiSuggestions: true },
-  { title: "Landing Page (Página de Destino de Alta Conversão)", inputMode: "theme", aiSuggestions: true },
-  { title: "E-mail Persuasivo de Recuperação/Decisão", inputMode: "theme", aiSuggestions: true },
-  { title: "Comparativo: Nossa Solução vs Mercado", inputMode: "direct", aiSuggestions: false }
+  {
+    title: "FAQ Focado em Quebra de Objeções",
+    description: "Cria respostas de fundo de funil para reduzir dúvidas reais, risco percebido e travas de decisão sem soar vendedor demais.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual produto, serviço ou decisão central precisa ser destravado?",
+    inputPlaceholder: "Ex: Gestão de tráfego para clínicas, consultoria jurídica empresarial, implantação de CRM...",
+    submitLabel: "Gerar FAQ",
+    extraFields: [
+      {
+        key: "faq_focus",
+        label: "O FAQ deve focar mais em",
+        type: "select",
+        placeholder: "Escolha o foco principal do FAQ",
+        options: [
+          { value: "objecoes_compra", label: "objeções de compra" },
+          { value: "credibilidade_prova", label: "credibilidade e prova" },
+          { value: "prazo_processo", label: "prazo, processo e implantação" },
+          { value: "preco_valor", label: "preço, valor e retorno" },
+        ],
+        required: true,
+      },
+      {
+        key: "decision_stage",
+        label: "A pessoa está mais em qual momento?",
+        type: "select",
+        placeholder: "Escolha o estágio de decisão",
+        options: [
+          { value: "comparando_opcoes", label: "comparando opções" },
+          { value: "quase_decidindo", label: "quase decidindo" },
+          { value: "validando_com_o_time", label: "validando com o time" },
+          { value: "entendendo_como_funciona", label: "entendendo como funciona" },
+        ],
+        required: true,
+      },
+    ],
+  },
+  {
+    title: "Landing Page (Página de Destino de Alta Conversão)",
+    description: "Estrutura uma landing page orientada à decisão com promessa clara, contexto, prova, quebra de objeções e CTA forte.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual oferta ou página você quer construir?",
+    inputPlaceholder: "Ex: Landing page para auditoria SEO, página para mentoria B2B, página de serviço premium...",
+    submitLabel: "Gerar landing page",
+    extraFields: [
+      {
+        key: "conversion_goal",
+        label: "Qual é o objetivo principal da página?",
+        type: "select",
+        placeholder: "Escolha o objetivo de conversão",
+        options: [
+          { value: "agendar_reuniao", label: "agendar reunião" },
+          { value: "pedir_orcamento", label: "pedir orçamento" },
+          { value: "falar_whatsapp", label: "falar no WhatsApp" },
+          { value: "solicitar_diagnostico", label: "solicitar diagnóstico" },
+          { value: "comprar", label: "comprar" },
+        ],
+        required: true,
+      },
+      {
+        key: "traffic_source",
+        label: "A principal origem do tráfego será",
+        type: "select",
+        placeholder: "Escolha a origem do tráfego",
+        options: [
+          { value: "trafego_pago", label: "tráfego pago" },
+          { value: "organico_site", label: "orgânico do site" },
+          { value: "social_midias", label: "redes sociais" },
+          { value: "remarketing", label: "remarketing" },
+          { value: "indicacao", label: "indicação" },
+        ],
+        required: true,
+      },
+    ],
+  },
+  {
+    title: "E-mail Persuasivo de Recuperação/Decisão",
+    description: "Cria e-mails para retomar conversas mornas, responder travas e puxar o próximo passo com mais clareza e menos atrito.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual conversa ou oportunidade precisa ser reativada?",
+    inputPlaceholder: "Ex: lead que sumiu após proposta, cliente que travou no orçamento, pós-reunião sem resposta...",
+    submitLabel: "Gerar e-mail",
+    extraFields: [
+      {
+        key: "email_context",
+        label: "Qual é o contexto desse e-mail?",
+        type: "select",
+        placeholder: "Escolha o contexto",
+        options: [
+          { value: "lead_esfriou", label: "lead esfriou" },
+          { value: "proposta_sem_resposta", label: "proposta sem resposta" },
+          { value: "orcamento_abandonado", label: "orçamento abandonado" },
+          { value: "followup_pos_reuniao", label: "follow-up pós-reunião" },
+        ],
+        required: true,
+      },
+      {
+        key: "email_goal",
+        label: "O objetivo principal é",
+        type: "select",
+        placeholder: "Escolha o objetivo do e-mail",
+        options: [
+          { value: "retomar_conversa", label: "retomar conversa" },
+          { value: "responder_objecao", label: "responder objeção" },
+          { value: "fechar_decisao", label: "fechar decisão" },
+          { value: "puxar_proximo_passo", label: "puxar próximo passo" },
+        ],
+        required: true,
+      },
+    ],
+  },
+  {
+    title: "Comparativo: Nossa Solução vs Mercado",
+    description: "Organiza diferenças reais, critérios de escolha, trade-offs e quando cada opção faz ou não sentido para a decisão final.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual comparação você quer construir?",
+    inputPlaceholder: "Ex: nossa consultoria vs freelancer, operação dedicada vs pacote padrão, software próprio vs ferramenta do mercado...",
+    submitLabel: "Gerar comparativo",
+    extraFields: [
+      {
+        key: "comparison_focus",
+        label: "O comparativo deve destacar mais",
+        type: "select",
+        placeholder: "Escolha o foco principal",
+        options: [
+          { value: "criterios_decisao", label: "critérios de decisão" },
+          { value: "custo_retorno", label: "custo, valor e retorno" },
+          { value: "profundidade_suporte", label: "profundidade e suporte" },
+          { value: "velocidade_implantacao", label: "velocidade de implantação" },
+          { value: "aderencia_cenario", label: "aderência ao cenário" },
+        ],
+        required: true,
+      },
+      {
+        key: "comparison_positioning",
+        label: "Qual recorte de comparação faz mais sentido?",
+        type: "select",
+        placeholder: "Escolha o recorte do comparativo",
+        options: [
+          { value: "nossa_solucao_vs_generico", label: "nossa solução vs genérico" },
+          { value: "nossa_solucao_vs_barato", label: "nossa solução vs opção barata" },
+          { value: "personalizado_vs_padrao", label: "personalizado vs pacote padrão" },
+          { value: "especialista_vs_generalista", label: "especialista vs generalista" },
+        ],
+        required: true,
+      },
+    ],
+  },
 ];
 
 export function tasksByAgentKey(agentKey?: string | null): AuthorityTask[] {

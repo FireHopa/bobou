@@ -7,8 +7,8 @@ const primaryItems = [
   {
     key: "AIO",
     title: "AIO",
-    headline: "Autoridade legível por IA",
-    desc: "Estrutura seu conteúdo para modelos de IA entenderem, reutilizarem e citarem com contexto.",
+    headline: "Conteúdo que IA absorve",
+    desc: "Sua autoridade vira ativo estruturado para modelos de IA entenderem, reutilizarem e citarem.",
     variant: "blue" as const,
     Icon: BrainCircuit,
     barClass: "bg-google-blue/60",
@@ -16,8 +16,8 @@ const primaryItems = [
   {
     key: "AEO",
     title: "AEO",
-    headline: "Respostas prontas para ranquear",
-    desc: "Organiza respostas, FAQs e blocos de autoridade para disputar snippets e virar referência.",
+    headline: "Respostas que ganham atenção",
+    desc: "Blocos prontos para snippets, FAQs e respostas objetivas que aumentam visibilidade e confiança.",
     variant: "red" as const,
     Icon: Quote,
     barClass: "bg-google-red/60",
@@ -25,8 +25,8 @@ const primaryItems = [
   {
     key: "GEO",
     title: "GEO",
-    headline: "Presença local convincente",
-    desc: "Regionaliza linguagem, exemplos e termos para soar natural e relevante no seu mercado.",
+    headline: "Presença local que convence",
+    desc: "Adapta contexto, termos e exemplos para sua região e faz a mensagem soar natural no mercado certo.",
     variant: "green" as const,
     Icon: Globe2,
     barClass: "bg-google-green/60",
@@ -37,8 +37,8 @@ const secondaryItems = [
   {
     key: "IMG",
     title: "IMG",
-    headline: "Criativos em escala",
-    desc: "Gera e edita imagens com briefing, referência e variações prontas para anúncio, capa e campanha.",
+    headline: "Visual pronto para campanha",
+    desc: "Cria e edita imagens com briefing, referência e variações para anúncio, capa, criativo e lançamento.",
     variant: "purple" as const,
     Icon: ImagePlus,
     barClass: "bg-violet-500/70",
@@ -46,8 +46,8 @@ const secondaryItems = [
   {
     key: "Bobar",
     title: "Bobar",
-    headline: "Execução sem caos",
-    desc: "Transforma ideias, roteiros e saídas dos agentes em fluxo claro de execução para o time operar.",
+    headline: "Operação organizada para escalar",
+    desc: "Centraliza ideias, roteiros e entregas dos agentes para o time executar com clareza e velocidade.",
     variant: "yellow" as const,
     Icon: Briefcase,
     barClass: "bg-google-yellow/70",
@@ -84,7 +84,7 @@ function ExplainerCard({ item, delay }: { item: ExplainerItem; delay: number }) 
   );
 }
 
-export function ExplainerA3() {
+export function ExplainerA3Commercial() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-3">

@@ -430,6 +430,29 @@ function renderBlockPayloadHtml(payload: AuthorityBlockPayload): string {
       continue;
     }
 
+    if (tipo === "comparison_table") {
+      const title = safeText((conteudo as any).titulo) || "Comparativo visual";
+      const items = safeArray<any>((conteudo as any).items)
+        .filter((item) => isRecord(item))
+        .map((item, index) => {
+          const criterio = safeText(item.criterio) || `Critério ${index + 1}`;
+          const nossaSolucao = safeText(item.nossa_solucao);
+          const mercado = safeText(item.mercado);
+          const recomendacao = safeText(item.recomendacao);
+          if (!criterio && !nossaSolucao && !mercado) return "";
+          const body = [
+            nossaSolucao ? `<p style="margin:0 0 10px;color:#065f46;"><strong>Nossa solução:</strong> ${inlineHtml(nossaSolucao)}</p>` : "",
+            mercado ? `<p style="margin:0 0 10px;color:#92400e;"><strong>Mercado / alternativa:</strong> ${inlineHtml(mercado)}</p>` : "",
+            recomendacao ? `<p style="margin:0;color:#374151;"><strong>Leitura de decisão:</strong> ${inlineHtml(recomendacao)}</p>` : "",
+          ].join("");
+          return htmlInfoCard(criterio, body, "#0ea5e9");
+        })
+        .filter(Boolean);
+      if (!items.length) continue;
+      parts.push(renderHtmlSection(title, renderHtmlGrid(items), "Comparativo"));
+      continue;
+    }
+
     const fallback = renderGenericHtmlValue(isRecord(conteudo) ? conteudo : rawBlock);
     if (fallback) {
       parts.push(renderHtmlSection(toLabel(tipo || "conteudo"), fallback));
@@ -688,6 +711,39 @@ function renderBlockPayloadText(payload: AuthorityBlockPayload, format: "txt" | 
         if (format === "md") out.push(`### Resposta ${index + 1}`, item, "");
         else if (format === "whatsapp") out.push(`*Resposta ${index + 1}*`, item, "");
         else out.push(`Resposta ${index + 1}:`, item, "");
+      });
+      continue;
+    }
+
+    if (tipo === "comparison_table") {
+      const sectionTitle = safeText((conteudo as any).titulo) || "Comparativo visual";
+      const items = safeArray<any>((conteudo as any).items).filter((item) => isRecord(item));
+      if (!items.length) continue;
+      out.push(format === "md" ? `## ${sectionTitle}` : sectionTitle, "");
+      items.forEach((item, index) => {
+        const criterio = safeText(item.criterio) || `Critério ${index + 1}`;
+        const nossaSolucao = safeText(item.nossa_solucao);
+        const mercado = safeText(item.mercado);
+        const recomendacao = safeText(item.recomendacao);
+        if (format === "md") {
+          out.push(`### ${criterio}`);
+          if (nossaSolucao) out.push(`**Nossa solução:** ${nossaSolucao}`);
+          if (mercado) out.push(`**Mercado / alternativa:** ${mercado}`);
+          if (recomendacao) out.push(`**Leitura de decisão:** ${recomendacao}`);
+          out.push("");
+        } else if (format === "whatsapp") {
+          out.push(`*${criterio}*`);
+          if (nossaSolucao) out.push(`• Nossa solução: ${nossaSolucao}`);
+          if (mercado) out.push(`• Mercado / alternativa: ${mercado}`);
+          if (recomendacao) out.push(`• Leitura de decisão: ${recomendacao}`);
+          out.push("");
+        } else {
+          out.push(`${criterio}:`);
+          if (nossaSolucao) out.push(`Nossa solução: ${nossaSolucao}`);
+          if (mercado) out.push(`Mercado / alternativa: ${mercado}`);
+          if (recomendacao) out.push(`Leitura de decisão: ${recomendacao}`);
+          out.push("");
+        }
       });
       continue;
     }

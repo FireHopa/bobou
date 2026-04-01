@@ -235,6 +235,14 @@ function ThemeModal({
     let stepDescription = "Selecione a opção ideal para o conteúdo.";
     if (field.key === "content_type") stepDescription = "Escolha o formato em que este conteúdo será publicado.";
     if (field.key === "content_goal") stepDescription = "Qual é o principal resultado esperado dessa publicação?";
+    if (field.key === "faq_focus") stepDescription = "Defina qual tipo de dúvida ou objeção precisa ser quebrada com mais força.";
+    if (field.key === "decision_stage") stepDescription = "Ajuda a calibrar profundidade, prova e tom do material de decisão.";
+    if (field.key === "conversion_goal") stepDescription = "Esse objetivo orienta CTA, promessa e hierarquia da landing.";
+    if (field.key === "traffic_source") stepDescription = "A origem do tráfego muda o nível de contexto e temperatura da página.";
+    if (field.key === "email_context") stepDescription = "O contexto define o tipo de abordagem e o nível de recuperação da conversa.";
+    if (field.key === "email_goal") stepDescription = "Escolha o resultado prático que o e-mail precisa produzir.";
+    if (field.key === "comparison_focus") stepDescription = "Isso orienta quais critérios vão aparecer com mais peso no comparativo.";
+    if (field.key === "comparison_positioning") stepDescription = "Esse recorte evita comparação genérica e deixa o material mais convincente.";
     
     return (
       <div className="space-y-8">
@@ -579,16 +587,14 @@ export default function AuthorityAgentRunPage() {
   async function executeTask(finalTheme: string, taskOverride?: AuthorityTask) {
     if (!agentKey) return;
     const activeTask = taskOverride || themeModalTask || undefined;
-    const requiresVideoFormat = Boolean(
-      activeTask?.extraFields?.some((field) => field.key === "video_format" && field.required)
-    );
+    const isVideoScriptTask = (agentKey === "instagram" || agentKey === "tiktok") && activeTask?.title === "Roteiros";
     const trimmedTheme = finalTheme.trim();
 
     let resolvedExtraFieldValues = { ...extraFieldValues };
     let resolvedRecommendation = videoFormatRecommendation;
 
     if (
-      requiresVideoFormat &&
+      isVideoScriptTask &&
       trimmedTheme &&
       !resolvedExtraFieldValues.video_format
     ) {

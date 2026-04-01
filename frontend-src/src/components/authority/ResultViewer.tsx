@@ -596,6 +596,65 @@ function renderJsonBlock(bloco: any, key: number) {
       );
     }
 
+    case "comparison_table": {
+      if (!conteudo.items || !Array.isArray(conteudo.items)) return null;
+      return (
+        <section key={key} className="my-10 rounded-[2rem] border border-border/70 bg-background/50 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Comparativo visual</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">{conteudo.titulo || "Comparativo"}</h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            {conteudo.items.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.75rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.criterio || `Critério ${idx + 1}`}</h4>
+                  <span className="shrink-0 rounded-full bg-google-blue/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-google-blue">
+                    Critério {idx + 1}
+                  </span>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
+                  <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 dark:bg-[#162a20] dark:border-emerald-900/50 p-4">
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
+                      Nossa solução
+                    </div>
+                    <p className="text-sm sm:text-base leading-relaxed text-emerald-950/90 dark:text-emerald-100/90">
+                      {item.nossa_solucao || "não informado"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 dark:bg-[#2a2416] dark:border-amber-900/50 p-4">
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+                      Mercado / alternativa
+                    </div>
+                    <p className="text-sm sm:text-base leading-relaxed text-amber-950/90 dark:text-amber-100/90">
+                      {item.mercado || "não informado"}
+                    </p>
+                  </div>
+                </div>
+
+                {item.recomendacao ? (
+                  <div className="mt-4 rounded-2xl border border-google-blue/20 bg-google-blue/5 p-4">
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-google-blue/80">
+                      Leitura de decisão
+                    </div>
+                    <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item.recomendacao}</p>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
     case "markdown":
     default: {
       const mBlocks = parseBlocks(conteudo.texto || "");
