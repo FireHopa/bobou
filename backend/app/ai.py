@@ -1858,6 +1858,7 @@ def _authority_output_contract(agent_key: str, task_profile: Dict[str, str]) -> 
         "keyword_list": "Use para listas técnicas de palavras-chave curtas, prontas para copiar, com limite de caracteres.",
         "service_cards": "Use para catálogo de serviços com nome, descrição curta e grupo de palavras-chave relacionadas.",
         "response_variations": "Use para respostas prontas de avaliação, cada uma em um card separado.",
+        "comparison_table": "Use para comparativos visuais com critério, nossa solução, mercado e leitura de decisão.",
     }
 
     if family == "keyword_catalog":
@@ -1895,7 +1896,7 @@ def _authority_output_contract(agent_key: str, task_profile: Dict[str, str]) -> 
 
     return {
         "root_required_keys": ["titulo_da_tela", "blocos"],
-        "block_types_supported": ["markdown", "highlight", "timeline", "quote", "faq", "keyword_list", "service_cards", "response_variations"],
+        "block_types_supported": ["markdown", "highlight", "timeline", "quote", "faq", "keyword_list", "service_cards", "response_variations", "comparison_table"],
         "agent_key": agent_key,
         "task_family": family,
         "preferred_block_types": preferred_blocks,
@@ -1974,6 +1975,20 @@ def _authority_output_contract(agent_key: str, task_profile: Dict[str, str]) -> 
                 "conteudo": {
                     "titulo": "Respostas sugeridas",
                     "items": ["Muito obrigado pelo seu feedback. Ficamos felizes em saber que nosso serviço de Google Ads ajudou você."]
+                },
+            },
+            "comparison_table": {
+                "tipo": "comparison_table",
+                "conteudo": {
+                    "titulo": "Comparativo visual",
+                    "items": [
+                        {
+                            "criterio": "Profundidade da entrega",
+                            "nossa_solucao": "Diagnóstico, execução e leitura estratégica no mesmo fluxo.",
+                            "mercado": "Entrega parcial ou mais operacional.",
+                            "recomendacao": "Faz mais sentido quando a decisão exige contexto, clareza e acompanhamento."
+                        }
+                    ]
                 },
             },
         },
@@ -2186,6 +2201,68 @@ def _normalize_service_card_items(value: Any) -> List[JsonDict]:
             "nome": nome or "Destaque",
             "descricao": descricao or "não informado",
             "palavras_chave": palavras_chave,
+        })
+
+
+    return items
+
+
+def _normalize_comparison_table_items(value: Any) -> List[JsonDict]:
+    items: List[JsonDict] = []
+
+    if isinstance(value, dict):
+        if isinstance(value.get("items"), list):
+            value = value.get("items")
+        else:
+            value = [value]
+
+    if not isinstance(value, list):
+        return items
+
+    for raw in value[:12]:
+        if not isinstance(raw, dict):
+            continue
+
+        criterio = _trim_text(
+            raw.get("criterio")
+            or raw.get("critério")
+            or raw.get("title")
+            or raw.get("titulo"),
+            max_chars=80,
+        )
+        nossa_solucao = _trim_text(
+            raw.get("nossa_solucao")
+            or raw.get("nossa solução")
+            or raw.get("nosso_lado")
+            or raw.get("our_solution")
+            or raw.get("nosso"),
+            max_chars=220,
+        )
+        mercado = _trim_text(
+            raw.get("mercado")
+            or raw.get("alternativa_mercado")
+            or raw.get("outra_opcao")
+            or raw.get("market")
+            or raw.get("concorrencia"),
+            max_chars=220,
+        )
+        recomendacao = _trim_text(
+            raw.get("recomendacao")
+            or raw.get("quando_faz_sentido")
+            or raw.get("when_it_makes_sense")
+            or raw.get("leitura")
+            or raw.get("decision_note"),
+            max_chars=220,
+        )
+
+        if not criterio and not nossa_solucao and not mercado:
+            continue
+
+        items.append({
+            "criterio": criterio or "Critério",
+            "nossa_solucao": nossa_solucao or "não informado",
+            "mercado": mercado or "não informado",
+            "recomendacao": recomendacao or "não informado",
         })
 
     return items
@@ -2527,6 +2604,21 @@ def _normalize_blocks_from_root_sections(data: JsonDict, title: str) -> List[Jso
             },
         })
 
+    comparison_items = _normalize_comparison_table_items(_value_from_aliases(data, [
+        "criterios_de_comparacao",
+        "critérios_de_comparação",
+        "comparativo_visual",
+        "comparison_items",
+    ]))
+    if comparison_items:
+        blocks.append({
+            "tipo": "comparison_table",
+            "conteudo": {
+                "titulo": "Comparativo visual",
+                "items": comparison_items,
+            },
+        })
+
     bio_principal = _value_from_aliases(data, [
         "bio_principal",
         "bio_sugerida",
@@ -2672,7 +2764,7 @@ def _normalize_authority_output(data: JsonDict) -> JsonDict:
         if conteudo is None:
             conteudo = block.get("content")
 
-        if tipo not in {"markdown", "highlight", "timeline", "quote", "faq", "keyword_list", "service_cards", "response_variations"}:
+        if tipo not in {"markdown", "highlight", "timeline", "quote", "faq", "keyword_list", "service_cards", "response_variations", "comparison_table"}:
             continue
 
         if tipo == "markdown":
@@ -2719,6 +2811,15 @@ def _normalize_authority_output(data: JsonDict) -> JsonDict:
                 continue
             titulo_rv = _trim_text(source.get("titulo") or source.get("title")) or "Respostas sugeridas"
             normalized_blocks.append({"tipo": tipo, "conteudo": {"titulo": titulo_rv, "items": items}})
+            continue
+
+        if tipo == "comparison_table":
+            source = conteudo if isinstance(conteudo, dict) else block
+            items = _normalize_comparison_table_items(source.get("items") if isinstance(source, dict) else source)
+            if not items:
+                continue
+            titulo_ct = _trim_text(source.get("titulo") or source.get("title")) or "Comparativo visual"
+            normalized_blocks.append({"tipo": tipo, "conteudo": {"titulo": titulo_ct, "items": items}})
             continue
 
         if tipo == "highlight":
@@ -2793,6 +2894,465 @@ AUTHORITY_AGENTS = {
 }
 
 
+
+def _decision_label(mapping: Dict[str, str], value: Any) -> str:
+    clean = _trim_text(value)
+    return mapping.get(clean, clean or "não informado")
+
+
+def _run_decision_content_faq_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    faq_focus = _decision_label(DECISION_FAQ_FOCUS_LABELS, nucleus.get("faq_focus"))
+    decision_stage = _decision_label(DECISION_STAGE_LABELS, nucleus.get("decision_stage"))
+    theme = _trim_text(selected_theme) or "a decisão principal"
+    company = _trim_text(nucleus.get("company_name")) or "sua empresa"
+
+    system = """
+Você cria materiais de decisão para fundo de funil.
+Responda SOMENTE em JSON com as chaves:
+- titulo_da_tela
+- leitura_estrategica
+- angulo_de_decisao
+- faq (array de 6 a 8 objetos com pergunta, resposta)
+- frases_de_reforco (array de 3 a 5 itens)
+- recomendacao_final
+
+Regras:
+- pt-BR
+- respostas honestas, específicas e sem manipulação
+- as perguntas devem parecer reais para quem está quase decidindo
+- não use respostas genéricas, vagas ou infladas
+- cada resposta deve reduzir risco percebido e aumentar clareza
+- frases_de_reforco devem ser curtas, utilizáveis em WhatsApp, call, página ou e-mail
+""".strip()
+    user = {
+        "task": requested_task,
+        "theme": theme,
+        "faq_focus": faq_focus,
+        "decision_stage": decision_stage,
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        data = _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2200)
+    except Exception:
+        data = {}
+
+    faq_items = _normalize_faq_items(data.get("faq"))
+    if not faq_items:
+        faq_items = [
+            {
+                "pergunta": f"Como {company} lida com {theme} sem criar risco desnecessário?",
+                "resposta": f"A resposta precisa mostrar processo, clareza e critério real. O foco aqui é reduzir incerteza em {faq_focus}, principalmente para quem está {decision_stage}.",
+            },
+            {
+                "pergunta": "Como saber se essa solução faz sentido para o meu cenário?",
+                "resposta": "O material deve deixar claro quando a solução funciona melhor, quais limites existem e qual tipo de contexto tende a ter mais aderência.",
+            },
+            {
+                "pergunta": "O que diferencia essa entrega de uma opção mais genérica?",
+                "resposta": "A diferença precisa aparecer em profundidade, processo, contexto, suporte e capacidade de adaptação ao caso real, e não só em adjetivos.",
+            },
+            {
+                "pergunta": "Quais riscos ou dúvidas essa solução ajuda a reduzir?",
+                "resposta": f"O FAQ precisa responder objeções ligadas a {faq_focus} e mostrar uma leitura prática da decisão, sem empurrar fechamento artificial.",
+            },
+        ]
+
+    frases_de_reforco = _normalize_response_variation_items(data.get("frases_de_reforco"), max_items=5)
+    if not frases_de_reforco:
+        frases_de_reforco = [
+            f"Decisão boa acontece quando {faq_focus} fica claro de forma concreta.",
+            f"Quem está {decision_stage} precisa de contexto, não de pressão.",
+            f"O melhor FAQ é o que reduz dúvida sem prometer mais do que a operação entrega.",
+        ]
+
+    payload = {
+        "titulo_da_tela": _trim_text(data.get("titulo_da_tela")) or f"FAQ de decisão — {theme}",
+        "blocos": [
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Ângulo de decisão",
+                    "texto": _trim_text(data.get("angulo_de_decisao")) or f"O foco central deste FAQ é reduzir atrito em {faq_focus} para quem está {decision_stage}.",
+                    "icone": "star",
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": _markdown_from_any(
+                        _trim_text(data.get("leitura_estrategica")) or f"### Leitura estratégica\nUse este FAQ para responder dúvidas reais sobre **{theme}** com mais contexto, prova e critério. O objetivo é ajudar a audiência a avançar na decisão sem exagero comercial.",
+                    ),
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {"perguntas": faq_items},
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Frases de reforço prontas",
+                    "items": frases_de_reforco,
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": _trim_text(data.get("recomendacao_final")) or "Feche a conversa reforçando critério, cenário ideal de uso e próximo passo natural.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+    return _normalize_authority_output(payload)
+
+
+def _run_decision_content_landing_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    conversion_goal = _decision_label(DECISION_CONVERSION_GOAL_LABELS, nucleus.get("conversion_goal"))
+    traffic_source = _decision_label(DECISION_TRAFFIC_SOURCE_LABELS, nucleus.get("traffic_source"))
+    theme = _trim_text(selected_theme) or "a oferta principal"
+
+    system = """
+Você cria landing pages orientadas à decisão.
+Responda SOMENTE em JSON com as chaves:
+- titulo_da_tela
+- promessa_central
+- leitura_estrategica
+- hero_principal
+- secoes_da_pagina (array de 6 a 8 itens)
+- blocos_de_copy (array de 4 a 6 itens)
+- faq (array de 4 a 6 objetos com pergunta, resposta)
+- ctas (array de 3 a 5 itens)
+- recomendacao_final
+
+Regras:
+- pt-BR
+- organize a página como uma estrutura pronta para ser aplicada
+- promessa clara, contexto real, prova, objeções e CTA
+- não crie uma landing inchada só para parecer completa
+- pense na temperatura do tráfego e no objetivo de conversão
+""".strip()
+    user = {
+        "task": requested_task,
+        "theme": theme,
+        "conversion_goal": conversion_goal,
+        "traffic_source": traffic_source,
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        data = _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2600)
+    except Exception:
+        data = {}
+
+    sections = _coerce_text_list_from_any(data.get("secoes_da_pagina"), max_items=8, max_chars=220)
+    if not sections:
+        sections = [
+            f"Hero — promessa clara de {theme} com CTA para {conversion_goal}.",
+            "Problema — qual dor, custo ou risco continua existindo sem a solução.",
+            "Solução — como a oferta funciona na prática e por que não é genérica.",
+            "Prova — resultados, evidências, bastidores ou contexto de credibilidade.",
+            "Objeções — prazo, adaptação, investimento, risco e fit de cenário.",
+            f"CTA final — chamada direta para {conversion_goal} considerando tráfego de {traffic_source}.",
+        ]
+
+    copy_blocks = _coerce_text_list_from_any(data.get("blocos_de_copy"), max_items=6, max_chars=220)
+    if not copy_blocks:
+        copy_blocks = [
+            "Explique quem é a oferta, para quem ela faz sentido e por que agora.",
+            "Troque promessas infladas por clareza operacional, diferencial e contexto.",
+            "Mostre o que muda na prática quando a pessoa avança.",
+            "Feche com CTA proporcional à temperatura do tráfego.",
+        ]
+
+    ctas = _normalize_response_variation_items(data.get("ctas"), max_items=5)
+    if not ctas:
+        ctas = [
+            f"Quero {conversion_goal}",
+            "Quero entender se faz sentido para o meu caso",
+            "Quero avançar para o próximo passo",
+        ]
+
+    faq_items = _normalize_faq_items(data.get("faq"))
+    if not faq_items:
+        faq_items = [
+            {
+                "pergunta": "Para quem essa página faz mais sentido?",
+                "resposta": f"Para pessoas ou empresas que estão avaliando **{theme}** e precisam de clareza suficiente para avançar em {conversion_goal}.",
+            },
+            {
+                "pergunta": "O que esta página precisa responder cedo?",
+                "resposta": "Promessa, contexto, aderência da solução, prova e próximo passo. Sem isso, o tráfego esfria mesmo quando a oferta é boa.",
+            },
+            {
+                "pergunta": "Como adaptar a landing à origem do tráfego?",
+                "resposta": f"Como a principal origem é **{traffic_source}**, a quantidade de contexto, prova e explicação deve acompanhar a temperatura de quem chega.",
+            },
+        ]
+
+    hero_principal = _trim_text(data.get("hero_principal")) or (
+        f"### Hero principal\nHeadline com promessa clara sobre **{theme}**.\n\nSubheadline com contexto, diferencial real e caminho para **{conversion_goal}**."
+    )
+    copy_markdown = "### Blocos de copy prioritários\n" + "\n".join(f"- {item}" for item in copy_blocks)
+
+    payload = {
+        "titulo_da_tela": _trim_text(data.get("titulo_da_tela")) or f"Landing de decisão — {theme}",
+        "blocos": [
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Promessa central",
+                    "texto": _trim_text(data.get("promessa_central")) or f"Transforme a oferta de **{theme}** em uma página orientada a {conversion_goal}, com clareza suficiente para quem chega via {traffic_source}.",
+                    "icone": "star",
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": _trim_text(data.get("leitura_estrategica")) or f"### Leitura estratégica\nA landing precisa equilibrar contexto, prova, clareza de oferta e CTA para **{conversion_goal}** sem parecer inchada ou genérica.",
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {"texto": hero_principal},
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {"passos": sections},
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {"texto": copy_markdown},
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {"perguntas": faq_items},
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {"titulo": "CTAs prontos", "items": ctas},
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": _trim_text(data.get("recomendacao_final")) or "Revise a página perguntando: a pessoa entendeu rápido para quem é, por que isso importa agora e qual próximo passo deve tomar?",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+    return _normalize_authority_output(payload)
+
+
+def _run_decision_content_email_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    email_context = _decision_label(DECISION_EMAIL_CONTEXT_LABELS, nucleus.get("email_context"))
+    email_goal = _decision_label(DECISION_EMAIL_GOAL_LABELS, nucleus.get("email_goal"))
+    theme = _trim_text(selected_theme) or "a conversa principal"
+
+    system = """
+Você cria e-mails de recuperação e decisão.
+Responda SOMENTE em JSON com as chaves:
+- titulo_da_tela
+- leitura_da_janela_de_decisao
+- assuntos (array de 4 a 5 itens)
+- email_principal
+- variacoes_de_abertura (array de 3 a 4 itens)
+- ctas (array de 3 a 4 itens)
+- recomendacao_final
+
+Regras:
+- pt-BR
+- tom humano, firme e útil
+- não escreva como automação fria nem como vendedor insistente
+- o e-mail precisa parecer enviável hoje
+- assuntos e CTAs devem ser específicos, não genéricos
+""".strip()
+    user = {
+        "task": requested_task,
+        "theme": theme,
+        "email_context": email_context,
+        "email_goal": email_goal,
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        data = _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2200)
+    except Exception:
+        data = {}
+
+    assuntos = _normalize_response_variation_items(data.get("assuntos"), max_items=5)
+    if not assuntos:
+        assuntos = [
+            f"Sobre {theme}",
+            f"Próximo passo para {theme}",
+            f"Fechando a conversa sobre {theme}",
+        ]
+
+    aberturas = _normalize_response_variation_items(data.get("variacoes_de_abertura"), max_items=4)
+    if not aberturas:
+        aberturas = [
+            f"Quis retomar este ponto porque percebi que a conversa sobre {theme} ficou em aberto.",
+            f"Voltei neste tema porque ele costuma travar quando o contexto não fica claro o suficiente.",
+            f"Antes de encerrar esse assunto, vale alinhar um ponto importante sobre {theme}.",
+        ]
+
+    ctas = _normalize_response_variation_items(data.get("ctas"), max_items=4)
+    if not ctas:
+        ctas = [
+            f"Se fizer sentido, seguimos com o próximo passo para {email_goal}.",
+            "Se quiser, eu organizo isso em um caminho mais objetivo.",
+            "Se ainda houver dúvida, me diga qual ponto precisa ficar mais claro.",
+        ]
+
+    email_principal = _trim_text(data.get("email_principal")) or (
+        f"### E-mail principal\nOi,\n\nRetomando **{theme}** porque esse tipo de conversa costuma esfriar quando a decisão ainda não ficou clara o suficiente. "
+        f"O objetivo aqui é **{email_goal}** dentro de um contexto de **{email_context}**, com uma mensagem direta, útil e sem pressão.\n\n"
+        "O ponto central é reduzir ambiguidade, responder a trava principal e deixar o próximo passo simples.\n\n"
+        "Se fizer sentido, seguimos por aqui."
+    )
+
+    payload = {
+        "titulo_da_tela": _trim_text(data.get("titulo_da_tela")) or f"E-mail de decisão — {theme}",
+        "blocos": [
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Leitura da janela de decisão",
+                    "texto": _trim_text(data.get("leitura_da_janela_de_decisao")) or f"Este e-mail trabalha um contexto de {email_context} com foco em {email_goal}, então o texto precisa ser firme, útil e simples de responder.",
+                    "icone": "star",
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {"titulo": "Assuntos sugeridos", "items": assuntos},
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {"texto": email_principal},
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {"titulo": "Aberturas alternativas", "items": aberturas},
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {"titulo": "CTAs de fechamento", "items": ctas},
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": _trim_text(data.get("recomendacao_final")) or "Antes de enviar, ajuste o texto para o estágio real da conversa: frio demais derruba resposta, agressivo demais cria atrito.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+    return _normalize_authority_output(payload)
+
+
+def _run_decision_content_comparison_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    comparison_focus = _decision_label(DECISION_COMPARISON_FOCUS_LABELS, nucleus.get("comparison_focus"))
+    comparison_positioning = _decision_label(DECISION_COMPARISON_POSITIONING_LABELS, nucleus.get("comparison_positioning"))
+    theme = _trim_text(selected_theme) or "a comparação principal"
+
+    system = """
+Você cria comparativos de decisão sem manipulação comercial.
+Responda SOMENTE em JSON com as chaves:
+- titulo_da_tela
+- leitura_estrategica
+- comparativo_visual (array de 4 a 6 objetos com criterio, nossa_solucao, mercado, recomendacao)
+- faq (array de 2 a 4 objetos com pergunta, resposta)
+- recomendacao_final
+
+Regras:
+- pt-BR
+- compare com honestidade, clareza e critério
+- não force superioridade em todos os critérios
+- deixe explícito quando o mercado ou a alternativa pode fazer mais sentido
+- evite frases promocionais vazias
+""".strip()
+    user = {
+        "task": requested_task,
+        "theme": theme,
+        "comparison_focus": comparison_focus,
+        "comparison_positioning": comparison_positioning,
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        data = _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2400)
+    except Exception:
+        data = {}
+
+    comparison_items = _normalize_comparison_table_items(data.get("comparativo_visual"))
+    if not comparison_items:
+        comparison_items = [
+            {
+                "criterio": "Aderência ao cenário",
+                "nossa_solucao": "Mais calibrada ao contexto real e à necessidade de execução.",
+                "mercado": "Pode funcionar melhor quando o caso é mais simples ou padronizado.",
+                "recomendacao": f"Use este critério para decidir com foco em {comparison_focus}.",
+            },
+            {
+                "criterio": "Profundidade e suporte",
+                "nossa_solucao": "Tende a entregar mais leitura estratégica e acompanhamento.",
+                "mercado": "Pode entregar algo mais leve, mais rápido ou mais operacional.",
+                "recomendacao": "Vale mais quando a decisão exige contexto e não só ferramenta.",
+            },
+            {
+                "criterio": "Velocidade x personalização",
+                "nossa_solucao": "Normalmente ganha em adaptação ao caso.",
+                "mercado": "Normalmente ganha em padronização ou simplicidade de entrada.",
+                "recomendacao": f"Boa decisão depende do recorte {comparison_positioning}.",
+            },
+        ]
+
+    faq_items = _normalize_faq_items(data.get("faq"))
+    payload_blocks = [
+        {
+            "tipo": "highlight",
+            "conteudo": {
+                "titulo": "Leitura estratégica",
+                "texto": _trim_text(data.get("leitura_estrategica")) or f"Este comparativo deve responder a decisão de **{theme}** com foco em {comparison_focus}, sem esconder os trade-offs reais.",
+                "icone": "star",
+            },
+        },
+        {
+            "tipo": "comparison_table",
+            "conteudo": {
+                "titulo": "Comparativo visual",
+                "items": comparison_items,
+            },
+        },
+    ]
+
+    if faq_items:
+        payload_blocks.append({"tipo": "faq", "conteudo": {"perguntas": faq_items}})
+
+    payload_blocks.append({
+        "tipo": "highlight",
+        "conteudo": {
+            "titulo": "Recomendação final",
+            "texto": _trim_text(data.get("recomendacao_final")) or "Feche o comparativo deixando claro quando cada caminho faz sentido e qual perfil ganha mais aderência com cada opção.",
+            "icone": "check",
+        },
+    })
+
+    payload = {
+        "titulo_da_tela": _trim_text(data.get("titulo_da_tela")) or f"Comparativo de decisão — {theme}",
+        "blocos": payload_blocks,
+    }
+    return _normalize_authority_output(payload)
+
+
 def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
     _require_key()
 
@@ -2825,6 +3385,15 @@ def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
         return _json_dumps(_run_tiktok_trends_task(nucleus))
     if agent_key == "tiktok" and _is_tiktok_bio_task(requested_task_lower):
         return _json_dumps(_run_tiktok_bio_task(nucleus, requested_task, selected_theme))
+
+    if agent_key == "decision_content" and "faq focado em quebra de obje" in requested_task_lower:
+        return _json_dumps(_run_decision_content_faq_task(nucleus, requested_task, selected_theme))
+    if agent_key == "decision_content" and "landing page" in requested_task_lower:
+        return _json_dumps(_run_decision_content_landing_task(nucleus, requested_task, selected_theme))
+    if agent_key == "decision_content" and "e-mail persuasivo de recuperação/decisão" in requested_task_lower:
+        return _json_dumps(_run_decision_content_email_task(nucleus, requested_task, selected_theme))
+    if agent_key == "decision_content" and "comparativo: nossa solução vs mercado" in requested_task_lower:
+        return _json_dumps(_run_decision_content_comparison_task(nucleus, requested_task, selected_theme))
 
     is_script_task = any(term in requested_task_lower for term in [
         "roteiro",
@@ -2948,6 +3517,65 @@ TIKTOK_CONTENT_GOAL_LABELS = {
     "gerar_autoridade": "gerar autoridade",
     "gerar_conversao": "gerar conversão",
     "gerar_interacao": "gerar interação",
+}
+
+DECISION_FAQ_FOCUS_LABELS = {
+    "objecoes_compra": "objeções de compra",
+    "credibilidade_prova": "credibilidade e prova",
+    "prazo_processo": "prazo, processo e implantação",
+    "preco_valor": "preço, valor e retorno",
+}
+
+DECISION_STAGE_LABELS = {
+    "comparando_opcoes": "comparando opções",
+    "quase_decidindo": "quase decidindo",
+    "validando_com_o_time": "validando com o time",
+    "entendendo_como_funciona": "entendendo como funciona",
+}
+
+DECISION_CONVERSION_GOAL_LABELS = {
+    "agendar_reuniao": "agendar reunião",
+    "pedir_orcamento": "pedir orçamento",
+    "falar_whatsapp": "falar no WhatsApp",
+    "solicitar_diagnostico": "solicitar diagnóstico",
+    "comprar": "comprar",
+}
+
+DECISION_TRAFFIC_SOURCE_LABELS = {
+    "trafego_pago": "tráfego pago",
+    "organico_site": "orgânico do site",
+    "social_midias": "redes sociais",
+    "remarketing": "remarketing",
+    "indicacao": "indicação",
+}
+
+DECISION_EMAIL_CONTEXT_LABELS = {
+    "lead_esfriou": "lead esfriou",
+    "proposta_sem_resposta": "proposta sem resposta",
+    "orcamento_abandonado": "orçamento abandonado",
+    "followup_pos_reuniao": "follow-up pós-reunião",
+}
+
+DECISION_EMAIL_GOAL_LABELS = {
+    "retomar_conversa": "retomar conversa",
+    "responder_objecao": "responder objeção",
+    "fechar_decisao": "fechar decisão",
+    "puxar_proximo_passo": "puxar próximo passo",
+}
+
+DECISION_COMPARISON_FOCUS_LABELS = {
+    "criterios_decisao": "critérios de decisão",
+    "custo_retorno": "custo, valor e retorno",
+    "profundidade_suporte": "profundidade e suporte",
+    "velocidade_implantacao": "velocidade de implantação",
+    "aderencia_cenario": "aderência ao cenário",
+}
+
+DECISION_COMPARISON_POSITIONING_LABELS = {
+    "nossa_solucao_vs_generico": "nossa solução vs genérico",
+    "nossa_solucao_vs_barato": "nossa solução vs opção barata",
+    "personalizado_vs_padrao": "personalizado vs pacote padrão",
+    "especialista_vs_generalista": "especialista vs generalista",
 }
 
 
