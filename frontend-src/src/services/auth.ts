@@ -1,11 +1,10 @@
 import type { CreditCatalogResponse } from "@/lib/credits";
 import { http } from "./http";
 
-export interface TokenResponse {
-  access_token: string;
-  token_type: string;
-  user_email: string;
-  user_name?: string;
+export interface AuthMeResponse {
+  email: string;
+  full_name?: string | null;
+  google_id?: string;
   credits: number;
   has_linkedin?: boolean;
   has_instagram?: boolean;
@@ -22,6 +21,31 @@ export interface TokenResponse {
   has_google_business_profile?: boolean;
   google_business_account_display_name?: string | null;
   google_business_location_title?: string | null;
+  profile_image_url?: string | null;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  user_email: string;
+  user_name?: string | null;
+  credits: number;
+  has_linkedin?: boolean;
+  has_instagram?: boolean;
+  instagram_username?: string | null;
+  has_facebook?: boolean;
+  facebook_page_name?: string | null;
+  facebook_page_username?: string | null;
+  has_youtube?: boolean;
+  youtube_channel_title?: string | null;
+  youtube_channel_handle?: string | null;
+  has_tiktok?: boolean;
+  tiktok_display_name?: string | null;
+  tiktok_username?: string | null;
+  has_google_business_profile?: boolean;
+  google_business_account_display_name?: string | null;
+  google_business_location_title?: string | null;
+  profile_image_url?: string | null;
 }
 
 export interface CreditPlanActivationResponse {
@@ -58,28 +82,31 @@ export const authService = {
   },
 
   checkMe: async () => {
-    return http<{
-      email: string;
-      full_name?: string;
-      google_id?: string;
-      credits: number;
-      has_linkedin?: boolean;
-      has_instagram?: boolean;
-      instagram_username?: string | null;
-      has_facebook?: boolean;
-      facebook_page_name?: string | null;
-      facebook_page_username?: string | null;
-      has_youtube?: boolean;
-      youtube_channel_title?: string | null;
-      youtube_channel_handle?: string | null;
-      has_tiktok?: boolean;
-      tiktok_display_name?: string | null;
-      tiktok_username?: string | null;
-      has_google_business_profile?: boolean;
-      google_business_account_display_name?: string | null;
-      google_business_location_title?: string | null;
-    }>("/api/auth/me", {
+    return http<AuthMeResponse>("/api/auth/me", {
       method: "GET",
+    });
+  },
+
+  updateProfile: async (fullName: string) => {
+    return http<AuthMeResponse>("/api/auth/profile", {
+      method: "PUT",
+      json: { full_name: fullName },
+    });
+  },
+
+  uploadProfileImage: async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+
+    return http<AuthMeResponse>("/api/auth/profile-image", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  removeProfileImage: async () => {
+    return http<AuthMeResponse>("/api/auth/profile-image", {
+      method: "DELETE",
     });
   },
 

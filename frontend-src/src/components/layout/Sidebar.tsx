@@ -22,6 +22,7 @@ import logoUrl from "@/casadoads.png";
 import { transitions } from "@/lib/motion";
 import { AUTHORITY_AGENTS } from "@/constants/authorityAgents";
 import { useAuthStore } from "@/state/authStore";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type Item = {
   to: string;
@@ -71,6 +72,8 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
   // AUTENTICAÇÃO E DADOS DA CONTA
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
+  const avatarLabel = user?.name?.trim() || user?.email || "Usuário";
+  const avatarInitial = avatarLabel.charAt(0).toUpperCase();
 
   React.useEffect(() => {
     saveCollapsed(collapsed);
@@ -203,9 +206,12 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                   to="/conta"
                   className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-[rgba(0,200,232,0.10)] cursor-pointer mt-1"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00C8E8] font-bold text-white shadow-md">
-                    {user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
-                  </div>
+                  <Avatar className="h-10 w-10 shrink-0 rounded-full ring-2 ring-[#00C8E8]/20">
+                    {user.profile_image_url ? <AvatarImage src={user.profile_image_url} alt={avatarLabel} /> : null}
+                    <AvatarFallback className="rounded-full bg-[#00C8E8] font-bold text-white">
+                      {avatarInitial}
+                    </AvatarFallback>
+                  </Avatar>
                   <div className="flex flex-col overflow-hidden">
                     <span className="truncate text-sm font-semibold text-foreground">
                       {user.name?.split(" ")[0] || "Usuário"}
@@ -232,9 +238,12 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                   <Coins className="h-5 w-5" />
                 </div>
                 <Link to="/conta" title="Minha Conta">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00C8E8] font-bold text-white shadow-md hover:ring-2 ring-[#00C8E8]/50 transition">
-                    {user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
-                  </div>
+                  <Avatar className="h-10 w-10 shrink-0 rounded-full shadow-md ring-2 ring-[#00C8E8]/20 transition hover:ring-[#00C8E8]/50">
+                    {user.profile_image_url ? <AvatarImage src={user.profile_image_url} alt={avatarLabel} /> : null}
+                    <AvatarFallback className="rounded-full bg-[#00C8E8] font-bold text-white">
+                      {avatarInitial}
+                    </AvatarFallback>
+                  </Avatar>
                 </Link>
                 <button
                   onClick={handleLogout}

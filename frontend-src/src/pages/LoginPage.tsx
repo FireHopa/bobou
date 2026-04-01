@@ -40,6 +40,7 @@ export default function LoginPage() {
         has_google_business_profile: data.has_google_business_profile,
         google_business_account_display_name: data.google_business_account_display_name,
         google_business_location_title: data.google_business_location_title,
+        profile_image_url: data.profile_image_url,
       });
       navigate("/"); 
     } catch (err: any) {
@@ -71,6 +72,10 @@ export default function LoginPage() {
           has_tiktok: data.has_tiktok,
           tiktok_display_name: data.tiktok_display_name,
           tiktok_username: data.tiktok_username,
+          has_google_business_profile: data.has_google_business_profile,
+          google_business_account_display_name: data.google_business_account_display_name,
+          google_business_location_title: data.google_business_location_title,
+          profile_image_url: data.profile_image_url,
         });
         navigate("/");
       } catch (err: any) {

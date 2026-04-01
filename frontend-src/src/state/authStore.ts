@@ -20,6 +20,7 @@ export interface User {
   has_google_business_profile?: boolean;
   google_business_account_display_name?: string | null;
   google_business_location_title?: string | null;
+  profile_image_url?: string | null;
 }
 
 interface AuthState {
