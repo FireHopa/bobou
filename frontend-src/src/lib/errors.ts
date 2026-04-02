@@ -2,7 +2,7 @@ import { HttpError } from "@/services/http";
 
 function normalizeFastApiDetail(detail: unknown): string | null {
   if (!detail) return null;
-  // FastAPI 422: { detail: [{ loc: [...], msg: "...", type: "..." }, ...] }
+
   if (Array.isArray(detail)) {
     const first = detail[0] as any;
     if (first && typeof first === "object") {
@@ -12,12 +12,29 @@ function normalizeFastApiDetail(detail: unknown): string | null {
     }
     return "Dados inválidos";
   }
-  if (typeof detail === "string") return detail;
-  try {
-    return JSON.stringify(detail);
-  } catch {
-    return "Erro inesperado";
+
+  if (typeof detail === "string") {
+    const lowered = detail.toLowerCase();
+    if (lowered.includes("duplicate_post") || lowered.includes("duplicate post")) {
+      return "O LinkedIn bloqueou a publicação porque esse conteúdo já existe ou está parecido demais com um post já publicado. Altere o texto, o título, o resumo ou a URL antes de tentar novamente.";
+    }
+    return detail;
   }
+
+  if (typeof detail === "object") {
+    try {
+      const serialized = JSON.stringify(detail);
+      const lowered = serialized.toLowerCase();
+      if (lowered.includes("duplicate_post") || lowered.includes("duplicate post")) {
+        return "O LinkedIn bloqueou a publicação porque esse conteúdo já existe ou está parecido demais com um post já publicado. Altere o texto, o título, o resumo ou a URL antes de tentar novamente.";
+      }
+      return serialized;
+    } catch {
+      return "Erro inesperado";
+    }
+  }
+
+  return "Erro inesperado";
 }
 
 export function getErrorMessage(err: unknown): string {

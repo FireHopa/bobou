@@ -1,11 +1,18 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import {
+  AlertTriangle,
   ArrowRight,
+  CalendarClock,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
+  Clock3,
   Columns3,
+  Download,
+  Eye,
   FilePlus2,
   FolderKanban,
   GitBranch,
@@ -13,12 +20,15 @@ import {
   Inbox,
   LayoutTemplate,
   Loader2,
+  Paperclip,
   Pencil,
   Plus,
   Save,
   Sparkles,
+  Tags,
   Trash2,
   Unlink,
+  X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -49,13 +59,16 @@ import { toastApiError, toastInfo, toastSuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import {
   bobarService,
+  type BobarAttachment,
   type BobarBoard,
+  type BobarBoardSummary,
   type BobarCard,
   type BobarCardType,
   type BobarColumn,
   type BobarFlowchart,
   type BobarFlowEdge,
   type BobarFlowNode,
+  type BobarLabel,
 } from "@/services/bobar";
 
 type FlowTemplate = {
@@ -75,6 +88,8 @@ type CardEditorDraft = {
   column_id: number;
   content_text: string;
   note: string;
+  due_at: string;
+  label_ids: number[];
 };
 
 type ChecklistItem = {
@@ -97,7 +112,32 @@ type DragCardState = {
 
 type ColumnDialogState = { mode: "create"; column: null } | { mode: "rename"; column: BobarColumn };
 
+type BoardDialogState = { mode: "create"; board: null } | { mode: "rename"; board: BobarBoardSummary };
+
+type AttachmentPreviewKind = "image" | "pdf" | "video" | "audio" | "text" | "other";
+
+type AttachmentInlinePreview = {
+  status: "idle" | "loading" | "ready" | "error";
+  kind: AttachmentPreviewKind;
+  url?: string;
+  textContent?: string;
+  error?: string;
+};
+
+type AttachmentPreviewState = {
+  attachment: BobarAttachment;
+  kind: AttachmentPreviewKind;
+  url: string;
+  textContent?: string;
+};
+
+type LabelDraft = {
+  name: string;
+  color: string;
+};
+
 type DeleteDialogState =
+  | { type: "board"; board: BobarBoardSummary }
   | { type: "column"; column: BobarColumn }
   | { type: "card"; card: BobarCard };
 
@@ -805,6 +845,179 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function toDatetimeLocalValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+
+function parseDueDateControls(value?: string | null) {
+  const input = String(value || "").trim();
+  if (!input) return { date: "", time: "" };
+
+  const match = input.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (!match) return { date: "", time: "" };
+
+  const [, dayValue, monthValue, yearValue, hourValue, minuteValue] = match;
+  return {
+    date: `${yearValue}-${monthValue}-${dayValue}`,
+    time: hourValue && minuteValue ? `${hourValue}:${minuteValue}` : "",
+  };
+}
+
+function buildDueDateFromControls(dateValue: string, timeValue: string) {
+  const date = String(dateValue || "").trim();
+  if (!date) return "";
+
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+
+  const [, yearValue, monthValue, dayValue] = match;
+  const time = String(timeValue || "").trim();
+  return `${dayValue}/${monthValue}/${yearValue}${time ? ` ${time}` : ""}`;
+}
+
+function formatDueDateHint(value?: string | null) {
+  const input = String(value || "").trim();
+  if (!input) return "";
+  return /\d{2}:\d{2}$/.test(input) ? input : `${input} 23:59`;
+}
+
+function formatDueDateInput(value: string) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 12);
+  if (!digits) return "";
+
+  const day = digits.slice(0, 2);
+  const month = digits.slice(2, 4);
+  const year = digits.slice(4, 8);
+  const hour = digits.slice(8, 10);
+  const minute = digits.slice(10, 12);
+
+  let output = day;
+  if (month) output += `/${month}`;
+  if (year) output += `/${year}`;
+  if (hour) output += ` ${hour}`;
+  if (minute) output += `:${minute}`;
+  return output;
+}
+
+function toIsoDatetime(value: string) {
+  const input = String(value || "").trim();
+  if (!input) return null;
+
+  const match = input.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (!match) return null;
+
+  const [, dayValue, monthValue, yearValue, hourValue, minuteValue] = match;
+  const day = Number(dayValue);
+  const month = Number(monthValue);
+  const year = Number(yearValue);
+  const hour = hourValue ? Number(hourValue) : 23;
+  const minute = minuteValue ? Number(minuteValue) : 59;
+
+  if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  if (!Number.isInteger(year) || year < 1900) return null;
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null;
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+
+  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    date.getHours() !== hour ||
+    date.getMinutes() !== minute
+  ) {
+    return null;
+  }
+
+  return date.toISOString();
+}
+
+function isCardOverdue(card?: Pick<BobarCard, "due_at"> | null) {
+  if (!card?.due_at) return false;
+  const dueAt = new Date(card.due_at);
+  if (Number.isNaN(dueAt.getTime())) return false;
+  return dueAt.getTime() < Date.now();
+}
+
+function sameNumberArray(a: number[], b: number[]) {
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
+function formatFileSize(size: number) {
+  if (!Number.isFinite(size) || size <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function isTextLikeMimeType(mimeType: string) {
+  return (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType.endsWith("+json") ||
+    mimeType === "application/xml" ||
+    mimeType.endsWith("+xml") ||
+    mimeType === "application/javascript"
+  );
+}
+
+function isAttachmentPreviewable(attachment: BobarAttachment) {
+  const mimeType = String(attachment.mime_type || "").toLowerCase();
+  if (!mimeType) return false;
+  return (
+    mimeType.startsWith("image/") ||
+    mimeType === "application/pdf" ||
+    isTextLikeMimeType(mimeType) ||
+    mimeType.startsWith("video/") ||
+    mimeType.startsWith("audio/")
+  );
+}
+
+function attachmentPreviewKind(attachment: BobarAttachment): AttachmentPreviewKind {
+  const mimeType = String(attachment.mime_type || "").toLowerCase();
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType === "application/pdf") return "pdf";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (isTextLikeMimeType(mimeType)) return "text";
+  return "other";
+}
+
+function attachmentPreviewLabel(kind: AttachmentPreviewKind) {
+  switch (kind) {
+    case "image":
+      return "Imagem";
+    case "pdf":
+      return "PDF";
+    case "video":
+      return "Vídeo";
+    case "audio":
+      return "Áudio";
+    case "text":
+      return "Documento";
+    default:
+      return "Arquivo";
+  }
+}
+
+function buildAttachmentTextSnippet(value?: string | null) {
+  const normalized = String(value || "").replace(/\r\n/g, "\n").trim();
+  if (!normalized) return "Arquivo sem conteúdo legível.";
+  return normalized.length > 800 ? `${normalized.slice(0, 800)}…` : normalized;
+}
+
 function buildSnippet(card: BobarCard) {
   const cardType = String(card.card_type || "").toLowerCase();
 
@@ -905,7 +1118,614 @@ function shallowEqualDraft(a: CardEditorDraft | null, b: CardEditorDraft | null)
     a.card_type === b.card_type &&
     a.column_id === b.column_id &&
     a.content_text === b.content_text &&
-    a.note === b.note
+    a.note === b.note &&
+    a.due_at === b.due_at &&
+    sameNumberArray(a.label_ids, b.label_ids)
+  );
+}
+
+
+const CALENDAR_WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+type CalendarDayCell = {
+  key: string;
+  date: Date;
+  currentMonth: boolean;
+};
+
+function parseControlDateValue(value?: string | null) {
+  const input = String(value || "").trim();
+  const match = input.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+
+  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function formatControlDateValue(date: Date) {
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function sameCalendarDate(a?: Date | null, b?: Date | null) {
+  if (!a || !b) return false;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function shiftCalendarMonth(date: Date, offset: number) {
+  return new Date(date.getFullYear(), date.getMonth() + offset, 1, 12, 0, 0, 0);
+}
+
+function buildCalendarGrid(cursor: Date): CalendarDayCell[] {
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const firstDay = new Date(year, month, 1, 12, 0, 0, 0);
+  const firstWeekday = firstDay.getDay();
+  const daysInMonth = new Date(year, month + 1, 0, 12, 0, 0, 0).getDate();
+  const daysInPreviousMonth = new Date(year, month, 0, 12, 0, 0, 0).getDate();
+  const cells: CalendarDayCell[] = [];
+
+  for (let index = 0; index < 42; index += 1) {
+    const dayOffset = index - firstWeekday + 1;
+    let cellDate: Date;
+    let currentMonth = true;
+
+    if (dayOffset <= 0) {
+      currentMonth = false;
+      cellDate = new Date(year, month - 1, daysInPreviousMonth + dayOffset, 12, 0, 0, 0);
+    } else if (dayOffset > daysInMonth) {
+      currentMonth = false;
+      cellDate = new Date(year, month + 1, dayOffset - daysInMonth, 12, 0, 0, 0);
+    } else {
+      cellDate = new Date(year, month, dayOffset, 12, 0, 0, 0);
+    }
+
+    cells.push({
+      key: `${cellDate.getFullYear()}-${cellDate.getMonth()}-${cellDate.getDate()}`,
+      date: cellDate,
+      currentMonth,
+    });
+  }
+
+  return cells;
+}
+
+function formatCalendarHeader(date: Date) {
+  const formatted = new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+function DueDatePickerField({
+  value,
+  onChange,
+  onClear,
+  invalid,
+  overdue,
+}: {
+  value: string;
+  onChange: (nextValue: string) => void;
+  onClear: () => void;
+  invalid?: boolean;
+  overdue?: boolean;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
+  const [panelStyle, setPanelStyle] = React.useState<React.CSSProperties>({});
+
+  const controls = React.useMemo(() => parseDueDateControls(value), [value]);
+  const selectedDate = React.useMemo(() => parseControlDateValue(controls.date), [controls.date]);
+  const selectedTime = controls.time || "";
+  const [selectedHour = "23", selectedMinute = "59"] = (selectedTime || "23:59").split(":");
+  const [monthCursor, setMonthCursor] = React.useState<Date>(() => {
+    const base = selectedDate || new Date();
+    return new Date(base.getFullYear(), base.getMonth(), 1, 12, 0, 0, 0);
+  });
+
+  React.useEffect(() => {
+    const base = selectedDate || new Date();
+    setMonthCursor((current) => {
+      if (
+        current.getFullYear() === base.getFullYear() &&
+        current.getMonth() === base.getMonth()
+      ) {
+        return current;
+      }
+      return new Date(base.getFullYear(), base.getMonth(), 1, 12, 0, 0, 0);
+    });
+  }, [selectedDate]);
+
+  const updatePanelPosition = React.useCallback(() => {
+    if (typeof window === "undefined" || !wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const gutter = 16;
+    const desiredWidth = Math.min(980, Math.max(320, viewportWidth - gutter * 2));
+    const maxLeft = Math.max(gutter, viewportWidth - desiredWidth - gutter);
+    const left = Math.min(Math.max(rect.left, gutter), maxLeft);
+    const top = Math.min(rect.bottom + 12, Math.max(16, viewportHeight - 360));
+    const maxHeight = Math.max(320, viewportHeight - top - gutter);
+
+    setPanelStyle({
+      position: "fixed",
+      top,
+      left,
+      width: desiredWidth,
+      maxHeight,
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    updatePanelPosition();
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (wrapperRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    const handleViewportChange = () => updatePanelPosition();
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [open, updatePanelPosition]);
+
+  const calendarCells = React.useMemo(() => buildCalendarGrid(monthCursor), [monthCursor]);
+  const quickTimes = React.useMemo(() => ["09:00", "12:00", "18:00", "23:59"], []);
+  const hourOptions = React.useMemo(
+    () => Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0")),
+    [],
+  );
+  const minuteOptions = React.useMemo(
+    () => Array.from({ length: 60 }, (_, index) => String(index).padStart(2, "0")),
+    [],
+  );
+
+  const buttonDateLabel = React.useMemo(() => {
+    if (invalid) return "Prazo inválido";
+    if (!selectedDate) return "Definir prazo";
+    const pad = (input: number) => String(input).padStart(2, "0");
+    return `${pad(selectedDate.getDate())}/${pad(selectedDate.getMonth() + 1)}/${selectedDate.getFullYear()}`;
+  }, [invalid, selectedDate]);
+
+  const buttonTimeLabel = React.useMemo(() => {
+    if (invalid) return "Limpe e selecione novamente.";
+    if (!selectedDate) return "Escolha uma data no calendário";
+    return selectedTime ? `${selectedTime} definido` : "23:59 automático";
+  }, [invalid, selectedDate, selectedTime]);
+
+  const applyDate = React.useCallback(
+    (date: Date) => {
+      onChange(buildDueDateFromControls(formatControlDateValue(date), selectedTime));
+    },
+    [onChange, selectedTime],
+  );
+
+  const applyTime = React.useCallback(
+    (time: string) => {
+      if (!controls.date) return;
+      onChange(buildDueDateFromControls(controls.date, time));
+    },
+    [controls.date, onChange],
+  );
+
+  const clearTime = React.useCallback(() => {
+    if (!controls.date) return;
+    onChange(buildDueDateFromControls(controls.date, ""));
+  }, [controls.date, onChange]);
+
+  return (
+    <div className="space-y-3" ref={wrapperRef}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+          Data limite
+        </div>
+        <div className="text-[11px] font-medium text-white/40">
+          Calendário + relógio
+        </div>
+      </div>
+
+      <div
+        className={cn(
+          "rounded-[1.6rem] border bg-[#081224] p-3 transition",
+          invalid
+            ? "border-amber-400/25 bg-amber-500/8"
+            : overdue
+              ? "border-red-400/25 bg-red-500/8"
+              : "border-cyan-400/15",
+        )}
+      >
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <button
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+            className={cn(
+              "group flex min-w-0 flex-1 items-center gap-3 rounded-[1.3rem] border px-4 py-3 text-left transition",
+              invalid
+                ? "border-amber-400/35 bg-amber-500/10 text-amber-50"
+                : overdue
+                  ? "border-red-400/35 bg-red-500/10 text-red-50"
+                  : "border-cyan-400/20 bg-[#0a1225] text-white hover:border-cyan-300/45 hover:bg-[#0c1830]",
+            )}
+          >
+            <div
+              className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border",
+                invalid
+                  ? "border-amber-300/25 bg-amber-500/10 text-amber-100"
+                  : overdue
+                    ? "border-red-300/25 bg-red-500/10 text-red-100"
+                    : "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
+              )}
+            >
+              <CalendarClock className="h-4 w-4" />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold">{buttonDateLabel}</div>
+              <div className="truncate text-xs text-white/50">{buttonTimeLabel}</div>
+            </div>
+
+            <ChevronDown
+              className={cn("h-4 w-4 shrink-0 text-white/55 transition", open && "rotate-180")}
+            />
+          </button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedDate ? (
+              <button
+                type="button"
+                onClick={clearTime}
+                className={cn(
+                  "inline-flex h-11 items-center justify-center rounded-2xl border px-3 text-xs font-semibold uppercase tracking-[0.16em] transition",
+                  selectedTime
+                    ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-100 hover:border-cyan-300/45"
+                    : "border-white/10 bg-white/[0.04] text-white/45 hover:text-white/70",
+                )}
+              >
+                23:59 auto
+              </button>
+            ) : null}
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onClear();
+                setOpen(false);
+              }}
+              disabled={!value}
+              className="h-11 rounded-2xl border-white/12 bg-white/[0.03] px-4"
+            >
+              <X className="h-4 w-4" />
+              Limpar
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-3 text-xs leading-5 text-white/45">
+          Escolha a data no calendário. A hora é opcional; sem hora definida, o sistema assume 23:59.
+        </div>
+
+        {open && typeof document !== "undefined"
+          ? createPortal(
+              <div
+                ref={panelRef}
+                style={panelStyle}
+                className="z-[2147483000] overflow-hidden rounded-[1.8rem] border border-cyan-400/20 bg-[#050d1c]/98 p-4 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur"
+              >
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/65">
+                      Calendário + relógio
+                    </div>
+                    <div className="mt-1 text-sm text-white/55">
+                      Selecione o dia e, se quiser, defina uma hora específica.
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedDate ? (
+                      <button
+                        type="button"
+                        onClick={clearTime}
+                        className={cn(
+                          "inline-flex h-10 items-center justify-center rounded-2xl border px-3 text-xs font-semibold uppercase tracking-[0.16em] transition",
+                          selectedTime
+                            ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-100 hover:border-cyan-300/45"
+                            : "border-white/10 bg-white/[0.04] text-white/45 hover:text-white/70",
+                        )}
+                      >
+                        23:59 auto
+                      </button>
+                    ) : null}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        onClear();
+                        setOpen(false);
+                      }}
+                      disabled={!value}
+                      className="h-10 rounded-2xl border-white/12 bg-white/[0.03] px-4"
+                    >
+                      <X className="h-4 w-4" />
+                      Limpar
+                    </Button>
+                  </div>
+                </div>
+
+                <div
+                  className="grid gap-4 overflow-y-auto pr-1 xl:grid-cols-[minmax(0,1fr)_320px]"
+                  style={{ maxHeight: panelStyle.maxHeight ? `calc(${panelStyle.maxHeight}px - 110px)` : undefined }}
+                >
+                  <div className="rounded-[1.35rem] border border-cyan-400/15 bg-[#081224] p-3">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                          Calendário
+                        </div>
+                        <div className="mt-1 text-base font-bold text-white">
+                          {formatCalendarHeader(monthCursor)}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMonthCursor((current) => shiftCalendarMonth(current, -1))}
+                          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-cyan-300/35 hover:text-white"
+                          aria-label="Mês anterior"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMonthCursor((current) => shiftCalendarMonth(current, 1))}
+                          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-cyan-300/35 hover:text-white"
+                          aria-label="Próximo mês"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mb-2 grid grid-cols-7 gap-2">
+                      {CALENDAR_WEEKDAY_LABELS.map((label) => (
+                        <div
+                          key={label}
+                          className="text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35"
+                        >
+                          {label}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-2">
+                      {calendarCells.map((cell) => {
+                        const isSelected = sameCalendarDate(cell.date, selectedDate);
+                        const isToday = sameCalendarDate(cell.date, new Date());
+                        return (
+                          <button
+                            key={cell.key}
+                            type="button"
+                            onClick={() => applyDate(cell.date)}
+                            className={cn(
+                              "flex h-11 items-center justify-center rounded-2xl border text-sm font-semibold transition",
+                              isSelected
+                                ? "border-cyan-300/50 bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.18)]"
+                                : cell.currentMonth
+                                  ? "border-white/8 bg-white/[0.03] text-white/80 hover:border-cyan-300/25 hover:bg-cyan-400/8"
+                                  : "border-white/5 bg-white/[0.02] text-white/25 hover:text-white/55",
+                              isToday && !isSelected && "border-cyan-400/18 text-cyan-100",
+                            )}
+                          >
+                            {cell.date.getDate()}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const today = new Date();
+                          setMonthCursor(new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0, 0));
+                          applyDate(today);
+                        }}
+                        className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-medium text-cyan-100 transition hover:border-cyan-300/40"
+                      >
+                        Hoje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const tomorrow = new Date();
+                          tomorrow.setDate(tomorrow.getDate() + 1);
+                          setMonthCursor(
+                            new Date(tomorrow.getFullYear(), tomorrow.getMonth(), 1, 12, 0, 0, 0),
+                          );
+                          applyDate(tomorrow);
+                        }}
+                        className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-cyan-300/25 hover:text-white"
+                      >
+                        Amanhã
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.35rem] border border-cyan-400/15 bg-[#081224] p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                          Relógio
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-2xl font-black text-white">
+                          <Clock3 className="h-5 w-5 text-cyan-200/70" />
+                          <span>{selectedDate ? `${selectedHour}:${selectedMinute}` : "--:--"}</span>
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-white/45">
+                          {selectedDate
+                            ? selectedTime
+                              ? "Hora fixa definida para este prazo."
+                              : "Sem hora fixa. O sistema usa 23:59."
+                            : "Escolha um dia no calendário para habilitar o relógio."}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="rounded-[1.15rem] border border-white/8 bg-white/[0.03] p-2">
+                        <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                          Hora
+                        </div>
+                        <div className="max-h-56 overflow-y-auto pr-1">
+                          <div className="grid gap-1">
+                            {hourOptions.map((hour) => {
+                              const active = selectedDate && selectedHour === hour && Boolean(selectedTime);
+                              return (
+                                <button
+                                  key={hour}
+                                  type="button"
+                                  disabled={!selectedDate}
+                                  onClick={() => applyTime(`${hour}:${selectedMinute}`)}
+                                  className={cn(
+                                    "rounded-xl px-3 py-2 text-sm font-semibold transition",
+                                    !selectedDate
+                                      ? "cursor-not-allowed bg-white/[0.02] text-white/20"
+                                      : active
+                                        ? "bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.14)]"
+                                        : "bg-white/[0.04] text-white/70 hover:bg-cyan-400/10 hover:text-white",
+                                  )}
+                                >
+                                  {hour}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-[1.15rem] border border-white/8 bg-white/[0.03] p-2">
+                        <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                          Minuto
+                        </div>
+                        <div className="max-h-56 overflow-y-auto pr-1">
+                          <div className="grid gap-1">
+                            {minuteOptions.map((minute) => {
+                              const active = selectedDate && selectedMinute === minute && Boolean(selectedTime);
+                              return (
+                                <button
+                                  key={minute}
+                                  type="button"
+                                  disabled={!selectedDate}
+                                  onClick={() => applyTime(`${selectedHour}:${minute}`)}
+                                  className={cn(
+                                    "rounded-xl px-3 py-2 text-sm font-semibold transition",
+                                    !selectedDate
+                                      ? "cursor-not-allowed bg-white/[0.02] text-white/20"
+                                      : active
+                                        ? "bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.14)]"
+                                        : "bg-white/[0.04] text-white/70 hover:bg-cyan-400/10 hover:text-white",
+                                  )}
+                                >
+                                  {minute}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!selectedDate}
+                        onClick={clearTime}
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                          !selectedDate
+                            ? "cursor-not-allowed border-white/8 bg-white/[0.03] text-white/25"
+                            : !selectedTime
+                              ? "border-cyan-400/20 bg-cyan-400/12 text-cyan-100"
+                              : "border-white/10 bg-white/[0.04] text-white/70 hover:border-cyan-300/30 hover:text-white",
+                        )}
+                      >
+                        Sem hora
+                      </button>
+                      {quickTimes.map((time) => (
+                        <button
+                          key={time}
+                          type="button"
+                          disabled={!selectedDate}
+                          onClick={() => applyTime(time)}
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                            !selectedDate
+                              ? "cursor-not-allowed border-white/8 bg-white/[0.03] text-white/25"
+                              : selectedTime === time
+                                ? "border-cyan-400/20 bg-cyan-400/12 text-cyan-100"
+                                : "border-white/10 bg-white/[0.04] text-white/70 hover:border-cyan-300/30 hover:text-white",
+                          )}
+                        >
+                          {time}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>,
+              document.body,
+            )
+          : null}
+
+        {selectedDate ? (
+          <div className="mt-4 rounded-[1.2rem] border border-white/8 bg-white/[0.03] px-3 py-2 text-sm text-white/70">
+            Prazo atual: <span className="font-semibold text-white">{formatDueDateHint(value)}</span>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -925,25 +1745,66 @@ function SelectField({
   disabled?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
+  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({});
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+
+  const updateMenuPosition = React.useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom - 16;
+    const spaceAbove = rect.top - 16;
+    const shouldOpenAbove = spaceBelow < 260 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(180, Math.min(320, shouldOpenAbove ? spaceAbove : spaceBelow));
+
+    setMenuStyle({
+      position: "fixed",
+      left: rect.left,
+      top: shouldOpenAbove ? Math.max(16, rect.top - maxHeight - 8) : rect.bottom + 8,
+      width: rect.width,
+      maxHeight,
+      zIndex: 120,
+    });
+  }, []);
 
   React.useEffect(() => {
     if (!open) return;
+
+    updateMenuPosition();
+
     const handleClick = (event: MouseEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) {
-        setOpen(false);
+      const target = event.target as Node;
+      if (
+        wrapperRef.current?.contains(target) ||
+        menuRef.current?.contains(target)
+      ) {
+        return;
       }
+      setOpen(false);
     };
+
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+
+    const handleReposition = () => updateMenuPosition();
+
     document.addEventListener("mousedown", handleClick);
     document.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+
     return () => {
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
     };
-  }, [open]);
+  }, [open, updateMenuPosition]);
 
   const active = options.find((option) => option.value === value);
 
@@ -956,6 +1817,7 @@ function SelectField({
       ) : null}
       <div className="relative">
         <button
+          ref={triggerRef}
           type="button"
           disabled={disabled}
           onClick={() => setOpen((current) => !current)}
@@ -983,43 +1845,50 @@ function SelectField({
           />
         </button>
 
-        {open ? (
-          <div className="absolute z-[80] mt-2 w-full overflow-hidden rounded-[1.4rem] border border-cyan-400/20 bg-[#07101f] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
-            <div className="max-h-72 overflow-y-auto pr-1">
-              {options.map((option) => {
-                const activeOption = option.value === value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      onChange(option.value);
-                      setOpen(false);
-                    }}
-                    className={cn(
-                      "flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-3 text-left transition",
-                      activeOption
-                        ? "bg-cyan-400/12 text-cyan-100"
-                        : "text-white/80 hover:bg-white/5",
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium">{option.label}</div>
-                      {option.description ? (
-                        <div className="mt-1 text-xs leading-5 text-white/45">
-                          {option.description}
+        {open && typeof document !== "undefined"
+          ? createPortal(
+              <div
+                ref={menuRef}
+                style={menuStyle}
+                className="overflow-hidden rounded-[1.4rem] border border-cyan-400/20 bg-[#07101f] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
+              >
+                <div className="overflow-y-auto pr-1" style={{ maxHeight: menuStyle.maxHeight }}>
+                  {options.map((option) => {
+                    const activeOption = option.value === value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          onChange(option.value);
+                          setOpen(false);
+                        }}
+                        className={cn(
+                          "flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-3 text-left transition",
+                          activeOption
+                            ? "bg-cyan-400/12 text-cyan-100"
+                            : "text-white/80 hover:bg-white/5",
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium">{option.label}</div>
+                          {option.description ? (
+                            <div className="mt-1 text-xs leading-5 text-white/45">
+                              {option.description}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </div>
-                    {activeOption ? (
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200" />
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
+                        {activeOption ? (
+                          <Check className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200" />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>,
+              document.body,
+            )
+          : null}
       </div>
     </div>
   );
@@ -1113,9 +1982,11 @@ function InfoRow({
   );
 }
 
+
 function ColumnLane({
   column,
   selectedCardId,
+  labelsById,
   onSelectCard,
   onCreateCard,
   onRenameColumn,
@@ -1129,6 +2000,7 @@ function ColumnLane({
 }: {
   column: BobarColumn;
   selectedCardId: number | null;
+  labelsById: Record<number, BobarLabel>;
   onSelectCard: (cardId: number) => void;
   onCreateCard: (columnId: number) => void;
   onRenameColumn: (column: BobarColumn) => void;
@@ -1238,6 +2110,12 @@ function ColumnLane({
             column.cards.map((card) => {
               const active = selectedCardId === card.id;
               const dragging = dragState?.cardId === card.id;
+              const overdue = isCardOverdue(card);
+              const cardLabels = (card.label_ids || [])
+                .map((labelId) => labelsById[labelId])
+                .filter(Boolean)
+                .slice(0, 3);
+
               return (
                 <button
                   key={card.id}
@@ -1249,8 +2127,12 @@ function ColumnLane({
                   className={cn(
                     "w-full overflow-hidden rounded-[1.7rem] border p-4 text-left shadow-[0_16px_34px_rgba(0,0,0,0.22)] transition",
                     active
-                      ? "border-cyan-400/50 bg-cyan-400/10 ring-2 ring-cyan-400/25"
-                      : "border-white/10 bg-white/[0.045] hover:bg-white/[0.07]",
+                      ? overdue
+                        ? "border-red-300/50 bg-red-500/10 ring-2 ring-red-400/20"
+                        : "border-cyan-400/50 bg-cyan-400/10 ring-2 ring-cyan-400/25"
+                      : overdue
+                        ? "border-red-400/25 bg-red-500/10 hover:bg-red-500/14"
+                        : "border-white/10 bg-white/[0.045] hover:bg-white/[0.07]",
                     dragging && "opacity-45",
                   )}
                 >
@@ -1270,6 +2152,12 @@ function ColumnLane({
                             {card.source_label}
                           </Badge>
                         ) : null}
+                        {overdue ? (
+                          <Badge className="rounded-full border border-red-400/30 bg-red-500/15 px-2.5 py-1 text-[11px] font-semibold text-red-100">
+                            <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+                            Atrasado
+                          </Badge>
+                        ) : null}
                       </div>
                       <div className="break-words text-base font-semibold leading-6 text-white">
                         {card.title}
@@ -1281,19 +2169,67 @@ function ColumnLane({
                     </div>
                   </div>
 
+                  {cardLabels.length ? (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {cardLabels.map((label) => (
+                        <span
+                          key={label.id}
+                          className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+                          style={{
+                            borderColor: `${label.color}55`,
+                            backgroundColor: `${label.color}22`,
+                            color: label.color,
+                          }}
+                        >
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: label.color }}
+                          />
+                          <span className="truncate">{label.name}</span>
+                        </span>
+                      ))}
+                      {(card.label_ids?.length || 0) > cardLabels.length ? (
+                        <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-white/60">
+                          +{(card.label_ids?.length || 0) - cardLabels.length}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   <div className="break-words text-sm leading-6 text-white/60">
                     {buildSnippet(card)}
                   </div>
 
-                  <div className="mt-4 flex items-center justify-between gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-white/35">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-white/35">
                     <span>{formatDate(card.updated_at)}</span>
-                    <span>
-                      {String(card.card_type || "").toLowerCase() === "fluxograma"
-                        ? `${parseFlowchart(card.structure_json, card.title, card.content_text).nodes.length} blocos`
-                        : String(card.card_type || "").toLowerCase() === "checklist"
-                          ? `${getChecklistStats(parseChecklistContent(card.content_text)).checked}/${getChecklistStats(parseChecklistContent(card.content_text)).total || 0} concluídos`
-                          : "Texto"}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {card.attachments.length ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/60">
+                          <Paperclip className="h-3.5 w-3.5" />
+                          {card.attachments.length}
+                        </span>
+                      ) : null}
+                      {card.due_at ? (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px]",
+                            overdue
+                              ? "border-red-400/30 bg-red-500/15 text-red-100"
+                              : "border-white/10 bg-white/5 text-white/60",
+                          )}
+                        >
+                          <CalendarClock className="h-3.5 w-3.5" />
+                          {formatDate(card.due_at)}
+                        </span>
+                      ) : null}
+                      <span>
+                        {String(card.card_type || "").toLowerCase() === "fluxograma"
+                          ? `${parseFlowchart(card.structure_json, card.title, card.content_text).nodes.length} blocos`
+                          : String(card.card_type || "").toLowerCase() === "checklist"
+                            ? `${getChecklistStats(parseChecklistContent(card.content_text)).checked}/${getChecklistStats(parseChecklistContent(card.content_text)).total || 0} concluídos`
+                            : "Texto"}
+                      </span>
+                    </div>
                   </div>
                 </button>
               );
@@ -1698,7 +2634,10 @@ function FlowchartCanvas({
                   <button
                     type="button"
                     title={pendingSourceNode && pendingSourceNode.id !== node.id ? "Concluir conexão aqui" : "Selecionar entrada"}
-                    onPointerDown={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
                     onClick={(event) => {
                       event.stopPropagation();
                       onHandleClick(node.id, "target");
@@ -1715,7 +2654,10 @@ function FlowchartCanvas({
                   <button
                     type="button"
                     title={isPendingSource ? "Cancelar nova conexão" : "Iniciar nova conexão"}
-                    onPointerDown={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
                     onClick={(event) => {
                       event.stopPropagation();
                       onHandleClick(node.id, "source");
@@ -1877,6 +2819,228 @@ function ChecklistEditor({
 }
 
 
+function AttachmentPreviewTile({
+  attachment,
+  busy,
+  loadPreview,
+  onOpenPreview,
+  onDownload,
+  onDelete,
+}: {
+  attachment: BobarAttachment;
+  busy: boolean;
+  loadPreview: (
+    attachment: BobarAttachment,
+  ) => Promise<{ kind: AttachmentPreviewKind; url: string; textContent?: string }>;
+  onOpenPreview: (attachment: BobarAttachment) => void | Promise<void>;
+  onDownload: (attachment: BobarAttachment) => void | Promise<void>;
+  onDelete: (attachment: BobarAttachment) => void | Promise<void>;
+}) {
+  const canPreview = isAttachmentPreviewable(attachment);
+  const baseKind = attachmentPreviewKind(attachment);
+  const [preview, setPreview] = React.useState<AttachmentInlinePreview>({
+    status: canPreview ? "loading" : "idle",
+    kind: baseKind,
+  });
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    if (!canPreview) {
+      setPreview({ status: "idle", kind: baseKind });
+      return;
+    }
+
+    setPreview((current) =>
+      current.status === "ready" && current.kind === baseKind
+        ? current
+        : { status: "loading", kind: baseKind },
+    );
+
+    void loadPreview(attachment)
+      .then((resolved) => {
+        if (cancelled) return;
+        setPreview({
+          status: "ready",
+          kind: resolved.kind,
+          url: resolved.url,
+          textContent: resolved.textContent,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPreview({
+          status: "error",
+          kind: baseKind,
+          error: "Não foi possível carregar a preview.",
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment.id, attachment.mime_type, baseKind, canPreview, loadPreview]);
+
+  const renderSurface = () => {
+    if (!canPreview) {
+      return (
+        <div className="flex h-full items-center justify-center p-5 text-center">
+          <div>
+            <Paperclip className="mx-auto h-8 w-8 text-white/35" />
+            <div className="mt-3 text-sm font-medium text-white/70">{attachment.filename}</div>
+            <div className="mt-1 text-xs text-white/40">Sem preview embutida para esse formato.</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (preview.status === "loading") {
+      return (
+        <div className="flex h-full items-center justify-center p-5 text-center">
+          <div>
+            <Loader2 className="mx-auto h-8 w-8 animate-spin text-cyan-100/80" />
+            <div className="mt-3 text-sm text-white/60">Carregando preview…</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (preview.status === "error") {
+      return (
+        <div className="flex h-full items-center justify-center p-5 text-center">
+          <div>
+            <CircleAlert className="mx-auto h-8 w-8 text-amber-300/80" />
+            <div className="mt-3 text-sm text-white/70">{preview.error}</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (preview.kind === "image" && preview.url) {
+      return <img src={preview.url} alt={attachment.filename} className="h-full w-full object-cover" />;
+    }
+
+    if (preview.kind === "pdf" && preview.url) {
+      return (
+        <iframe
+          src={preview.url}
+          title={attachment.filename}
+          className="h-full w-full bg-white pointer-events-none"
+        />
+      );
+    }
+
+    if (preview.kind === "video" && preview.url) {
+      return (
+        <video
+          src={preview.url}
+          className="h-full w-full object-cover"
+          muted
+          playsInline
+          preload="metadata"
+        />
+      );
+    }
+
+    if (preview.kind === "audio" && preview.url) {
+      return (
+        <div className="flex h-full flex-col justify-center gap-4 p-5">
+          <div>
+            <div className="text-sm font-medium text-white">{attachment.filename}</div>
+            <div className="mt-1 text-xs text-white/45">Áudio anexado</div>
+          </div>
+          <audio src={preview.url} controls className="w-full" />
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full overflow-hidden p-5 text-left">
+        <div
+          className="whitespace-pre-wrap break-words text-sm leading-6 text-white/72"
+          style={{
+            display: "-webkit-box",
+            WebkitLineClamp: 6,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {buildAttachmentTextSnippet(preview.textContent)}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-white/[0.035]">
+      <button
+        type="button"
+        className={cn("block w-full text-left", canPreview ? "group" : "cursor-default")}
+        onClick={() => canPreview && void onOpenPreview(attachment)}
+        disabled={!canPreview}
+      >
+        <div className="relative h-48 overflow-hidden border-b border-white/10 bg-[#020817]">
+          {renderSurface()}
+          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-[#020817] via-[#020817]/90 to-transparent px-4 pb-4 pt-8">
+            <Badge className="rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">
+              {attachmentPreviewLabel(preview.kind)}
+            </Badge>
+            {canPreview ? (
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100/80">
+                Clique para ampliar
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </button>
+
+      <div className="space-y-3 p-4">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-white">{attachment.filename}</div>
+          <div className="mt-1 text-xs text-white/45">
+            {formatFileSize(attachment.size_bytes)} · {formatDate(attachment.created_at)}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {canPreview ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-2xl"
+              onClick={() => void onOpenPreview(attachment)}
+            >
+              <Eye className="h-4 w-4" />
+              Abrir
+            </Button>
+          ) : null}
+
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 rounded-2xl"
+            onClick={() => void onDownload(attachment)}
+          >
+            <Download className="h-4 w-4" />
+            Baixar
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 rounded-2xl text-red-200 hover:text-red-100"
+            onClick={() => void onDelete(attachment)}
+            disabled={busy}
+          >
+            <Trash2 className="h-4 w-4" />
+            Remover
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function FlowEditorInspector({
   selectedNode,
@@ -2006,6 +3170,8 @@ function FlowEditorInspector({
 
 export default function BobarPage() {
   const [board, setBoard] = React.useState<BobarBoard | null>(null);
+  const [boards, setBoards] = React.useState<BobarBoardSummary[]>([]);
+  const [activeBoardId, setActiveBoardId] = React.useState<number | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [activeView, setActiveView] = React.useState<BobarViewMode>("board");
@@ -2025,11 +3191,18 @@ export default function BobarPage() {
   const [dragState, setDragState] = React.useState<DragCardState | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = React.useState<number | null>(null);
   const [columnDialog, setColumnDialog] = React.useState<ColumnDialogState | null>(null);
+  const [boardDialog, setBoardDialog] = React.useState<BoardDialogState | null>(null);
   const [columnNameDraft, setColumnNameDraft] = React.useState("");
+  const [boardNameDraft, setBoardNameDraft] = React.useState("");
   const [deleteDialog, setDeleteDialog] = React.useState<DeleteDialogState | null>(null);
+  const [newLabelName, setNewLabelName] = React.useState("");
+  const [newLabelColor, setNewLabelColor] = React.useState("#22c55e");
+  const [labelDrafts, setLabelDrafts] = React.useState<Record<number, LabelDraft>>({});
+  const [attachmentPreview, setAttachmentPreview] = React.useState<AttachmentPreviewState | null>(null);
+  const attachmentInputRef = React.useRef<HTMLInputElement | null>(null);
+  const attachmentUrlCacheRef = React.useRef<Map<number, string>>(new Map());
   const hydrationLocksRef = React.useRef<Set<number>>(new Set());
   const importMetaSyncRef = React.useRef<Set<number>>(new Set());
-
 
   const allCards = React.useMemo(
     () => board?.columns.flatMap((column) => column.cards) || [],
@@ -2095,6 +3268,39 @@ export default function BobarPage() {
         .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
         .slice(0, 6),
     [cards],
+  );
+  const labelsById = React.useMemo(
+    () =>
+      Object.fromEntries((board?.labels || []).map((label) => [label.id, label])) as Record<
+        number,
+        BobarLabel
+      >,
+    [board?.labels],
+  );
+  const boardOptions = React.useMemo<DropdownOption[]>(
+    () =>
+      boards.map((currentBoard) => ({
+        value: String(currentBoard.id),
+        label: currentBoard.title,
+        description: `${currentBoard.total_cards} ${currentBoard.total_cards === 1 ? "card" : "cards"}`,
+      })),
+    [boards],
+  );
+  const selectedCardLabels = React.useMemo(
+    () => (cardDraft?.label_ids || []).map((labelId) => labelsById[labelId]).filter(Boolean),
+    [cardDraft?.label_ids, labelsById],
+  );
+  const dueDateIso = React.useMemo(() => toIsoDatetime(cardDraft?.due_at || ""), [cardDraft?.due_at]);
+  const dueDateIsInvalid = Boolean(cardDraft?.due_at.trim()) && !dueDateIso;
+  const handleDueDateChange = React.useCallback((nextValue: string) => {
+    setCardDraft((current) => (current ? { ...current, due_at: nextValue } : current));
+  }, []);
+  const clearDueDate = React.useCallback(() => {
+    setCardDraft((current) => (current ? { ...current, due_at: "" } : current));
+  }, []);
+  const selectedCardIsOverdue = React.useMemo(
+    () => isCardOverdue({ due_at: dueDateIso ?? selectedCard?.due_at ?? null }),
+    [dueDateIso, selectedCard?.due_at],
   );
 
   const templateOptions = React.useMemo<DropdownOption[]>(
@@ -2205,12 +3411,43 @@ export default function BobarPage() {
     [],
   );
 
-  const loadBoard = React.useCallback(
-    async (preferredCardId?: number | null) => {
+  const syncBoardSummary = React.useCallback((nextBoard: BobarBoard | null) => {
+    if (!nextBoard) return;
+    setBoards((currentBoards) => {
+      if (!currentBoards.length) return currentBoards;
+      const existing = currentBoards.find((boardItem) => boardItem.id === nextBoard.id);
+      const nextSummary: BobarBoardSummary = {
+        id: nextBoard.id,
+        title: nextBoard.title,
+        position: existing?.position ?? currentBoards.length,
+        total_cards: nextBoard.total_cards,
+        updated_at: new Date().toISOString(),
+      };
+      if (!existing) return [...currentBoards, nextSummary];
+      return currentBoards.map((boardItem) => (boardItem.id === nextBoard.id ? nextSummary : boardItem));
+    });
+    setActiveBoardId(nextBoard.id);
+  }, []);
+
+  const loadBoardsAndBoard = React.useCallback(
+    async (preferredBoardId?: number | null, preferredCardId?: number | null) => {
       try {
         setLoading(true);
-        const nextBoard = await bobarService.board();
+        const boardList = await bobarService.boards();
+        setBoards(boardList.boards);
+
+        const fallbackBoardId = preferredBoardId || activeBoardId || boardList.boards[0]?.id || null;
+        setActiveBoardId(fallbackBoardId);
+
+        if (!fallbackBoardId) {
+          setBoard(null);
+          setSelectedCardId(null);
+          return;
+        }
+
+        const nextBoard = await bobarService.board(fallbackBoardId);
         setBoard(nextBoard);
+        syncBoardSummary(nextBoard);
         syncSelection(nextBoard, preferredCardId);
       } catch (error) {
         toastApiError(error, "Não foi possível carregar o Bobar.");
@@ -2218,7 +3455,7 @@ export default function BobarPage() {
         setLoading(false);
       }
     },
-    [syncSelection],
+    [activeBoardId, syncBoardSummary, syncSelection],
   );
 
   const updateImportWorkspaceColumns = React.useCallback(
@@ -2254,10 +3491,11 @@ export default function BobarPage() {
       });
 
       setBoard(nextBoard);
+      syncBoardSummary(nextBoard);
       syncSelection(nextBoard, preferredCardId ?? selectedCardId);
       return nextBoard;
     },
-    [selectedCardId, syncSelection],
+    [selectedCardId, syncBoardSummary, syncSelection],
   );
 
   const ensureImportWorkspace = React.useCallback(
@@ -2289,7 +3527,7 @@ export default function BobarPage() {
 
         for (const columnBlueprint of blueprint.columns) {
           const beforeColumnCreation = workingBoard;
-          workingBoard = await bobarService.createColumn({ name: columnBlueprint.name });
+          workingBoard = await bobarService.createColumn({ name: columnBlueprint.name }, activeBoardId);
           const createdColumnId = diffNewColumnId(beforeColumnCreation, workingBoard);
           if (!createdColumnId) {
             throw new Error("Não foi possível identificar a nova coluna importada.");
@@ -2299,12 +3537,15 @@ export default function BobarPage() {
 
           for (const cardBlueprint of columnBlueprint.cards) {
             const beforeCardCreation = workingBoard;
-            workingBoard = await bobarService.createCard({
-              ...cardBlueprint,
-              column_id: createdColumnId,
-              source_kind: buildAuthorityWorkspaceSourceKind(importCard.id),
-              source_label: importCard.source_label || "Importado",
-            });
+            workingBoard = await bobarService.createCard(
+              {
+                ...cardBlueprint,
+                column_id: createdColumnId,
+                source_kind: buildAuthorityWorkspaceSourceKind(importCard.id),
+                source_label: importCard.source_label || "Importado",
+              },
+              activeBoardId,
+            );
             preferredWorkspaceCardId = preferredWorkspaceCardId || diffNewCardId(beforeCardCreation, workingBoard);
           }
         }
@@ -2344,8 +3585,8 @@ export default function BobarPage() {
   );
 
   React.useEffect(() => {
-    void loadBoard();
-  }, [loadBoard]);
+    void loadBoardsAndBoard();
+  }, [loadBoardsAndBoard]);
 
   React.useEffect(() => {
     if (!importedCards.length) {
@@ -2418,6 +3659,8 @@ export default function BobarPage() {
       column_id: selectedCard.column_id,
       content_text: selectedCard.content_text || "",
       note: selectedCard.note || "",
+      due_at: toDatetimeLocalValue(selectedCard.due_at),
+      label_ids: [...(selectedCard.label_ids || [])],
     };
 
     const nextChecklist = parseChecklistContent(selectedCard.content_text || "");
@@ -2438,6 +3681,29 @@ export default function BobarPage() {
     setPendingConnectionNodeId(null);
   }, [selectedCard]);
 
+  React.useEffect(() => {
+    const nextDrafts = Object.fromEntries(
+      (board?.labels || []).map((label) => [
+        label.id,
+        {
+          name: label.name,
+          color: label.color,
+        },
+      ]),
+    ) as Record<number, LabelDraft>;
+    setLabelDrafts(nextDrafts);
+  }, [board?.labels]);
+
+  React.useEffect(
+    () => () => {
+      for (const url of attachmentUrlCacheRef.current.values()) {
+        URL.revokeObjectURL(url);
+      }
+      attachmentUrlCacheRef.current.clear();
+    },
+    [],
+  );
+
   const runBoardMutation = React.useCallback(
     async (
       task: () => Promise<BobarBoard>,
@@ -2448,6 +3714,7 @@ export default function BobarPage() {
         setBusy(true);
         const nextBoard = await task();
         setBoard(nextBoard);
+        syncBoardSummary(nextBoard);
         syncSelection(nextBoard, preferredCardId ?? selectedCardId);
         if (successMessage) toastSuccess(successMessage);
         return nextBoard;
@@ -2458,7 +3725,277 @@ export default function BobarPage() {
         setBusy(false);
       }
     },
-    [selectedCardId, syncSelection],
+    [selectedCardId, syncBoardSummary, syncSelection],
+  );
+
+
+  const openCreateBoardDialog = React.useCallback(() => {
+    setBoardNameDraft("");
+    setBoardDialog({ mode: "create", board: null });
+  }, []);
+
+  const handleRenameBoard = React.useCallback((boardItem: BobarBoardSummary) => {
+    setBoardNameDraft(boardItem.title);
+    setBoardDialog({ mode: "rename", board: boardItem });
+  }, []);
+
+  const handleSubmitBoardDialog = React.useCallback(
+    async (event?: React.FormEvent) => {
+      event?.preventDefault();
+      const title = boardNameDraft.trim();
+      if (!title || !boardDialog) return;
+
+      try {
+        setBusy(true);
+        if (boardDialog.mode === "create") {
+          const boardList = await bobarService.createBoard({ title });
+          setBoards(boardList.boards);
+          const createdBoard = boardList.boards[boardList.boards.length - 1] || null;
+          setBoardDialog(null);
+          setBoardNameDraft("");
+          if (createdBoard) {
+            await loadBoardsAndBoard(createdBoard.id);
+            toastSuccess("Quadro criado.");
+          }
+          return;
+        }
+
+        const boardList = await bobarService.renameBoard(boardDialog.board.id, { title });
+        setBoards(boardList.boards);
+        setBoardDialog(null);
+        setBoardNameDraft("");
+        await loadBoardsAndBoard(boardDialog.board.id, selectedCardId);
+        toastSuccess("Quadro renomeado.");
+      } catch (error) {
+        toastApiError(error, "Não foi possível salvar o quadro.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [boardDialog, boardNameDraft, loadBoardsAndBoard, selectedCardId],
+  );
+
+  const handleDeleteBoard = React.useCallback((boardItem: BobarBoardSummary) => {
+    setDeleteDialog({ type: "board", board: boardItem });
+  }, []);
+
+  const handleSwitchBoard = React.useCallback(
+    async (value: string) => {
+      const nextBoardId = Number(value);
+      if (!Number.isFinite(nextBoardId) || nextBoardId <= 0 || nextBoardId === activeBoardId) return;
+      await loadBoardsAndBoard(nextBoardId);
+      setActiveView("board");
+      setSelectedImportCardId(null);
+    },
+    [activeBoardId, loadBoardsAndBoard],
+  );
+
+  const handleCreateLabel = React.useCallback(async () => {
+    const name = newLabelName.trim();
+    if (!name || !activeBoardId) return;
+
+    try {
+      setBusy(true);
+      const nextBoard = await bobarService.createLabel(
+        { name, color: newLabelColor || "#22c55e" },
+        activeBoardId,
+      );
+      setBoard(nextBoard);
+      syncBoardSummary(nextBoard);
+      syncSelection(nextBoard, selectedCardId);
+      setNewLabelName("");
+      setNewLabelColor("#22c55e");
+      toastSuccess("Etiqueta criada.");
+    } catch (error) {
+      toastApiError(error, "Não foi possível criar a etiqueta.");
+    } finally {
+      setBusy(false);
+    }
+  }, [activeBoardId, newLabelColor, newLabelName, selectedCardId, syncBoardSummary, syncSelection]);
+
+  const handleSaveLabel = React.useCallback(
+    async (labelId: number) => {
+      const draft = labelDrafts[labelId];
+      if (!draft) return;
+      const name = draft.name.trim();
+      if (!name) {
+        toastInfo("Informe um nome para a etiqueta.");
+        return;
+      }
+
+      try {
+        setBusy(true);
+        const nextBoard = await bobarService.updateLabel(labelId, {
+          name,
+          color: draft.color || "#22c55e",
+        });
+        setBoard(nextBoard);
+        syncBoardSummary(nextBoard);
+        syncSelection(nextBoard, selectedCardId);
+        toastSuccess("Etiqueta atualizada.");
+      } catch (error) {
+        toastApiError(error, "Não foi possível atualizar a etiqueta.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [labelDrafts, selectedCardId, syncBoardSummary, syncSelection],
+  );
+
+  const handleDeleteLabel = React.useCallback(
+    async (label: BobarLabel) => {
+      try {
+        setBusy(true);
+        const nextBoard = await bobarService.deleteLabel(label.id);
+        setBoard(nextBoard);
+        syncBoardSummary(nextBoard);
+        syncSelection(nextBoard, selectedCardId);
+        toastSuccess(`Etiqueta "${label.name}" removida.`);
+      } catch (error) {
+        toastApiError(error, "Não foi possível remover a etiqueta.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [selectedCardId, syncBoardSummary, syncSelection],
+  );
+
+  const handleToggleCardLabel = React.useCallback((labelId: number) => {
+    setCardDraft((current) => {
+      if (!current) return current;
+      const exists = current.label_ids.includes(labelId);
+      const nextLabelIds = exists
+        ? current.label_ids.filter((currentLabelId) => currentLabelId !== labelId)
+        : [...current.label_ids, labelId];
+      return {
+        ...current,
+        label_ids: nextLabelIds,
+      };
+    });
+  }, []);
+
+  const getAttachmentUrl = React.useCallback(async (attachment: BobarAttachment) => {
+    const cached = attachmentUrlCacheRef.current.get(attachment.id);
+    if (cached) return cached;
+    const blob = await bobarService.fetchAttachmentBlob(attachment.id);
+    const url = URL.createObjectURL(blob);
+    attachmentUrlCacheRef.current.set(attachment.id, url);
+    return url;
+  }, []);
+
+  const loadAttachmentPreview = React.useCallback(
+    async (attachment: BobarAttachment) => {
+      const kind = attachmentPreviewKind(attachment);
+      const blob = await bobarService.fetchAttachmentBlob(attachment.id);
+
+      const cached = attachmentUrlCacheRef.current.get(attachment.id);
+      const url = cached || URL.createObjectURL(blob);
+      if (!cached) {
+        attachmentUrlCacheRef.current.set(attachment.id, url);
+      }
+
+      return {
+        kind,
+        url,
+        textContent: kind === "text" ? await blob.text() : undefined,
+      };
+    },
+    [],
+  );
+
+  const handleOpenAttachmentPicker = React.useCallback(() => {
+    if (!selectedCard) {
+      toastInfo("Selecione um card antes de anexar arquivo.");
+      return;
+    }
+    attachmentInputRef.current?.click();
+  }, [selectedCard]);
+
+  const handleUploadAttachments = React.useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
+      event.target.value = "";
+      if (!selectedCard || !files.length) return;
+
+      try {
+        setBusy(true);
+        let workingBoard: BobarBoard | null = board;
+        for (const file of files) {
+          workingBoard = await bobarService.uploadAttachment(selectedCard.id, file);
+        }
+        if (workingBoard) {
+          setBoard(workingBoard);
+          syncBoardSummary(workingBoard);
+          syncSelection(workingBoard, selectedCard.id);
+        }
+        toastSuccess(files.length === 1 ? "Anexo enviado." : "Anexos enviados.");
+      } catch (error) {
+        toastApiError(error, "Não foi possível enviar o anexo.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [board, selectedCard, syncBoardSummary, syncSelection],
+  );
+
+  const handleDeleteAttachment = React.useCallback(
+    async (attachment: BobarAttachment) => {
+      try {
+        setBusy(true);
+        const cached = attachmentUrlCacheRef.current.get(attachment.id);
+        if (cached) {
+          URL.revokeObjectURL(cached);
+          attachmentUrlCacheRef.current.delete(attachment.id);
+        }
+        const nextBoard = await bobarService.deleteAttachment(attachment.id);
+        setBoard(nextBoard);
+        syncBoardSummary(nextBoard);
+        syncSelection(nextBoard, selectedCardId);
+        if (attachmentPreview?.attachment.id === attachment.id) {
+          setAttachmentPreview(null);
+        }
+        toastSuccess("Anexo removido.");
+      } catch (error) {
+        toastApiError(error, "Não foi possível remover o anexo.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [attachmentPreview?.attachment.id, selectedCardId, syncBoardSummary, syncSelection],
+  );
+
+  const handlePreviewAttachment = React.useCallback(
+    async (attachment: BobarAttachment) => {
+      try {
+        const preview = await loadAttachmentPreview(attachment);
+        setAttachmentPreview({
+          attachment,
+          kind: preview.kind,
+          url: preview.url,
+          textContent: preview.textContent,
+        });
+      } catch (error) {
+        toastApiError(error, "Não foi possível abrir o preview do anexo.");
+      }
+    },
+    [loadAttachmentPreview],
+  );
+
+  const handleDownloadAttachment = React.useCallback(
+    async (attachment: BobarAttachment) => {
+      try {
+        const url = await getAttachmentUrl(attachment);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = attachment.filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } catch (error) {
+        toastApiError(error, "Não foi possível baixar o anexo.");
+      }
+    },
+    [getAttachmentUrl],
   );
 
   const openCreateColumnDialog = React.useCallback(() => {
@@ -2481,7 +4018,7 @@ export default function BobarPage() {
         if (isImportMode && activeImportCard && board) {
           try {
             setBusy(true);
-            const createdBoard = await bobarService.createColumn({ name });
+            const createdBoard = await bobarService.createColumn({ name }, activeBoardId);
             const createdColumnId = diffNewColumnId(board, createdBoard);
             if (!createdColumnId) {
               throw new Error("Não foi possível identificar a nova coluna criada.");
@@ -2498,6 +4035,7 @@ export default function BobarPage() {
             setColumnDialog(null);
             setColumnNameDraft("");
             setBoard(syncedBoard);
+            syncBoardSummary(syncedBoard);
             toastSuccess("Coluna criada dentro do roteiro importado.");
           } catch (error) {
             toastApiError(error, "Não foi possível criar a nova coluna.");
@@ -2508,7 +4046,7 @@ export default function BobarPage() {
         }
 
         const nextBoard = await runBoardMutation(
-          () => bobarService.createColumn({ name }),
+          () => bobarService.createColumn({ name }, activeBoardId),
           "Coluna criada.",
         );
         if (nextBoard) {
@@ -2560,13 +4098,16 @@ export default function BobarPage() {
 
       await runBoardMutation(
         () =>
-          bobarService.createCard({
-            column_id: fallbackColumnId,
-            title: "Novo card",
-            note: "",
-            content_text: "",
-            card_type: "manual",
-          }),
+          bobarService.createCard(
+            {
+              column_id: fallbackColumnId,
+              title: "Novo card",
+              note: "",
+              content_text: "",
+              card_type: "manual",
+            },
+            activeBoardId,
+          ),
         "Card criado.",
       );
     },
@@ -2583,6 +4124,7 @@ export default function BobarPage() {
       setBusy(true);
       const nextBoard = await bobarService.cleanupImportDuplicates(activeImportCard.id);
       setBoard(nextBoard);
+      syncBoardSummary(nextBoard);
       setSelectedImportCardId(activeImportCard.id);
 
       const nextImportCard = findCard(nextBoard, activeImportCard.id);
@@ -2621,6 +4163,7 @@ export default function BobarPage() {
           structure_json: writeImportProgressStatus(card.structure_json, status),
         });
         setBoard(nextBoard);
+        syncBoardSummary(nextBoard);
         setSelectedImportCardId(card.id);
         syncSelection(nextBoard, selectedCardId);
         toastSuccess(`Status atualizado para ${formatImportProgressLabel(status)}.`);
@@ -2678,6 +4221,11 @@ export default function BobarPage() {
   const handleSaveCard = React.useCallback(async () => {
     if (!selectedCard || !cardDraft) return;
 
+    if (cardDraft.due_at.trim() && !dueDateIso) {
+      toastInfo("Use a data no padrão DIA/MÊS/ANO. Ex.: 31/12/2025 18:30.");
+      return;
+    }
+
     const normalizedFlow = isFlowCard
       ? flowDraft && flowDraft.nodes.length
         ? flowDraft
@@ -2700,6 +4248,8 @@ export default function BobarPage() {
             meta: { ...(normalizedFlow.meta || {}), templateKey: templateKey || null, grid: 32 },
           })
         : "",
+      due_at: dueDateIso,
+      label_ids: cardDraft.label_ids,
     };
 
     await runBoardMutation(
@@ -2710,6 +4260,7 @@ export default function BobarPage() {
   }, [
     cardDraft,
     checklistDraft,
+    dueDateIso,
     flowDraft,
     isChecklistCard,
     isFlowCard,
@@ -2725,6 +4276,31 @@ export default function BobarPage() {
 
   const handleConfirmDelete = React.useCallback(async () => {
     if (!deleteDialog) return;
+
+    if (deleteDialog.type === "board") {
+      try {
+        setBusy(true);
+        const boardList = await bobarService.deleteBoard(deleteDialog.board.id);
+        setBoards(boardList.boards);
+        setDeleteDialog(null);
+
+        const fallbackBoardId = boardList.boards[0]?.id || null;
+        if (fallbackBoardId) {
+          await loadBoardsAndBoard(fallbackBoardId);
+        } else {
+          setBoard(null);
+          setActiveBoardId(null);
+          setSelectedCardId(null);
+        }
+
+        toastSuccess("Quadro removido.");
+      } catch (error) {
+        toastApiError(error, "Não foi possível remover o quadro.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
 
     if (deleteDialog.type === "column") {
       if (isImportMode && activeImportCard && board) {
@@ -2761,6 +4337,7 @@ export default function BobarPage() {
 
           setDeleteDialog(null);
           setBoard(workingBoard);
+          syncBoardSummary(workingBoard);
           toastSuccess("Coluna removida do roteiro importado.");
         } catch (error) {
           toastApiError(error, "Não foi possível remover a coluna importada.");
@@ -2790,8 +4367,10 @@ export default function BobarPage() {
     board,
     deleteDialog,
     isImportMode,
+    loadBoardsAndBoard,
     runBoardMutation,
     selectedCardId,
+    syncBoardSummary,
     updateImportWorkspaceColumns,
     visibleColumns,
   ]);
@@ -2985,7 +4564,23 @@ export default function BobarPage() {
         return;
       }
 
-      if (!pendingConnectionNodeId || pendingConnectionNodeId === nodeId) {
+      if (!pendingConnectionNodeId) {
+        const hadIncomingEdges = base.edges.some((edge) => edge.target === nodeId);
+        if (hadIncomingEdges) {
+          const nextEdges = base.edges.filter((edge) => edge.target !== nodeId);
+          setFlowDraft({
+            ...base,
+            edges: nextEdges,
+          });
+          toastSuccess("Conexões removidas da entrada selecionada.");
+        } else if (!flowDraft) {
+          setFlowDraft(base);
+        }
+        setPendingConnectionNodeId(null);
+        return;
+      }
+
+      if (pendingConnectionNodeId === nodeId) {
         setPendingConnectionNodeId(null);
         if (!flowDraft) setFlowDraft(base);
         return;
@@ -3273,46 +4868,25 @@ export default function BobarPage() {
           variant="glass"
           className="overflow-hidden rounded-[2.4rem] border-cyan-400/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_28%),#040914]"
         >
-          <CardHeader className="gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_460px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_520px]">
-            <div className="max-w-5xl">
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-100">
-                <Sparkles className="h-4 w-4" />
-                Bobar · quadro premium
+          <CardHeader className="gap-6">
+            <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_460px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_520px]">
+              <div className="max-w-5xl">
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-100">
+                  <Sparkles className="h-4 w-4" />
+                  Bobar · quadro premium
+                </div>
+                <CardTitle className="max-w-4xl text-4xl font-black tracking-tight text-white sm:text-5xl">
+                  {isImportMode
+                    ? "Abra a base e siga no mesmo quadro."
+                    : "Cards e fluxos no mesmo quadro."}
+                </CardTitle>
+                <CardDescription className="mt-4 max-w-3xl text-base leading-8 text-white/65">
+                  {isImportMode
+                    ? "Abra e continue no quadro."
+                    : "Coluna, card e fluxo no mesmo lugar."}
+                </CardDescription>
               </div>
-              <CardTitle className="max-w-4xl text-4xl font-black tracking-tight text-white sm:text-5xl">
-                {isImportMode
-                  ? "Abra a base e siga no mesmo quadro."
-                  : "Cards e fluxos no mesmo quadro."}
-              </CardTitle>
-              <CardDescription className="mt-4 max-w-3xl text-base leading-8 text-white/65">
-                {isImportMode
-                  ? "Abra e continue no quadro."
-                  : "Coluna, card e fluxo no mesmo lugar."}
-              </CardDescription>
 
-              <div className="mt-6 flex flex-wrap gap-3">
-                <GuideStep
-                  step="01"
-                  title={isImportMode ? "Escolha a base" : "Colunas"}
-                  description={isImportMode ? "Abra o roteiro." : "Nomes curtos."}
-                  className="sm:min-w-[220px]"
-                />
-                <GuideStep
-                  step="02"
-                  title={isImportMode ? "Edite no quadro" : "Cards"}
-                  description={isImportMode ? "Tudo no mesmo padrão." : "Só o essencial."}
-                  className="sm:min-w-[220px]"
-                />
-                <GuideStep
-                  step="03"
-                  title={isImportMode ? "Expanda sem travar" : "Fluxo"}
-                  description={isImportMode ? "Sem sair da tela." : "Só quando ajudar."}
-                  className="sm:min-w-[220px]"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <StatChip
                   icon={<FilePlus2 className="h-5 w-5" />}
@@ -3335,49 +4909,117 @@ export default function BobarPage() {
                   value={countTemplateCards(board)}
                 />
               </div>
+            </div>
 
-              <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.035] p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-white">Troca rápida</div>
-                    <div className="mt-1 text-sm leading-6 text-white/55">
-                      Quadro e importados no mesmo fluxo.
-                    </div>
+            <div className="rounded-[1.9rem] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,34,0.98),rgba(6,11,23,0.92))] p-5 sm:p-6">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+                    Quadros
                   </div>
-                  {selectedCard ? (
-                    <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
-                      Editando agora
-                    </Badge>
-                  ) : null}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-sm font-semibold text-cyan-100">
+                      {board?.title || "Quadro"}
+                    </span>
+                    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-white/50">
+                      {board?.total_cards || 0} cards
+                    </span>
+                    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-white/50">
+                      {(board?.columns || []).length} colunas
+                    </span>
+                    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-white/50">
+                      {(board?.labels || []).length} etiquetas
+                    </span>
+                  </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-3">
+                <div className="inline-flex w-full rounded-full border border-white/10 bg-white/[0.03] p-1 sm:w-auto">
                   <Button
-                    className="h-12 rounded-2xl px-6"
-                    variant={activeView === "board" ? "default" : "outline"}
+                    className={cn(
+                      "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
+                      activeView === "board"
+                        ? "bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        : "border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
+                    )}
+                    variant="ghost"
                     onClick={() => setActiveView("board")}
                   >
                     <FolderKanban className="h-4 w-4" />
                     Quadro
                   </Button>
                   <Button
-                    className="h-12 rounded-2xl px-6"
-                    variant={activeView === "imports" ? "default" : "outline"}
+                    className={cn(
+                      "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
+                      activeView === "imports"
+                        ? "bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        : "border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
+                    )}
+                    variant="ghost"
                     onClick={() => setActiveView("imports")}
                   >
                     <Inbox className="h-4 w-4" />
                     Importados
                   </Button>
-                  <Button
-                    className="h-12 rounded-2xl px-6"
-                    onClick={openCreateColumnDialog}
-                    disabled={busy || (isImportMode && !activeImportCard)}
-                  >
-                    <Columns3 className="h-4 w-4" />
-                    Criar coluna
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
+                <SelectField
+                  label="Quadro ativo"
+                  value={activeBoardId ? String(activeBoardId) : ""}
+                  options={boardOptions}
+                  placeholder="Escolha um quadro"
+                  onChange={(value) => void handleSwitchBoard(value)}
+                  disabled={busy || !boardOptions.length}
+                />
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <Button className="h-11 rounded-2xl px-4" onClick={openCreateBoardDialog}>
+                    <Plus className="h-4 w-4" />
+                    Novo quadro
                   </Button>
                   <Button
-                    className="h-12 rounded-2xl px-6"
+                    className="h-11 rounded-2xl px-4"
+                    variant="outline"
+                    onClick={() =>
+                      board &&
+                      handleRenameBoard({
+                        id: board.id,
+                        title: board.title,
+                        position: boards.find((boardItem) => boardItem.id === board.id)?.position || 0,
+                        total_cards: board.total_cards,
+                        updated_at:
+                          boards.find((boardItem) => boardItem.id === board.id)?.updated_at ||
+                          new Date().toISOString(),
+                      })
+                    }
+                    disabled={busy || !board}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Renomear
+                  </Button>
+                  <Button
+                    className="h-11 rounded-2xl px-4"
+                    variant="outline"
+                    onClick={() =>
+                      board &&
+                      handleDeleteBoard({
+                        id: board.id,
+                        title: board.title,
+                        position: boards.find((boardItem) => boardItem.id === board.id)?.position || 0,
+                        total_cards: board.total_cards,
+                        updated_at:
+                          boards.find((boardItem) => boardItem.id === board.id)?.updated_at ||
+                          new Date().toISOString(),
+                      })
+                    }
+                    disabled={busy || !board || boards.length <= 1}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Excluir
+                  </Button>
+                  <Button
+                    className="h-11 rounded-2xl px-4"
                     variant="outline"
                     onClick={() => void handleCreateCard()}
                     disabled={busy || !boardHasColumns}
@@ -3385,9 +5027,18 @@ export default function BobarPage() {
                     <FilePlus2 className="h-4 w-4" />
                     Novo card
                   </Button>
+                  <Button
+                    className="h-11 rounded-2xl px-4"
+                    variant="outline"
+                    onClick={openCreateColumnDialog}
+                    disabled={busy || (isImportMode && !activeImportCard)}
+                  >
+                    <Columns3 className="h-4 w-4" />
+                    Criar coluna
+                  </Button>
                   {isImportMode ? (
                     <Button
-                      className="h-12 rounded-2xl px-6"
+                      className="h-11 rounded-2xl px-4"
                       variant="outline"
                       onClick={() => void handleCleanupImportDuplicates()}
                       disabled={busy || !activeImportCard}
@@ -3396,25 +5047,26 @@ export default function BobarPage() {
                       Limpar duplicados
                     </Button>
                   ) : null}
-                  <div className="flex min-h-12 min-w-[280px] flex-1 items-center rounded-[1.4rem] border border-white/10 bg-white/[0.03] px-4 text-sm text-white/60">
-                    {isImportMode && activeImportCard ? (
-                      <span className="truncate">
-                        Importado ativo:{" "}
-                        <span className="font-semibold text-white">{activeImportTitle}</span>
-                      </span>
-                    ) : selectedCard ? (
-                      <span className="truncate">
-                        Card selecionado:{" "}
-                        <span className="font-semibold text-white">{selectedCard.title}</span>
-                      </span>
-                    ) : boardHasColumns ? (
-                      "Selecione um card no quadro para abrir o editor."
-                    ) : (
-                      "Crie a primeira coluna para começar a montar o quadro."
-                    )}
-                  </div>
                 </div>
               </div>
+
+              {isImportMode && activeImportCard ? (
+                <div className="mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/58">
+                  <span className="block truncate">
+                    Importado ativo: <span className="font-semibold text-white">{activeImportTitle}</span>
+                  </span>
+                </div>
+              ) : selectedCard ? (
+                <div className="mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/58">
+                  <span className="block truncate">
+                    Card selecionado: <span className="font-semibold text-white">{selectedCard.title}</span>
+                  </span>
+                </div>
+              ) : !boardHasColumns ? (
+                <div className="mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/58">
+                  Crie a primeira coluna para começar.
+                </div>
+              ) : null}
             </div>
           </CardHeader>
         </Card>
@@ -3580,7 +5232,7 @@ export default function BobarPage() {
                 {isImportMode ? "Quadro importado" : "Quadro visual"}
               </div>
               <CardTitle className="mt-2 text-3xl font-black text-white">
-                {isImportMode ? activeImportTitle : "Quadro por coluna"}
+                {isImportMode ? activeImportTitle : board?.title || "Quadro por coluna"}
               </CardTitle>
               <CardDescription className="mt-2 max-w-4xl text-white/55">
                 {isImportMode
@@ -3620,6 +5272,7 @@ export default function BobarPage() {
                       key={column.id}
                       column={column}
                       selectedCardId={selectedCardId}
+                      labelsById={labelsById}
                       onSelectCard={setSelectedCardId}
                       onCreateCard={(columnId) => void handleCreateCard(columnId)}
                       onRenameColumn={handleRenameColumn}
@@ -3760,6 +5413,170 @@ export default function BobarPage() {
                     />
                   </div>
 
+                  <div className="grid gap-4">
+                    <div className="space-y-3">
+                      <DueDatePickerField
+                        value={cardDraft.due_at}
+                        onChange={handleDueDateChange}
+                        onClear={clearDueDate}
+                        invalid={dueDateIsInvalid}
+                        overdue={selectedCardIsOverdue}
+                      />
+
+                      {dueDateIsInvalid ? (
+                        <div className="flex items-center gap-2 rounded-[1.2rem] border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                          <CircleAlert className="h-4 w-4" />
+                          Data inválida encontrada no card. Limpe e selecione novamente no calendário.
+                        </div>
+                      ) : null}
+                      {selectedCardIsOverdue ? (
+                        <div className="flex items-center gap-2 rounded-[1.2rem] border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                          <AlertTriangle className="h-4 w-4" />
+                          A data limite já passou. Esse card aparece em vermelho no quadro.
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                        Etiquetas selecionadas
+                      </div>
+                      <div className="min-h-12 rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-3">
+                        {selectedCardLabels.length ? (
+                          <div className="flex flex-wrap gap-2">
+                            {selectedCardLabels.map((label) => (
+                              <button
+                                key={label.id}
+                                type="button"
+                                onClick={() => handleToggleCardLabel(label.id)}
+                                className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium"
+                                style={{
+                                  borderColor: `${label.color}55`,
+                                  backgroundColor: `${label.color}22`,
+                                  color: label.color,
+                                }}
+                              >
+                                <span
+                                  className="h-2.5 w-2.5 rounded-full"
+                                  style={{ backgroundColor: label.color }}
+                                />
+                                {label.name}
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-white/45">
+                            Nenhuma etiqueta aplicada neste card.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                          Etiquetas
+                        </div>
+                        <div className="mt-1 text-sm text-white/55">
+                          Clique para aplicar ou remover no card atual.
+                        </div>
+                      </div>
+                      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/50">
+                        <Tags className="h-3.5 w-3.5" />
+                        {(board?.labels || []).length} etiquetas
+                      </div>
+                    </div>
+
+                    {(board?.labels || []).length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {board?.labels.map((label) => {
+                          const active = cardDraft.label_ids.includes(label.id);
+                          return (
+                            <button
+                              key={label.id}
+                              type="button"
+                              onClick={() => handleToggleCardLabel(label.id)}
+                              className={cn(
+                                "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition",
+                                active ? "ring-2 ring-white/15" : "opacity-80 hover:opacity-100",
+                              )}
+                              style={{
+                                borderColor: `${label.color}55`,
+                                backgroundColor: active ? `${label.color}2c` : `${label.color}18`,
+                                color: label.color,
+                              }}
+                            >
+                              <span
+                                className="h-2.5 w-2.5 rounded-full"
+                                style={{ backgroundColor: label.color }}
+                              />
+                              {label.name}
+                              {active ? <Check className="h-3.5 w-3.5" /> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-[1.4rem] border border-dashed border-white/10 px-4 py-4 text-sm text-white/45">
+                        Crie etiquetas no painel lateral para começar a organizar os cards.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => void handleUploadAttachments(event)}
+                    />
+
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                          Anexos
+                        </div>
+                        <div className="mt-1 text-sm text-white/55">
+                          Preview real no card. Clique para ampliar imagem, PDF, vídeo, áudio ou texto.
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        className="h-11 rounded-2xl"
+                        variant="outline"
+                        onClick={handleOpenAttachmentPicker}
+                        disabled={busy}
+                      >
+                        <Paperclip className="h-4 w-4" />
+                        Anexar arquivo
+                      </Button>
+                    </div>
+
+                    {selectedCard.attachments.length ? (
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        {selectedCard.attachments.map((attachment) => (
+                          <AttachmentPreviewTile
+                            key={attachment.id}
+                            attachment={attachment}
+                            busy={busy}
+                            loadPreview={loadAttachmentPreview}
+                            onOpenPreview={handlePreviewAttachment}
+                            onDownload={handleDownloadAttachment}
+                            onDelete={handleDeleteAttachment}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-[1.4rem] border border-dashed border-white/10 px-4 py-5 text-sm text-white/45">
+                        Nenhum arquivo anexado ainda.
+                      </div>
+                    )}
+                  </div>
+
                   {isFlowCard ? (
                     <div className="flex flex-wrap items-center gap-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
                       <Button className="h-11 rounded-2xl" onClick={openFlowEditor}>
@@ -3890,8 +5707,7 @@ export default function BobarPage() {
                       Salvar card
                     </Button>
                   </div>
-                </>
-              ) : (
+                </>              ) : (
                 <EmptyState
                   title="Selecione um card"
                   description="Clique em um card para abrir o editor."
@@ -3908,7 +5724,7 @@ export default function BobarPage() {
                 </div>
                 <CardTitle className="text-3xl font-black text-white">Resumo rápido</CardTitle>
                 <CardDescription className="text-white/55">
-                  Contexto e ações sem repetir o editor.
+                  Contexto, prazo, etiquetas e ações sem repetir o editor.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -3930,11 +5746,40 @@ export default function BobarPage() {
                       </div>
 
                       <div className="space-y-3">
+                        <InfoRow label="Quadro" value={board?.title || "—"} emphasized />
                         <InfoRow label="Coluna" value={selectedColumn?.name || "—"} emphasized />
                         <InfoRow label="Origem" value={selectedCard.source_label || "Manual"} />
                         <InfoRow
                           label="Última atualização"
                           value={formatDate(selectedCard.updated_at)}
+                        />
+                        <InfoRow
+                          label="Prazo"
+                          value={
+                            selectedCard.due_at ? (
+                              <span className={cn("font-medium", selectedCardIsOverdue && "text-red-100")}>
+                                {formatDate(selectedCard.due_at)}
+                              </span>
+                            ) : (
+                              "Sem prazo"
+                            )
+                          }
+                        />
+                        <InfoRow
+                          label="Etiquetas"
+                          value={
+                            selectedCardLabels.length ? (
+                              <span className="text-right">
+                                {selectedCardLabels.map((label) => label.name).join(", ")}
+                              </span>
+                            ) : (
+                              "Nenhuma"
+                            )
+                          }
+                        />
+                        <InfoRow
+                          label="Anexos"
+                          value={`${selectedCard.attachments.length} ${selectedCard.attachments.length === 1 ? "arquivo" : "arquivos"}`}
                         />
                         <InfoRow
                           label="Status"
@@ -3943,6 +5788,8 @@ export default function BobarPage() {
                               <span className="font-semibold text-amber-100">
                                 Alterações pendentes
                               </span>
+                            ) : selectedCardIsOverdue ? (
+                              <span className="font-semibold text-red-100">Atrasado</span>
                             ) : (
                               <span className="font-semibold text-emerald-100">Sem pendências</span>
                             )
@@ -3962,6 +5809,13 @@ export default function BobarPage() {
                         ) : null}
                       </div>
                     </div>
+
+                    {selectedCardIsOverdue ? (
+                      <div className="flex items-center gap-2 rounded-[1.6rem] border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                        <AlertTriangle className="h-4 w-4" />
+                        Esse card está atrasado e o quadro sinaliza isso em vermelho.
+                      </div>
+                    ) : null}
 
                     <div className="grid gap-3">
                       <Button
@@ -3998,6 +5852,147 @@ export default function BobarPage() {
                   <EmptyState
                     title="Nenhum card aberto"
                     description="Selecione um card para ver contexto e ações."
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+              <CardHeader>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                  Etiquetas do quadro
+                </div>
+                <CardTitle className="text-3xl font-black text-white">Organização visual</CardTitle>
+                <CardDescription className="text-white/55">
+                  Crie, renomeie e troque a cor das etiquetas do quadro atual.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                        Nova etiqueta
+                      </div>
+                      <div className="mt-1 text-sm text-white/55">
+                        Nome curto, cor clara e tudo alinhado mesmo em telas menores.
+                      </div>
+                    </div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/50">
+                      <Tags className="h-3.5 w-3.5" />
+                      {(board?.labels || []).length} etiquetas
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_84px_auto]">
+                    <Input
+                      value={newLabelName}
+                      onChange={(event) => setNewLabelName(event.target.value)}
+                      placeholder="Nova etiqueta"
+                      className="min-w-0 h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                    />
+                    <Input
+                      type="color"
+                      value={newLabelColor}
+                      onChange={(event) => setNewLabelColor(event.target.value)}
+                      className="h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225] p-2"
+                    />
+                    <Button
+                      type="button"
+                      className="h-11 rounded-2xl md:px-5"
+                      onClick={() => void handleCreateLabel()}
+                      disabled={busy || !newLabelName.trim()}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Criar
+                    </Button>
+                  </div>
+                </div>
+
+                {(board?.labels || []).length ? (
+                  <div className="grid gap-3">
+                    {board?.labels.map((label) => {
+                      const draft = labelDrafts[label.id] || { name: label.name, color: label.color };
+                      return (
+                        <div
+                          key={label.id}
+                          className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4"
+                        >
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span
+                              className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium"
+                              style={{
+                                borderColor: `${draft.color}55`,
+                                backgroundColor: `${draft.color}22`,
+                                color: draft.color,
+                              }}
+                            >
+                              <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: draft.color }}
+                              />
+                              <span className="truncate">{draft.name || "Etiqueta sem nome"}</span>
+                            </span>
+
+                            <div className="text-xs text-white/40">
+                              Renomeie, troque a cor ou remova.
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_92px]">
+                            <Input
+                              value={draft.name}
+                              onChange={(event) =>
+                                setLabelDrafts((current) => ({
+                                  ...current,
+                                  [label.id]: { ...(current[label.id] || draft), name: event.target.value },
+                                }))
+                              }
+                              className="min-w-0 h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                            />
+                            <Input
+                              type="color"
+                              value={draft.color}
+                              onChange={(event) =>
+                                setLabelDrafts((current) => ({
+                                  ...current,
+                                  [label.id]: { ...(current[label.id] || draft), color: event.target.value },
+                                }))
+                              }
+                              className="h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225] p-2"
+                            />
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-3">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-11 min-w-[150px] flex-1 rounded-2xl"
+                              onClick={() => void handleSaveLabel(label.id)}
+                              disabled={busy || !draft.name.trim()}
+                            >
+                              <Save className="h-4 w-4" />
+                              Salvar
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-11 min-w-[150px] flex-1 rounded-2xl text-red-200 hover:text-red-100"
+                              onClick={() => void handleDeleteLabel(label)}
+                              disabled={busy}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Excluir
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="Sem etiquetas ainda"
+                    description="Crie a primeira etiqueta para começar a classificar seus cards."
                   />
                 )}
               </CardContent>
@@ -4050,6 +6045,67 @@ export default function BobarPage() {
       </div>
 
       {flowEditorOverlay}
+
+      <Dialog
+        open={Boolean(boardDialog)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBoardDialog(null);
+            setBoardNameDraft("");
+          }
+        }}
+      >
+        <DialogContent>
+          <form className="space-y-5" onSubmit={handleSubmitBoardDialog}>
+            <DialogHeader>
+              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                <FolderKanban className="h-3.5 w-3.5" />
+                {boardDialog?.mode === "rename" ? "Estrutura do quadro" : "Novo quadro"}
+              </div>
+              <DialogTitle>
+                {boardDialog?.mode === "rename" ? "Renomear quadro" : "Criar quadro"}
+              </DialogTitle>
+              <DialogDescription>
+                {boardDialog?.mode === "rename"
+                  ? "Use um nome direto para esse quadro. Isso melhora navegação quando houver vários quadros."
+                  : "Crie quantos quadros precisar. Cada quadro terá suas próprias colunas, etiquetas, cards e anexos."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                Nome do quadro
+              </div>
+              <Input
+                value={boardNameDraft}
+                onChange={(event) => setBoardNameDraft(event.target.value)}
+                placeholder="Ex.: Operação comercial"
+                autoFocus
+                className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 rounded-2xl"
+                onClick={() => setBoardDialog(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                className="h-11 rounded-2xl"
+                disabled={busy || !boardNameDraft.trim()}
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {boardDialog?.mode === "rename" ? "Salvar nome" : "Criar quadro"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(columnDialog)}
@@ -4112,6 +6168,58 @@ export default function BobarPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={Boolean(attachmentPreview)}
+        onOpenChange={(open) => {
+          if (!open) setAttachmentPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>{attachmentPreview?.attachment.filename || "Preview do anexo"}</DialogTitle>
+            <DialogDescription>
+              {attachmentPreview
+                ? `${formatFileSize(attachmentPreview.attachment.size_bytes)} · ${attachmentPreview.attachment.mime_type || "arquivo"}`
+                : "Abra arquivos anexados diretamente no card."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {attachmentPreview ? (
+            <div className="max-h-[75vh] overflow-hidden rounded-[1.6rem] border border-white/10 bg-[#020617]">
+              {attachmentPreview.kind === "image" ? (
+                <img
+                  src={attachmentPreview.url}
+                  alt={attachmentPreview.attachment.filename}
+                  className="max-h-[75vh] w-full object-contain"
+                />
+              ) : attachmentPreview.kind === "pdf" ? (
+                <iframe
+                  src={attachmentPreview.url}
+                  title={attachmentPreview.attachment.filename}
+                  className="h-[75vh] w-full bg-white"
+                />
+              ) : attachmentPreview.kind === "video" ? (
+                <video src={attachmentPreview.url} controls className="max-h-[75vh] w-full" />
+              ) : attachmentPreview.kind === "audio" ? (
+                <div className="flex h-[220px] items-center justify-center p-8">
+                  <audio src={attachmentPreview.url} controls className="w-full" />
+                </div>
+              ) : attachmentPreview.kind === "text" ? (
+                <div className="max-h-[75vh] overflow-auto p-6">
+                  <pre className="whitespace-pre-wrap break-words text-sm leading-7 text-white/80">
+                    {String(attachmentPreview.textContent || "").trim() || "Arquivo sem conteúdo legível."}
+                  </pre>
+                </div>
+              ) : (
+                <div className="flex h-[240px] items-center justify-center px-6 text-center text-sm text-white/55">
+                  Esse tipo de arquivo não possui preview embutido. Use o botão de download no card.
+                </div>
+              )}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(deleteDialog)} onOpenChange={(open) => !open && setDeleteDialog(null)}>
         <DialogContent>
           <DialogHeader>
@@ -4120,18 +6228,25 @@ export default function BobarPage() {
               Ação destrutiva
             </div>
             <DialogTitle>
-              {deleteDialog?.type === "column" ? "Excluir coluna" : "Excluir card"}
+              {deleteDialog?.type === "board"
+                ? "Excluir quadro"
+                : deleteDialog?.type === "column"
+                  ? "Excluir coluna"
+                  : "Excluir card"}
             </DialogTitle>
             <DialogDescription>
-              {deleteDialog?.type === "column"
-                ? `A coluna "${deleteDialog.column.name}" será removida. Os cards serão movidos automaticamente para outra coluna pelo backend.`
-                : `O card "${deleteDialog?.type === "card" ? deleteDialog.card.title : ""}" será excluído permanentemente.`}
+              {deleteDialog?.type === "board"
+                ? `O quadro "${deleteDialog.board.title}" será excluído com todas as colunas, cards, etiquetas e anexos vinculados.`
+                : deleteDialog?.type === "column"
+                  ? `A coluna "${deleteDialog.column.name}" será removida. Os cards serão movidos automaticamente para outra coluna pelo backend.`
+                  : `O card "${deleteDialog?.type === "card" ? deleteDialog.card.title : ""}" será excluído permanentemente.`}
             </DialogDescription>
           </DialogHeader>
 
           <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-white/60">
-            Confirme apenas se tiver certeza. A interface foi ajustada para evitar pop-ups nativos e
-            deixar essa decisão mais clara.
+            {deleteDialog?.type === "board"
+              ? "Essa ação remove todo o conteúdo do quadro atual. Use apenas quando tiver certeza."
+              : "Confirme apenas se tiver certeza. A interface foi ajustada para evitar pop-ups nativos e deixar essa decisão mais clara."}
           </div>
 
           <DialogFooter>
@@ -4155,7 +6270,6 @@ export default function BobarPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
-    </div>
+      </Dialog>    </div>
   );
 }

@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/constants/app";
 import { http } from "@/services/http";
 
 export type BobarCardType =
@@ -37,8 +38,25 @@ export type BobarFlowchart = {
   meta?: BobarFlowMeta;
 };
 
+export type BobarAttachment = {
+  id: number;
+  card_id: number;
+  filename: string;
+  mime_type?: string | null;
+  size_bytes: number;
+  created_at: string;
+};
+
+export type BobarLabel = {
+  id: number;
+  name: string;
+  color: string;
+  position: number;
+};
+
 export type BobarCard = {
   id: number;
+  board_id: number;
   column_id: number;
   title: string;
   card_type: BobarCardType | string;
@@ -48,21 +66,57 @@ export type BobarCard = {
   note: string;
   position: number;
   structure_json: string;
+  due_at?: string | null;
+  label_ids: number[];
+  attachments: BobarAttachment[];
   created_at: string;
   updated_at: string;
 };
 
 export type BobarColumn = {
   id: number;
+  board_id: number;
   name: string;
   position: number;
   cards: BobarCard[];
 };
 
 export type BobarBoard = {
+  id: number;
   title: string;
   total_cards: number;
+  labels: BobarLabel[];
   columns: BobarColumn[];
+};
+
+export type BobarBoardSummary = {
+  id: number;
+  title: string;
+  position: number;
+  total_cards: number;
+  updated_at: string;
+};
+
+export type BobarBoardList = {
+  boards: BobarBoardSummary[];
+};
+
+export type CreateBobarBoardIn = {
+  title: string;
+};
+
+export type UpdateBobarBoardIn = {
+  title: string;
+};
+
+export type CreateBobarLabelIn = {
+  name: string;
+  color?: string | null;
+};
+
+export type UpdateBobarLabelIn = {
+  name?: string;
+  color?: string | null;
 };
 
 export type CreateBobarColumnIn = {
@@ -78,6 +132,8 @@ export type CreateBobarCardIn = {
   source_kind?: string | null;
   source_label?: string | null;
   structure_json?: string | null;
+  due_at?: string | null;
+  label_ids?: number[];
 };
 
 export type UpdateBobarCardIn = {
@@ -87,6 +143,8 @@ export type UpdateBobarCardIn = {
   card_type?: string;
   column_id?: number;
   structure_json?: string;
+  due_at?: string | null;
+  label_ids?: number[];
 };
 
 export type MoveBobarCardIn = {
@@ -94,11 +152,55 @@ export type MoveBobarCardIn = {
   position: number;
 };
 
-export const bobarService = {
-  board: () => http<BobarBoard>("/api/bobar"),
+function authHeaders() {
+  const headers = new Headers();
+  const authStorageStr = localStorage.getItem("auth-store");
+  if (!authStorageStr) return headers;
 
-  createColumn: (payload: CreateBobarColumnIn) =>
-    http<BobarBoard>("/api/bobar/columns", { method: "POST", json: payload }),
+  try {
+    const authData = JSON.parse(authStorageStr);
+    const token = authData?.state?.token;
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  } catch {
+    // noop
+  }
+
+  return headers;
+}
+
+function withBoardQuery(path: string, boardId?: number | null) {
+  if (!boardId) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}board_id=${boardId}`;
+}
+
+export const bobarService = {
+  boards: () => http<BobarBoardList>("/api/bobar/boards"),
+
+  createBoard: (payload: CreateBobarBoardIn) =>
+    http<BobarBoardList>("/api/bobar/boards", { method: "POST", json: payload }),
+
+  renameBoard: (boardId: number, payload: UpdateBobarBoardIn) =>
+    http<BobarBoardList>(`/api/bobar/boards/${boardId}`, { method: "PATCH", json: payload }),
+
+  deleteBoard: (boardId: number) =>
+    http<BobarBoardList>(`/api/bobar/boards/${boardId}`, { method: "DELETE" }),
+
+  board: (boardId?: number | null) => http<BobarBoard>(withBoardQuery("/api/bobar", boardId)),
+
+  createLabel: (payload: CreateBobarLabelIn, boardId?: number | null) =>
+    http<BobarBoard>(withBoardQuery("/api/bobar/labels", boardId), { method: "POST", json: payload }),
+
+  updateLabel: (labelId: number, payload: UpdateBobarLabelIn) =>
+    http<BobarBoard>(`/api/bobar/labels/${labelId}`, { method: "PATCH", json: payload }),
+
+  deleteLabel: (labelId: number) =>
+    http<BobarBoard>(`/api/bobar/labels/${labelId}`, { method: "DELETE" }),
+
+  createColumn: (payload: CreateBobarColumnIn, boardId?: number | null) =>
+    http<BobarBoard>(withBoardQuery("/api/bobar/columns", boardId), { method: "POST", json: payload }),
 
   renameColumn: (columnId: number, payload: { name: string }) =>
     http<BobarBoard>(`/api/bobar/columns/${columnId}`, { method: "PATCH", json: payload }),
@@ -106,11 +208,11 @@ export const bobarService = {
   deleteColumn: (columnId: number) =>
     http<BobarBoard>(`/api/bobar/columns/${columnId}`, { method: "DELETE" }),
 
-  createCard: (payload: CreateBobarCardIn) =>
-    http<BobarBoard>("/api/bobar/cards", { method: "POST", json: payload }),
+  createCard: (payload: CreateBobarCardIn, boardId?: number | null) =>
+    http<BobarBoard>(withBoardQuery("/api/bobar/cards", boardId), { method: "POST", json: payload }),
 
-  importCard: (payload: CreateBobarCardIn) =>
-    http<BobarBoard>("/api/bobar/cards/import", { method: "POST", json: payload }),
+  importCard: (payload: CreateBobarCardIn, boardId?: number | null) =>
+    http<BobarBoard>(withBoardQuery("/api/bobar/cards/import", boardId), { method: "POST", json: payload }),
 
   cleanupImportDuplicates: (importCardId: number) =>
     http<BobarBoard>(`/api/bobar/imports/${importCardId}/cleanup-duplicates`, { method: "POST" }),
@@ -123,6 +225,40 @@ export const bobarService = {
 
   transformToFlowchart: (cardId: number) =>
     http<BobarBoard>(`/api/bobar/cards/${cardId}/transform-to-flowchart`, { method: "POST" }),
+
+  uploadAttachment: async (cardId: number, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch(`${API_BASE_URL}/api/bobar/cards/${cardId}/attachments`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || "Falha ao anexar arquivo.");
+    }
+
+    return (await res.json()) as BobarBoard;
+  },
+
+  deleteAttachment: (attachmentId: number) =>
+    http<BobarBoard>(`/api/bobar/attachments/${attachmentId}`, { method: "DELETE" }),
+
+  fetchAttachmentBlob: async (attachmentId: number) => {
+    const res = await fetch(`${API_BASE_URL}/api/bobar/attachments/${attachmentId}/content`, {
+      headers: authHeaders(),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || "Falha ao carregar anexo.");
+    }
+
+    return await res.blob();
+  },
 
   deleteCard: (cardId: number) =>
     http<BobarBoard>(`/api/bobar/cards/${cardId}`, { method: "DELETE" }),

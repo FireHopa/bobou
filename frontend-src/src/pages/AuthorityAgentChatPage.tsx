@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { BusinessCore3D } from "@/components/authority/BusinessCore3D";
 import ResultViewer from "@/components/authority/ResultViewer";
 import { api, getClientId } from "@/services/robots";
-import { linkedinService } from "@/services/linkedin";
+import { linkedinService, type LinkedInPublishPayload } from "@/services/linkedin";
 import { instagramService } from "@/services/instagram";
 import { facebookService, type FacebookPage } from "@/services/facebook";
 import { youtubeService } from "@/services/youtube";
@@ -285,11 +285,13 @@ export default function AuthorityAgentChatPage() {
     }
   }
 
-  async function handlePublishLinkedIn(finalText: string) {
+
+  async function handlePublishLinkedIn(payload: LinkedInPublishPayload) {
+    if (isPublishing) return;
     setIsPublishing(true);
     try {
-      await linkedinService.publish(finalText);
-      toastSuccess("Post publicado no seu LinkedIn com sucesso! 🎉");
+      await linkedinService.publish(payload);
+      toastSuccess(payload.mode === "article" ? "Artigo publicado no LinkedIn com sucesso! 🎉" : "Post publicado no LinkedIn com sucesso! 🎉");
       setIsLinkedInModalOpen(false);
     } catch (err) {
       toastApiError(err, "Erro ao publicar no LinkedIn");

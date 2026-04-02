@@ -14,7 +14,7 @@ import { toastSuccess, toastApiError } from "@/lib/toast";
 
 // NOVO: Importações para o LinkedIn
 import { PublishModal } from "@/components/linkedin/PublishModal";
-import { linkedinService } from "@/services/linkedin";
+import { linkedinService, type LinkedInPublishPayload } from "@/services/linkedin";
 import { useAuthStore } from "@/state/authStore";
 
 function formatRemaining(sec: number) {
@@ -89,12 +89,12 @@ export default function AuthorityAgentsPage() {
     }
   }
 
-  // NOVO: Função para publicar de fato
-  async function handlePublishPost(finalText: string) {
+
+  async function handlePublishPost(payload: LinkedInPublishPayload) {
     setIsPublishing(true);
     try {
-      await linkedinService.publish(finalText);
-      toastSuccess("Post publicado no seu LinkedIn com sucesso! 🎉");
+      await linkedinService.publish(payload);
+      toastSuccess(payload.mode === "article" ? "Artigo publicado no LinkedIn com sucesso! 🎉" : "Post publicado no LinkedIn com sucesso! 🎉");
       setIsModalOpen(false);
     } catch (err) {
       toastApiError(err, "Erro ao publicar no LinkedIn");
@@ -102,6 +102,7 @@ export default function AuthorityAgentsPage() {
       setIsPublishing(false);
     }
   }
+
 
   return (
     <div className="relative min-h-[calc(100dvh-1px)] pb-32">

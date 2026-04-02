@@ -27,7 +27,7 @@ import {
   FolderKanban
 } from "lucide-react";
 import { api, getClientId } from "@/services/robots";
-import { linkedinService } from "@/services/linkedin";
+import { linkedinService, type LinkedInPublishPayload } from "@/services/linkedin";
 import { instagramService } from "@/services/instagram";
 import { facebookService, type FacebookPage } from "@/services/facebook";
 import { youtubeService } from "@/services/youtube";
@@ -705,11 +705,13 @@ export default function AuthorityAgentRunPage() {
     }
   }
 
-  async function handlePublishPost(finalText: string) {
+
+  async function handlePublishPost(payload: LinkedInPublishPayload) {
+    if (isPublishing) return;
     setIsPublishing(true);
     try {
-      await linkedinService.publish(finalText);
-      toastSuccess("Post publicado no seu LinkedIn com sucesso! 🎉");
+      await linkedinService.publish(payload);
+      toastSuccess(payload.mode === "article" ? "Artigo publicado no LinkedIn com sucesso! 🎉" : "Post publicado no LinkedIn com sucesso! 🎉");
       setIsModalOpen(false);
     } catch (err) {
       toastApiError(err, "Erro ao publicar no LinkedIn");
