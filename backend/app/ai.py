@@ -1562,6 +1562,57 @@ def _build_nucleus_digest(nucleus: Dict[str, Any]) -> Dict[str, Any]:
 
 def _infer_task_profile(agent_key: str, requested_task: str, is_script_task: bool) -> Dict[str, str]:
     task = (requested_task or "").lower()
+
+    if agent_key == "google_business_profile":
+        if any(term in task for term in [
+            "seo local para serviços",
+            "seo local para servicos",
+            "editar serviços do perfil de empresa no google",
+            "editar servicos do perfil de empresa no google",
+            "lista em tópicos de palavras-chave",
+            "lista em topicos de palavras-chave",
+            "palavras-chave e frases curtas",
+        ]):
+            return {
+                "family": "keyword_catalog",
+                "objective": "organizar palavras-chave e variações para cadastro técnico no perfil local",
+                "deliverable": "lista limpa, pronta para copiar, sem blocos extras desnecessários",
+                "emphasis": "clareza semântica, variedade útil e limite de caracteres",
+            }
+
+        if any(term in task for term in [
+            "serviços + descrições",
+            "servicos + descricoes",
+            "descrição curta",
+            "descricao curta",
+            "serviços e produtos reais da empresa",
+            "servicos e produtos reais da empresa",
+            "nome curto com no máximo 56 caracteres",
+            "nome curto com no maximo 56 caracteres",
+            "palavras similares que as pessoas pesquisam",
+        ]):
+            return {
+                "family": "service_catalog",
+                "objective": "organizar serviços, palavras-chave e descrições curtas com alta clareza semântica",
+                "deliverable": "catálogo visual de serviços pronto para cadastro",
+                "emphasis": "objetividade, legibilidade e consistência semântica",
+            }
+
+        if any(term in task for term in [
+            "responder avaliação",
+            "responder avaliacao",
+            "avaliações positivas",
+            "avaliacoes positivas",
+            "respostas personalizadas e profissionais",
+            "agradecer de forma humanizada",
+        ]):
+            return {
+                "family": "review_response",
+                "objective": "criar respostas naturais e relevantes para avaliações positivas",
+                "deliverable": "respostas prontas para publicar no Perfil de Empresa no Google",
+                "emphasis": "naturalidade, contexto e relevância semântica",
+            }
+
     family = "conteudo_estruturado"
     objective = "entregar material final claro, aplicável e coerente"
     deliverable = "blocos prontos para uso"
@@ -1592,11 +1643,16 @@ def _infer_task_profile(agent_key: str, requested_task: str, is_script_task: boo
         objective = "responder dúvidas reais e remover atrito de decisão"
         deliverable = "respostas claras, objetivas e citáveis"
         emphasis = "clareza, honestidade e redução de ambiguidade"
-    elif any(term in task for term in ["landing", "página de destino", "pagina de destino"]):
+    elif any(term in task for term in ["landing", "página de destino", "pagina de destino", "página de serviço", "pagina de serviço", "página de produto", "pagina de produto", "serviço / produto", "servico / produto"]):
         family = "landing_page"
         objective = "organizar uma página de conversão clara, convincente e específica"
         deliverable = "blocos de página com promessa, contexto, prova, objeções e CTA"
         emphasis = "decisão, clareza de oferta e fluxo lógico"
+    elif any(term in task for term in ["página institucional", "pagina institucional", "sobre a empresa"]):
+        family = "perfil"
+        objective = "organizar uma apresentação institucional clara, crível e semanticamente forte"
+        deliverable = "blocos institucionais com posicionamento, narrativa e credibilidade"
+        emphasis = "clareza de entidade, confiança e leitura institucional"
     elif any(term in task for term in ["bio", "perfil", "headline", "sobre"]):
         family = "perfil"
         objective = "otimizar apresentação pública com posicionamento claro"
@@ -1642,6 +1698,38 @@ def _authority_custom_task_guidance(agent_key: str, requested_task: str, selecte
     theme = _trim_text(selected_theme)
     lines: List[str] = []
 
+    if agent_key == "site":
+        if _is_site_blog_article_task(task_lower):
+            lines.extend([
+                "- Organize como artigo-base para site: tese, subtópicos, exemplos, semântica e fechamento com CTA interno.",
+                "- O texto precisa soar como conteúdo publicável, não como brainstorm ou aula teórica solta.",
+                "- Cubra a intenção de busca principal sem virar texto prolixo.",
+                "- Inclua dúvidas previsíveis e micro-objeções reais dentro do desenvolvimento ou FAQ final.",
+                "- Evite introdução vazia, definição de dicionário e conclusão genérica.",
+            ])
+        elif _is_site_faq_task(task_lower):
+            lines.extend([
+                "- Entregue perguntas que realmente aparecem na cabeça de quem está avaliando a solução.",
+                "- Responda de forma objetiva, citável e sem jargão desnecessário.",
+                "- Cada resposta deve reduzir risco, ambiguidade ou objeção prática.",
+                "- Evite perguntas cosméticas só para inflar volume.",
+            ])
+        elif _is_site_service_page_task(task_lower):
+            lines.extend([
+                "- Estruture a página com promessa, contexto, para quem é, como funciona, diferenciais, prova, objeções e CTA.",
+                "- O serviço principal precisa ficar explícito logo no início.",
+                "- Não transforme a página em texto institucional genérico.",
+                "- Priorize escaneabilidade e clareza de decisão.",
+            ])
+        elif _is_site_about_page_task(task_lower):
+            lines.extend([
+                "- Organize a página Sobre com clareza de entidade: quem é, o que faz, para quem, como trabalha e por que isso importa.",
+                "- Prefira credibilidade concreta a storytelling inflado.",
+                "- O texto precisa parecer página institucional utilizável e não manifesto vazio.",
+                "- Inclua diferenciais reais, forma de trabalhar e próximos passos quando fizer sentido.",
+            ])
+        return lines
+
     if agent_key != "google_business_profile":
         return lines
 
@@ -1685,13 +1773,22 @@ def _authority_custom_task_guidance(agent_key: str, requested_task: str, selecte
     return lines
 
 
-def _build_task_playbook(agent_key: str, requested_task: str, selected_theme: str, is_script_task: bool) -> str:
+def _build_task_playbook(
+    agent_key: str,
+    requested_task: str,
+    selected_theme: str,
+    is_script_task: bool,
+    requested_task_prompt: str = "",
+) -> str:
     task = _trim_text(requested_task).lower()
     theme = _trim_text(selected_theme)
+    prompt = _trim_text(requested_task_prompt)
     lines: List[str] = ["PLAYBOOK DA TAREFA:"]
 
     if requested_task:
         lines.append(f"- Tarefa pedida: {requested_task}")
+    if prompt and prompt.lower() != task:
+        lines.append(f"- Instrução operacional detalhada da tarefa: {prompt}")
     if theme:
         lines.append(f"- Tema selecionado: {theme}")
 
@@ -3353,6 +3450,752 @@ Regras:
     return _normalize_authority_output(payload)
 
 
+
+
+def _is_site_blog_article_task(requested_task: str) -> bool:
+    task = _trim_text(requested_task).lower()
+    return any(term in task for term in [
+        "artigo de blog",
+        "blog otimizado",
+        "seo/aeo/geo",
+        "seo aeo geo",
+        "artigo",
+    ])
+
+
+def _is_site_faq_task(requested_task: str) -> bool:
+    task = _trim_text(requested_task).lower()
+    return any(term in task for term in [
+        "faq",
+        "perguntas frequentes",
+        "perguntas frequentes",
+    ])
+
+
+def _is_site_service_page_task(requested_task: str) -> bool:
+    task = _trim_text(requested_task).lower()
+    return any(term in task for term in [
+        "página de serviço",
+        "pagina de serviço",
+        "página de produto",
+        "pagina de produto",
+        "serviço / produto",
+        "servico / produto",
+    ])
+
+
+def _is_site_about_page_task(requested_task: str) -> bool:
+    task = _trim_text(requested_task).lower()
+    return any(term in task for term in [
+        "página institucional",
+        "pagina institucional",
+        "sobre a empresa",
+    ])
+
+
+def _site_location_label(nucleus: Dict[str, Any]) -> str:
+    return _trim_text(nucleus.get("service_area") or nucleus.get("city_state"), max_chars=80)
+
+
+def _site_services(nucleus: Dict[str, Any], max_items: int = 6) -> List[str]:
+    return _split_nucleus_items(
+        nucleus.get("services_products")
+        or nucleus.get("services")
+        or nucleus.get("products")
+        or nucleus.get("offer"),
+        max_items=max_items,
+    )
+
+
+def _site_differentials(nucleus: Dict[str, Any], max_items: int = 4) -> List[str]:
+    return _split_nucleus_items(
+        nucleus.get("real_differentials")
+        or nucleus.get("differentials")
+        or nucleus.get("competitive_differentials"),
+        max_items=max_items,
+    )
+
+
+def _site_internal_link_suggestions(theme: str, nucleus: Dict[str, Any]) -> List[str]:
+    services = _site_services(nucleus, max_items=4)
+    suggestions = []
+    if services:
+        suggestions.append(f"Link interno para a página de {services[0]}.")
+    suggestions.append("Link interno para prova social, cases ou avaliações reais.")
+    suggestions.append("Link interno para contato, diagnóstico ou página comercial principal.")
+    if theme:
+        suggestions.append(f"Link interno para outro conteúdo que aprofunde {theme}.")
+    return suggestions[:4]
+
+
+def _is_valid_site_article_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_timeline = False
+    has_keyword_list = False
+    has_faq = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "timeline":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_timeline = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keyword_list = True
+        elif tipo == "faq":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 2:
+                has_faq = True
+
+    return has_timeline and has_keyword_list and has_faq
+
+
+def _is_valid_site_faq_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 3:
+        return False
+
+    faq_count = 0
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if _trim_text(block.get("tipo")).lower() == "faq":
+            conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+            items = conteudo.get("items")
+            if isinstance(items, list):
+                faq_count = max(faq_count, len(items))
+    return faq_count >= 4
+
+
+def _is_valid_site_service_page_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_timeline = False
+    has_faq = False
+    has_hero = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "timeline":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_timeline = True
+        elif tipo == "faq":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 2:
+                has_faq = True
+        elif tipo == "markdown":
+            text = _trim_text(conteudo.get("texto")).lower()
+            if "headline" in text or "hero" in text:
+                has_hero = True
+
+    return has_timeline and has_faq and has_hero
+
+
+def _is_valid_site_about_page_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_timeline = False
+    has_quote = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "timeline":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_timeline = True
+        elif tipo == "quote":
+            text = _trim_text(conteudo.get("texto"))
+            if text:
+                has_quote = True
+
+    return has_timeline and has_quote
+
+
+def _build_site_article_fallback(nucleus: Dict[str, Any], selected_theme: str) -> Dict[str, Any]:
+    theme = _trim_text(selected_theme) or (_site_services(nucleus, max_items=1) or ["o serviço principal"])[0]
+    audience = _trim_text(nucleus.get("main_audience")) or "o público certo"
+    company = _trim_text(nucleus.get("company_name")) or "a empresa"
+    location = _site_location_label(nucleus)
+    services = _site_services(nucleus, max_items=5)
+    differentials = _site_differentials(nucleus, max_items=4)
+    terms = [theme, audience] + services + differentials
+    if location:
+        terms.append(location)
+    keyword_items = []
+    seen = set()
+    for item in terms:
+        clean = _trim_text(item, max_chars=70)
+        if not clean:
+            continue
+        key = clean.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        keyword_items.append(clean)
+    if len(keyword_items) < 5:
+        keyword_items.extend([
+            f"como escolher {theme}",
+            f"quando contratar {theme}",
+            f"erros comuns em {theme}",
+            f"dúvidas sobre {theme}",
+        ])
+    keyword_items = keyword_items[:8]
+
+    faq_items = [
+        {
+            "pergunta": f"Para quem este conteúdo sobre {theme} faz mais sentido?",
+            "resposta": f"Para quem está avaliando **{theme}** e precisa entender cenário, critérios de escolha, riscos comuns e próximos passos antes de avançar com {company}.",
+        },
+        {
+            "pergunta": f"O que o artigo precisa responder cedo sobre {theme}?",
+            "resposta": "Precisa explicar contexto, quando faz sentido, erros recorrentes, critérios de decisão e como avaliar a solução sem depender de promessa vaga.",
+        },
+        {
+            "pergunta": "Como evitar um artigo genérico demais?",
+            "resposta": f"Conectando o tema ao público real (**{audience}**), ao serviço principal e aos diferenciais concretos da operação, sem introdução vazia nem definição de dicionário.",
+        },
+    ]
+    if location:
+        faq_items.append({
+            "pergunta": "Vale trazer contexto geográfico neste artigo?",
+            "resposta": f"Sim, quando **{location}** realmente ajuda a explicar atendimento, operação local, disponibilidade ou intenção de busca. Fora isso, não vale forçar repetição local.",
+        })
+
+    return {
+        "titulo_da_tela": f"Artigo-base para site — {theme}",
+        "blocos": [
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Ângulo editorial",
+                    "texto": f"O artigo deve explicar **{theme}** com clareza prática para **{audience}**, conectando intenção de busca, entendimento e decisão sem parecer texto genérico.",
+                    "icone": "star",
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": "\n".join([
+                        "### Abertura sugerida",
+                        f"Abra deixando claro por que **{theme}** importa, qual erro comum mantém o problema ativo e o que a pessoa vai conseguir entender ao terminar a leitura.",
+                        "",
+                        "### Tese central",
+                        f"Mostre como {company} enxerga {theme} de forma concreta, com foco em contexto real, decisão e aplicação prática.",
+                    ]),
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "titulo": "Estrutura do artigo",
+                    "items": [
+                        f"1. Contexto — por que **{theme}** virou um tema importante para {audience}.",
+                        "2. Critérios — o que observar para decidir bem e separar solução séria de promessa vazia.",
+                        f"3. Aplicação prática — como {theme} funciona na prática, com cenário, processo e limites.",
+                        "4. Erros comuns — o que costuma travar resultado, entendimento ou implementação.",
+                        "5. Próximos passos — como continuar a leitura para prova, contato ou aprofundamento interno.",
+                    ],
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Termos semânticos e perguntas auxiliares",
+                    "items": keyword_items,
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "titulo": "FAQ de apoio",
+                    "items": faq_items,
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": "### CTA interno recomendado\n" + "\n".join(f"- {item}" for item in _site_internal_link_suggestions(theme, nucleus)),
+                },
+            },
+        ],
+    }
+
+
+def _build_site_faq_fallback(nucleus: Dict[str, Any], selected_theme: str) -> Dict[str, Any]:
+    theme = _trim_text(selected_theme) or (_site_services(nucleus, max_items=1) or ["o serviço principal"])[0]
+    audience = _trim_text(nucleus.get("main_audience")) or "o público certo"
+    company = _trim_text(nucleus.get("company_name")) or "a empresa"
+    services = _site_services(nucleus, max_items=4)
+    differentials = _site_differentials(nucleus, max_items=3)
+
+    faq_items = [
+        {
+            "pergunta": f"O que exatamente está incluído em {theme}?",
+            "resposta": f"Explique escopo, entregáveis, profundidade e limites de **{theme}** com linguagem simples. Nada de resposta vaga que deixe a pessoa ainda mais perdida.",
+        },
+        {
+            "pergunta": f"Para quem {theme} faz mais sentido?",
+            "resposta": f"Deixe claro o perfil de cliente, cenário, maturidade e necessidade que mais se beneficiam da solução oferecida por {company}.",
+        },
+        {
+            "pergunta": f"Quando {theme} talvez não seja a melhor escolha?",
+            "resposta": "Responder isso aumenta confiança porque reduz o risco de promessa genérica e mostra aderência real de cenário.",
+        },
+        {
+            "pergunta": "Quanto tempo leva para perceber resultado ou evolução?",
+            "resposta": "Trabalhe faixa de tempo, dependências, ritmo de implementação e fatores que aceleram ou atrasam a percepção de valor.",
+        },
+        {
+            "pergunta": "Quais dúvidas ou objeções costumam travar a decisão?",
+            "resposta": "Preço, prazo, adaptação, complexidade, prioridade e risco percebido costumam aparecer. O FAQ precisa tratar isso com honestidade e clareza.",
+        },
+    ]
+
+    if services:
+        faq_items.append({
+            "pergunta": f"Como {theme} se conecta com outros serviços da empresa?",
+            "resposta": f"Mostre a relação com **{services[0]}** e demais frentes quando isso ajudar a pessoa a entender jornada, complementaridade e próximo passo.",
+        })
+
+    keyword_items = [theme, audience] + services + differentials
+    keyword_items = [item for item in keyword_items if _trim_text(item)]
+    keyword_items = list(dict.fromkeys(keyword_items))[:8]
+
+    return {
+        "titulo_da_tela": f"FAQ para site — {theme}",
+        "blocos": [
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Função deste FAQ",
+                    "texto": f"Este FAQ deve reduzir atrito de decisão sobre **{theme}**, responder o que **{audience}** realmente precisa saber e tirar a página do genérico.",
+                    "icone": "check",
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "titulo": "Perguntas e respostas prioritárias",
+                    "items": faq_items,
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "titulo": "Ordem recomendada na página",
+                    "items": [
+                        "1. Abra pelo básico: o que é, para quem serve e onde a solução se encaixa.",
+                        "2. Responda objeções que travam ação: prazo, risco, fit, adaptação e investimento.",
+                        "3. Feche com próximos passos claros e links internos úteis.",
+                    ],
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Termos de apoio",
+                    "items": keyword_items or [theme, "escopo", "prazo", "resultado", "próximos passos"],
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": f"### Recomendação final\nPosicione este FAQ perto da página de **{theme}** e conecte as respostas com prova, contexto real e próximo passo. O objetivo não é inflar volume, e sim resolver dúvidas com precisão.",
+                },
+            },
+        ],
+    }
+
+
+def _build_site_service_page_fallback(nucleus: Dict[str, Any], selected_theme: str) -> Dict[str, Any]:
+    theme = _trim_text(selected_theme) or (_site_services(nucleus, max_items=1) or ["o serviço principal"])[0]
+    company = _trim_text(nucleus.get("company_name")) or "a empresa"
+    audience = _trim_text(nucleus.get("main_audience")) or "o público certo"
+    location = _site_location_label(nucleus)
+    services = _site_services(nucleus, max_items=5)
+    differentials = _site_differentials(nucleus, max_items=4)
+    core_differential = differentials[0] if differentials else "abordagem prática e contextualizada"
+
+    faq_items = [
+        {
+            "pergunta": f"Para quem a página de {theme} faz mais sentido?",
+            "resposta": f"Para quem precisa entender rápido aderência, escopo e próximos passos de **{theme}**, sem depender de promessa vaga ou texto institucional demais.",
+        },
+        {
+            "pergunta": "O que precisa aparecer logo no início?",
+            "resposta": "Serviço principal, para quem é, problema que resolve, diferencial real e qual ação a pessoa deve tomar em seguida.",
+        },
+        {
+            "pergunta": "Como tratar objeções sem soar vendedor?",
+            "resposta": "Com contexto, clareza de processo, limites honestos, prova plausível e CTA proporcional ao estágio de decisão.",
+        },
+    ]
+
+    if location:
+        faq_items.append({
+            "pergunta": "Vale reforçar localidade nesta página?",
+            "resposta": f"Sim, quando **{location}** ajuda a qualificar atendimento, operação ou intenção local. Não vale repetir localidade sem função semântica real.",
+        })
+
+    return {
+        "titulo_da_tela": f"Página de serviço — {theme}",
+        "blocos": [
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Promessa central",
+                    "texto": f"Transforme **{theme}** em uma página clara, específica e escaneável para **{audience}**, mostrando por que {company} não entrega uma solução genérica.",
+                    "icone": "star",
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": "\n".join([
+                        "### Hero sugerido",
+                        f"**Headline:** {theme} com clareza de escopo, contexto e próximo passo.",
+                        f"**Subheadline:** explique como {company} trabalha {theme}, para quem isso faz sentido e por que a abordagem de {core_differential} muda a decisão.",
+                        "",
+                        "### CTA inicial",
+                        "- Solicitar diagnóstico",
+                        "- Falar com o time",
+                        "- Entender aderência ao caso",
+                    ]),
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "titulo": "Arquitetura da página",
+                    "items": [
+                        f"1. Hero — promessa clara sobre **{theme}** e próximo passo visível.",
+                        "2. Para quem é — cenários, perfil de cliente e dores que a solução atende.",
+                        "3. Como funciona — processo, escopo, entregáveis e limites.",
+                        f"4. Diferenciais — destaque {core_differential} e outros pontos concretos.",
+                        "5. Prova e contexto — cases, bastidores, critérios ou sinais de credibilidade.",
+                        "6. FAQ e CTA final — remover objeções e fechar a navegação.",
+                    ],
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": "### Argumentos prioritários\n" + "\n".join(
+                        f"- {item}" for item in (
+                            differentials
+                            or [
+                                "Explique o que muda na prática para o cliente.",
+                                "Mostre processo e escopo sem adjetivo vazio.",
+                                "Deixe claro o próximo passo esperado.",
+                            ]
+                        )
+                    ),
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "titulo": "Objeções e dúvidas previsíveis",
+                    "items": faq_items,
+                },
+            },
+        ],
+    }
+
+
+def _build_site_about_page_fallback(nucleus: Dict[str, Any]) -> Dict[str, Any]:
+    company = _trim_text(nucleus.get("company_name")) or "a empresa"
+    audience = _trim_text(nucleus.get("main_audience")) or "o público certo"
+    services = _site_services(nucleus, max_items=5)
+    differentials = _site_differentials(nucleus, max_items=4)
+    niche = _trim_text(nucleus.get("niche") or nucleus.get("segment"))
+    founder = _trim_text(nucleus.get("founder_name") or nucleus.get("owner_name"))
+    location = _site_location_label(nucleus)
+
+    service_summary = ", ".join(services[:3]) if services else "o serviço principal"
+    differentials_summary = ", ".join(differentials[:3]) if differentials else "clareza de processo, contexto real e execução consistente"
+
+    faq_items = [
+        {
+            "pergunta": f"O que a página Sobre de {company} precisa responder?",
+            "resposta": "Quem é a empresa, o que faz, para quem faz sentido, como trabalha e por que isso merece confiança.",
+        },
+        {
+            "pergunta": "O que evitar na página institucional?",
+            "resposta": "Manifesto vazio, adjetivo sem prova, história inchada e frase que serviria para qualquer empresa do mercado.",
+        },
+        {
+            "pergunta": "Como usar a página Sobre para apoiar venda e autoridade?",
+            "resposta": "Conectando narrativa institucional com oferta real, forma de trabalhar, diferenciais concretos e próximos passos claros.",
+        },
+    ]
+
+    return {
+        "titulo_da_tela": f"Página institucional — {company}",
+        "blocos": [
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Posicionamento central",
+                    "texto": f"{company} precisa aparecer como uma entidade clara e confiável para **{audience}**, conectando **{service_summary}** com uma leitura institucional forte e sem exagero.",
+                    "icone": "check",
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": "\n".join([
+                        "### Abertura institucional",
+                        f"Apresente **{company}** com clareza: o que faz, para quem faz sentido e como transforma isso em trabalho concreto.",
+                        "",
+                        "### Leitura de credibilidade",
+                        f"Use como base os diferenciais reais já existentes: **{differentials_summary}**.",
+                        f"{'Localidade relevante: **' + location + '**.' if location else ''}",
+                    ]),
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "titulo": "Arquitetura da página Sobre",
+                    "items": [
+                        "1. Quem somos — apresentação direta da empresa e do papel que ocupa.",
+                        "2. O que fazemos — oferta principal, especialidades e contexto de atuação.",
+                        "3. Como trabalhamos — processo, forma de pensar e critérios de qualidade.",
+                        "4. Por que confiar — sinais de credibilidade, consistência e posicionamento.",
+                        "5. Próximos passos — convide para conhecer serviços, provas ou contato.",
+                    ],
+                },
+            },
+            {
+                "tipo": "quote",
+                "conteudo": {
+                    "titulo": "Frase institucional",
+                    "texto": f"{company} existe para transformar {niche or service_summary} em uma entrega compreensível, consistente e útil para quem realmente precisa decidir bem.",
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "titulo": "Dúvidas que a página pode antecipar",
+                    "items": faq_items,
+                },
+            },
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": "### CTA e links internos\n" + "\n".join(f"- {item}" for item in _site_internal_link_suggestions(company, nucleus)),
+                },
+            },
+        ],
+    }
+
+
+def _run_site_article_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    theme = _trim_text(selected_theme) or (_site_services(nucleus, max_items=1) or ["o serviço principal"])[0]
+    system = """
+Você cria artigos de blog para site com SEO, AEO e GEO sem cara de texto genérico.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: highlight, markdown, timeline, keyword_list, faq.
+
+Estruture em:
+1. leitura editorial
+2. abertura/tese do artigo
+3. estrutura do artigo em ordem de seções
+4. termos semânticos e perguntas auxiliares
+5. FAQ final
+6. recomendação de CTA interno
+
+Regras:
+- pt-BR
+- escreva pensando em publicação em site, não em brainstorming
+- cubra intenção de busca, entendimento e decisão
+- sem introdução vazia, sem marketing inflado e sem frase pronta que serviria para qualquer empresa
+- o artigo precisa parecer específico ao núcleo real da empresa
+""".strip()
+    user = {
+        "task": requested_task or "Artigo de Blog Otimizado (SEO/AEO/GEO)",
+        "theme": theme,
+        "service_area": _site_location_label(nucleus),
+        "services": _site_services(nucleus, max_items=6),
+        "differentials": _site_differentials(nucleus, max_items=4),
+        "internal_links": _site_internal_link_suggestions(theme, nucleus),
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(_call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2600))
+        if _is_valid_site_article_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_site_article_fallback(nucleus or {}, theme)
+
+
+def _run_site_faq_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    theme = _trim_text(selected_theme) or (_site_services(nucleus, max_items=1) or ["o serviço principal"])[0]
+    system = """
+Você cria FAQs para site que reduzem dúvida, atrito e risco percebido.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: highlight, faq, timeline, keyword_list, markdown.
+
+Estruture em:
+1. leitura estratégica do FAQ
+2. perguntas e respostas prioritárias
+3. ordem recomendada de uso na página
+4. termos ou perguntas auxiliares
+5. recomendação final
+
+Regras:
+- pt-BR
+- respostas objetivas, citáveis e sem jargão desnecessário
+- só inclua perguntas que realmente ajudam decisão ou entendimento
+- nada de FAQ cosmético criado apenas para encher página
+- sem texto vendedor demais
+""".strip()
+    user = {
+        "task": requested_task or "FAQ (Perguntas Frequentes)",
+        "theme": theme,
+        "services": _site_services(nucleus, max_items=6),
+        "differentials": _site_differentials(nucleus, max_items=4),
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(_call_chat_json(system=system, user=user, temperature=0.3, max_tokens=2400))
+        if _is_valid_site_faq_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_site_faq_fallback(nucleus or {}, theme)
+
+
+def _run_site_service_page_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    theme = _trim_text(selected_theme) or (_site_services(nucleus, max_items=1) or ["o serviço principal"])[0]
+    system = """
+Você cria páginas de serviço ou produto para site com clareza comercial e semântica forte.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: highlight, markdown, timeline, faq.
+
+Estruture em:
+1. promessa central
+2. hero com headline, subheadline e CTA inicial
+3. arquitetura da página em sequência
+4. argumentos prioritários
+5. objeções/FAQ
+
+Regras:
+- pt-BR
+- a página precisa deixar claro serviço, público, problema, solução, diferenciais e próximo passo
+- sem texto institucional genérico
+- sem adjetivo vazio no lugar de explicação
+- faça a estrutura parecer página pronta, não brainstorming
+""".strip()
+    user = {
+        "task": requested_task or "Página de Serviço / Produto",
+        "theme": theme,
+        "service_area": _site_location_label(nucleus),
+        "services": _site_services(nucleus, max_items=6),
+        "differentials": _site_differentials(nucleus, max_items=4),
+        "internal_links": _site_internal_link_suggestions(theme, nucleus),
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(_call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2500))
+        if _is_valid_site_service_page_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_site_service_page_fallback(nucleus or {}, theme)
+
+
+def _run_site_about_page_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    company = _trim_text(nucleus.get("company_name")) or _trim_text(selected_theme) or "a empresa"
+    system = """
+Você cria páginas institucionais (Sobre a Empresa) para site com clareza de entidade e credibilidade.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: highlight, markdown, timeline, quote, faq.
+
+Estruture em:
+1. posicionamento central
+2. abertura institucional
+3. arquitetura da página
+4. frase institucional citável
+5. dúvidas que a página deve antecipar
+6. recomendação final
+
+Regras:
+- pt-BR
+- a página deve responder quem é a empresa, o que faz, para quem faz sentido e como trabalha
+- sem manifesto vazio, sem exagero emocional e sem história inflada
+- credibilidade vem de clareza, diferenciais reais e coerência
+- entregue a página como material utilizável
+""".strip()
+    user = {
+        "task": requested_task or "Página Institucional (Sobre a Empresa)",
+        "company": company,
+        "services": _site_services(nucleus, max_items=6),
+        "differentials": _site_differentials(nucleus, max_items=4),
+        "service_area": _site_location_label(nucleus),
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(_call_chat_json(system=system, user=user, temperature=0.32, max_tokens=2400))
+        if _is_valid_site_about_page_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_site_about_page_fallback(nucleus or {})
+
 def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
     _require_key()
 
@@ -3361,7 +4204,9 @@ def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
         raise ValueError(f"Agente inválido: {agent_key}")
 
     nucleus = nucleus or {}
-    requested_task = _trim_text(nucleus.get("requested_task") or nucleus.get("task"))
+    requested_task_title = _trim_text(nucleus.get("requested_task_title"))
+    requested_task_prompt = _trim_text(nucleus.get("requested_task_prompt"))
+    requested_task = requested_task_title or _trim_text(nucleus.get("requested_task") or nucleus.get("task")) or requested_task_prompt
     selected_theme = _trim_text(nucleus.get("selected_theme"))
 
     requested_task_lower = requested_task.lower() if requested_task else ""
@@ -3395,6 +4240,15 @@ def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
     if agent_key == "decision_content" and "comparativo: nossa solução vs mercado" in requested_task_lower:
         return _json_dumps(_run_decision_content_comparison_task(nucleus, requested_task, selected_theme))
 
+    if agent_key == "site" and _is_site_blog_article_task(requested_task_lower):
+        return _json_dumps(_run_site_article_task(nucleus, requested_task, selected_theme))
+    if agent_key == "site" and _is_site_faq_task(requested_task_lower):
+        return _json_dumps(_run_site_faq_task(nucleus, requested_task, selected_theme))
+    if agent_key == "site" and _is_site_service_page_task(requested_task_lower):
+        return _json_dumps(_run_site_service_page_task(nucleus, requested_task, selected_theme))
+    if agent_key == "site" and _is_site_about_page_task(requested_task_lower):
+        return _json_dumps(_run_site_about_page_task(nucleus, requested_task, selected_theme))
+
     is_script_task = any(term in requested_task_lower for term in [
         "roteiro",
         "reels",
@@ -3406,7 +4260,13 @@ def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
 
     task_profile = _infer_task_profile(agent_key, requested_task, is_script_task)
     nucleus_digest = _build_nucleus_digest(nucleus)
-    playbook = _build_task_playbook(agent_key, requested_task, selected_theme, is_script_task)
+    playbook = _build_task_playbook(
+        agent_key,
+        requested_task,
+        selected_theme,
+        is_script_task,
+        requested_task_prompt=requested_task_prompt,
+    )
 
     semantic_system = "\n\n".join(
         [
@@ -3439,6 +4299,7 @@ PRIORIDADES DE EXECUÇÃO:
         "execution_brief": {
             "task_profile": task_profile,
             "requested_task": requested_task or "não informado",
+            "requested_task_prompt": requested_task_prompt or "não informado",
             "selected_theme": selected_theme or "não informado",
             "nucleus_digest": nucleus_digest,
         },
@@ -3467,6 +4328,15 @@ PRIORIDADES DE EXECUÇÃO:
 
     if agent_key == "instagram" and task_profile.get("family") == "perfil" and _is_structured_failure_output(normalized):
         return _json_dumps(_build_instagram_bio_fallback(nucleus, requested_task, selected_theme))
+
+    if agent_key == "google_business_profile":
+        family = _trim_text(task_profile.get("family"))
+        if family == "keyword_catalog" and (_is_structured_failure_output(normalized) or not _authority_has_block_type(normalized, "keyword_list")):
+            return _json_dumps(_build_google_business_keyword_fallback(nucleus, requested_task))
+        if family == "service_catalog" and (_is_structured_failure_output(normalized) or not _authority_has_block_type(normalized, "service_cards")):
+            return _json_dumps(_build_google_business_service_catalog_fallback(nucleus, requested_task))
+        if family == "review_response" and (_is_structured_failure_output(normalized) or not _authority_has_block_type(normalized, "response_variations")):
+            return _json_dumps(_build_google_business_review_response_fallback(nucleus, requested_task, selected_theme))
 
     return _json_dumps(normalized)
 
@@ -3745,6 +4615,215 @@ def _is_structured_failure_output(data: Dict[str, Any]) -> bool:
         return False
     text = _trim_text(conteudo.get("texto")).lower()
     return "não foi possível estruturar o conteúdo em blocos válidos" in text
+
+
+def _authority_has_block_type(data: Dict[str, Any], block_type: str) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list):
+        return False
+    target = _trim_text(block_type).lower()
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if _trim_text(block.get("tipo")).lower() == target:
+            return True
+    return False
+
+
+def _google_business_location_label(nucleus: Dict[str, Any]) -> str:
+    return _trim_text(nucleus.get("service_area") or nucleus.get("city_state"), max_chars=80)
+
+
+def _build_google_business_keyword_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    company = _trim_text(nucleus.get("company_name")) or "sua empresa"
+    audience = _trim_text(nucleus.get("main_audience"), max_chars=80)
+    area = _google_business_location_label(nucleus)
+    services = _split_nucleus_items(nucleus.get("services_products"), max_items=8)
+    differentials = _split_nucleus_items(nucleus.get("real_differentials"), max_items=4)
+
+    base_terms = services or [company]
+    items: List[str] = []
+    seen: set[str] = set()
+
+    def add_item(value: str) -> None:
+        clean = _trim_text(value, max_chars=120)
+        if not clean:
+            return
+        key = clean.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        items.append(clean)
+
+    for service in base_terms:
+        add_item(service)
+        if area:
+            add_item(f"{service} em {area}")
+            add_item(f"{service} com atendimento em {area}")
+        if audience:
+            add_item(f"{service} para {audience}")
+        if differentials:
+            add_item(f"{service} com foco em {differentials[0]}")
+        if len(items) >= 18:
+            break
+
+    if not items:
+        add_item(company)
+        if area:
+            add_item(f"{company} em {area}")
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"SEO local para serviços — {company}",
+        "blocos": [
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Palavras-chave para Editar serviços",
+                    "limite_por_item": "120 caracteres",
+                    "items": items[:18],
+                },
+            }
+        ],
+    }
+
+
+def _build_google_business_service_catalog_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    company = _trim_text(nucleus.get("company_name")) or "sua empresa"
+    audience = _trim_text(nucleus.get("main_audience"), max_chars=80)
+    area = _google_business_location_label(nucleus)
+    services = _split_nucleus_items(nucleus.get("services_products"), max_items=8)
+    differentials = _split_nucleus_items(nucleus.get("real_differentials"), max_items=4)
+
+    service_cards: List[Dict[str, Any]] = []
+
+    for service in services or [company]:
+        description_parts = [service]
+        if audience:
+            description_parts.append(f"para {audience}")
+        if area:
+            description_parts.append(f"em {area}")
+        if differentials:
+            description_parts.append(f"com foco em {differentials[0]}")
+        description = _trim_text(" ".join(description_parts), max_chars=180)
+
+        keywords: List[str] = []
+        seen_keywords: set[str] = set()
+
+        def add_keyword(value: str) -> None:
+            clean = _trim_text(value, max_chars=56)
+            if not clean:
+                return
+            key = clean.lower()
+            if key in seen_keywords:
+                return
+            seen_keywords.add(key)
+            keywords.append(clean)
+
+        add_keyword(service)
+        if area:
+            add_keyword(f"{service} em {area}")
+        if audience:
+            add_keyword(f"{service} para {audience}")
+        if differentials:
+            add_keyword(differentials[0])
+
+        service_cards.append(
+            {
+                "nome": _trim_text(service, max_chars=56) or "Serviço",
+                "descricao": description or "não informado",
+                "palavras_chave": keywords[:6],
+            }
+        )
+
+        if len(service_cards) >= 8:
+            break
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Serviços e descrições — {company}",
+        "blocos": [
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Serviços e descrições prontas para cadastro",
+                    "items": service_cards,
+                },
+            }
+        ],
+    }
+
+
+def _build_google_business_review_response_fallback(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    company = _trim_text(nucleus.get("company_name")) or "a equipe"
+    area = _google_business_location_label(nucleus)
+    services = _split_nucleus_items(nucleus.get("services_products"), max_items=4)
+    service_focus = services[0] if services else "nosso atendimento"
+    review = _trim_text(selected_theme or nucleus.get("review_to_reply"), max_chars=600)
+    review_lower = review.lower()
+
+    contextual_note = "Ficamos felizes em saber que a experiência fez sentido para você."
+    if "atendimento" in review_lower:
+        contextual_note = f"É muito bom saber que o atendimento em {service_focus} foi percebido com esse cuidado."
+    elif "prazo" in review_lower:
+        contextual_note = f"Ficamos felizes por saber que a entrega de {service_focus} ocorreu dentro do prazo esperado."
+    elif "equipe" in review_lower:
+        contextual_note = f"É muito importante para nós ver a equipe reconhecida nesse processo de {service_focus}."
+    elif "resultado" in review_lower or "resolveu" in review_lower:
+        contextual_note = f"Saber que {service_focus} ajudou de forma concreta faz toda a diferença para a nossa equipe."
+
+    local_note = f" Seguimos à disposição em {area} para o que precisar." if area else " Seguimos à disposição para o que precisar."
+
+    responses = [
+        _trim_text(
+            f"Muito obrigado pela sua avaliação. {contextual_note}{local_note}",
+            max_chars=280,
+        ),
+        _trim_text(
+            f"Agradecemos muito pelo feedback e pela confiança. Ficamos felizes em saber que a experiência com {service_focus} foi positiva e percebida de forma tão clara.{local_note}",
+            max_chars=320,
+        ),
+        _trim_text(
+            f"Obrigado por compartilhar a sua experiência. É uma alegria ver nosso trabalho com {service_focus} sendo reconhecido dessa forma, com atenção real ao que você precisava.{local_note}",
+            max_chars=320,
+        ),
+    ]
+
+    if review:
+        responses.append(
+            _trim_text(
+                f"Muito obrigado pelas palavras. O seu relato sobre “{review[:110]}” reforça o nosso compromisso em manter {service_focus} com clareza, cuidado e consistência.{local_note}",
+                max_chars=340,
+            )
+        )
+
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for item in responses:
+        if not item:
+            continue
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Respostas para avaliação — {company}",
+        "blocos": [
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Respostas prontas para publicar",
+                    "items": deduped[:4],
+                },
+            }
+        ],
+    }
 
 
 
