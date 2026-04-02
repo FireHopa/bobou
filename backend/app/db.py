@@ -78,9 +78,19 @@ def _ensure_sqlite_columns() -> None:
     )
 
     _ensure_sqlite_table_columns(
+        "bobar_column",
+        {
+            "board_id": "INTEGER",
+        },
+    )
+
+    _ensure_sqlite_table_columns(
         "bobar_card",
         {
+            "board_id": "INTEGER",
             "structure_json": "TEXT",
+            "due_at": "TIMESTAMP",
+            "label_ids_json": "TEXT",
         },
     )
 

@@ -233,11 +233,56 @@ class AuthorityAgentRun(SQLModel, table=True):
     nucleus_json: str
     output_text: str
     created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class BobarBoard(SQLModel, table=True):
+    __tablename__ = "bobar_board"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    title: str = Field(default="Meu quadro")
+    position: int = Field(default=0, index=True)
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class BobarLabel(SQLModel, table=True):
+    __tablename__ = "bobar_label"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    board_id: int = Field(foreign_key="bobar_board.id", index=True)
+
+    name: str = Field(default="Etiqueta")
+    color: str = Field(default="#22c55e")
+    position: int = Field(default=0, index=True)
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class BobarAttachment(SQLModel, table=True):
+    __tablename__ = "bobar_attachment"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    board_id: int = Field(foreign_key="bobar_board.id", index=True)
+    card_id: int = Field(foreign_key="bobar_card.id", index=True)
+
+    filename: str = Field(default="arquivo")
+    storage_path: str = Field(default="")
+    mime_type: Optional[str] = Field(default=None)
+    size_bytes: int = Field(default=0)
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
 class BobarColumn(SQLModel, table=True):
     __tablename__ = "bobar_column"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
+    board_id: Optional[int] = Field(default=None, foreign_key="bobar_board.id", index=True)
     name: str = Field(default="Nova coluna")
     position: int = Field(default=0, index=True)
     created_at: datetime = Field(default_factory=utcnow)
@@ -249,6 +294,7 @@ class BobarCard(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
+    board_id: Optional[int] = Field(default=None, foreign_key="bobar_board.id", index=True)
     column_id: int = Field(foreign_key="bobar_column.id", index=True)
 
     title: str = Field(default="Novo card")
@@ -260,6 +306,8 @@ class BobarCard(SQLModel, table=True):
     note: str = Field(default="")
     position: int = Field(default=0, index=True)
     structure_json: str = Field(default="{}")
+    due_at: Optional[datetime] = Field(default=None, index=True)
+    label_ids_json: str = Field(default="[]")
 
     created_at: datetime = Field(default_factory=utcnow, index=True)
     updated_at: datetime = Field(default_factory=utcnow, index=True)

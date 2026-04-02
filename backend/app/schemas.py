@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 # === NOVOS SCHEMAS DE AUTENTICAÇÃO ===
@@ -191,7 +191,18 @@ class AuthorityAgentRunOut(BaseModel):
 
 class AuthorityAgentHistoryOut(BaseModel):
     items: list[AuthorityAgentRunOut]
-
-# === NOVOS SCHEMAS LINKEDIN ===
+# === SCHEMAS LINKEDIN ===
 class LinkedInConnectIn(BaseModel):
     code: str
+
+
+class LinkedInArticleIn(BaseModel):
+    title: str
+    url: str
+    description: Optional[str] = None
+
+
+class LinkedInPublishIn(BaseModel):
+    mode: Literal["feed", "article"] = "feed"
+    text: str = ""
+    article: Optional[LinkedInArticleIn] = None

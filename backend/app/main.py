@@ -26,7 +26,7 @@ from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 
-from .config import CORS_ALLOWED_ORIGINS, LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_REDIRECT_URI
+from .config import CORS_ALLOWED_ORIGINS, LINKEDIN_API_VERSION, LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_REDIRECT_URI
 from .credits import (
     CREDIT_ACTION_HEADER,
     CREDIT_CHARGED_HEADER,
@@ -56,7 +56,8 @@ from .schemas import (
     CompetitionJobV2Out,
     CompetitionReportV2Out,
     CompetitionFindOut,
-    LinkedInConnectIn
+    LinkedInConnectIn,
+    LinkedInPublishIn,
 )
 from .ai import build_robot_from_briefing, chat_with_robot, transcribe_audio, find_competitors, build_competition_result, authority_assistant, run_authority_agent, suggest_video_format_for_theme, generate_skybob_study, generate_skybob_catalog_analysis
 
@@ -1406,9 +1407,110 @@ def skybob_run(
 
     return study
 
+
+def _is_valid_http_url(value: str) -> bool:
+    try:
+        parsed = httpx.URL(value)
+    except Exception:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.host)
+
+
+def _build_linkedin_post_payload(current_user: User, payload: LinkedInPublishIn) -> dict:
+    mode = (payload.mode or "feed").strip().lower()
+    commentary = (payload.text or "").strip()
+
+    body: dict[str, object] = {
+        "author": current_user.linkedin_urn,
+        "visibility": "PUBLIC",
+        "distribution": {
+            "feedDistribution": "MAIN_FEED",
+            "targetEntities": [],
+            "thirdPartyDistributionChannels": [],
+        },
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
+    }
+
+    if mode == "feed":
+        if not commentary:
+            raise HTTPException(status_code=400, detail="Informe o texto da publicação para o feed.")
+        body["commentary"] = commentary
+        return body
+
+    if mode != "article":
+        raise HTTPException(status_code=400, detail="Tipo de publicação do LinkedIn inválido.")
+
+    article = payload.article
+    if not article:
+        raise HTTPException(status_code=400, detail="Os dados do artigo não foram enviados.")
+
+    article_title = (article.title or "").strip()
+    article_url = (article.url or "").strip()
+    article_description = (article.description or "").strip()
+
+    if not article_title:
+        raise HTTPException(status_code=400, detail="Informe o título do artigo.")
+    if len(article_title) > 400:
+        raise HTTPException(status_code=400, detail="O título do artigo pode ter no máximo 400 caracteres.")
+    if not article_url:
+        raise HTTPException(status_code=400, detail="Informe a URL do artigo.")
+    if not _is_valid_http_url(article_url):
+        raise HTTPException(status_code=400, detail="Informe uma URL válida do artigo começando com http:// ou https://.")
+    if len(article_description) > 4086:
+        raise HTTPException(status_code=400, detail="O resumo do artigo pode ter no máximo 4086 caracteres.")
+
+    if commentary:
+        body["commentary"] = commentary
+
+    article_content: dict[str, str] = {
+        "source": article_url,
+        "title": article_title,
+    }
+    if article_description:
+        article_content["description"] = article_description
+
+    body["content"] = {"article": article_content}
+    return body
+
+
 # ==========================================
 # ROTAS DO LINKEDIN OAUTH2
 # ==========================================
+
+
+
+def _extract_linkedin_api_message(resp_text: str) -> tuple[str, int]:
+    try:
+        payload = json.loads(resp_text)
+    except Exception:
+        return (f"Erro da API do LinkedIn: {resp_text}", 400)
+
+    if not isinstance(payload, dict):
+        return (f"Erro da API do LinkedIn: {resp_text}", 400)
+
+    error_details = payload.get("errorDetails") if isinstance(payload.get("errorDetails"), dict) else {}
+    input_errors = error_details.get("inputErrors") if isinstance(error_details.get("inputErrors"), list) else []
+    first_input_error = input_errors[0] if input_errors and isinstance(input_errors[0], dict) else {}
+    code = str(first_input_error.get("code") or payload.get("code") or "").strip().upper()
+    description = str(first_input_error.get("description") or payload.get("message") or "").strip()
+
+    if code == "DUPLICATE_POST" or "duplicate post" in description.lower():
+        return (
+            "O LinkedIn bloqueou a publicação porque esse conteúdo já existe ou está parecido demais com um post já publicado. "
+            "Altere o texto, o título, o resumo ou a URL antes de tentar novamente.",
+            409,
+        )
+
+    if description:
+        return (f"Erro da API do LinkedIn: {description}", 400)
+
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        return (f"Erro da API do LinkedIn: {message.strip()}", 400)
+
+    return (f"Erro da API do LinkedIn: {resp_text}", 400)
+
 
 @app.get("/api/linkedin/auth-url")
 def get_linkedin_auth_url(current_user: User = Depends(get_current_user)):
@@ -1465,35 +1567,29 @@ async def connect_linkedin(payload: LinkedInConnectIn, session: Session = Depend
 
 
 @app.post("/api/linkedin/publish")
-async def publish_linkedin(payload: dict, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def publish_linkedin(payload: LinkedInPublishIn, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     if not current_user.linkedin_access_token or not current_user.linkedin_urn:
         raise HTTPException(status_code=400, detail="LinkedIn não está conectado nesta conta.")
+    if current_user.linkedin_token_expires_at and current_user.linkedin_token_expires_at <= datetime.utcnow():
+        raise HTTPException(status_code=400, detail="A conexão com o LinkedIn expirou. Reconecte a conta antes de publicar.")
 
-    url = "https://api.linkedin.com/v2/ugcPosts"
+    url = "https://api.linkedin.com/rest/posts"
     headers = {
         "Authorization": f"Bearer {current_user.linkedin_access_token}",
+        "Linkedin-Version": LINKEDIN_API_VERSION,
         "X-Restli-Protocol-Version": "2.0.0",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
+    data = _build_linkedin_post_payload(current_user, payload)
 
-    data = {
-        "author": current_user.linkedin_urn,
-        "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": payload.get("text")},
-                "shareMediaCategory": "NONE"
-            }
-        },
-        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
-    }
-
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(url, headers=headers, json=data)
         if resp.status_code != 201:
-            raise HTTPException(status_code=400, detail=f"Erro da API do LinkedIn: {resp.text}")
+            detail, status_code = _extract_linkedin_api_message(resp.text)
+            raise HTTPException(status_code=status_code, detail=detail)
 
-    return {"ok": True}
+    post_id = resp.headers.get("x-restli-id") or resp.headers.get("X-RestLi-Id")
+    return {"ok": True, "mode": payload.mode, "post_id": post_id}
 
 # ==========================================
 # ROTAS ADICIONAIS (IMAGE ENGINE & INSTAGRAM)
