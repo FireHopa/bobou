@@ -15,11 +15,14 @@ import {
   Search,
   MessageSquareQuote,
   Tag,
+  MapPin,
+  Globe,
 } from "lucide-react";
 
 type Props = {
   title?: string;
   text: string;
+  agentKey?: string;
 };
 
 type ScriptJson = {
@@ -40,7 +43,41 @@ type ScriptJson = {
   legenda?: string;
 };
 
-export default function ResultViewer({ title = "Resultado", text }: Props) {
+export default function ResultViewer({ title = "Resultado", text, agentKey }: Props) {
+  const isGoogleBusiness = agentKey === "google_business_profile";
+  const isSiteAgent = agentKey === "site";
+  const headerVariant = isGoogleBusiness
+    ? {
+        icon: <MapPin className="h-7 w-7" />,
+        iconWrapperClass: "bg-google-blue/10 text-google-blue",
+        topBarClass: "bg-gradient-to-r from-google-blue/70 via-emerald-400/50 to-amber-300/60",
+        headerClass: "relative bg-gradient-to-br from-google-blue/10 via-transparent to-emerald-400/10 border-b border-border/50 p-8 sm:p-12",
+      }
+    : isSiteAgent
+      ? {
+          icon: <Globe className="h-7 w-7" />,
+          iconWrapperClass: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+          topBarClass: "bg-gradient-to-r from-amber-400/70 via-orange-300/50 to-yellow-200/60",
+          headerClass: "relative bg-gradient-to-br from-amber-500/10 via-transparent to-orange-400/10 border-b border-border/50 p-8 sm:p-12",
+        }
+      : {
+          icon: <Film className="h-7 w-7" />,
+          iconWrapperClass: "bg-google-blue/10 text-google-blue",
+          topBarClass: "bg-gradient-to-r from-transparent via-google-blue/40 to-transparent",
+          headerClass: "relative bg-gradient-to-b from-muted/50 to-transparent border-b border-border/50 p-8 sm:p-12",
+        };
+
+  const scriptHeaderBadge = isGoogleBusiness
+    ? "Perfil de Empresa Google"
+    : isSiteAgent
+      ? "Agente Site"
+      : "Roteiro estruturado";
+  const blockHeaderBadge = isGoogleBusiness
+    ? "Perfil de Empresa Google"
+    : isSiteAgent
+      ? "Arquitetura de conteúdo para site"
+      : "Entrega estruturada";
+
   const parsed = useMemo(() => {
     try {
       return JSON.parse(text || "{}");
@@ -80,15 +117,15 @@ export default function ResultViewer({ title = "Resultado", text }: Props) {
     return (
       <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="rounded-[2.5rem] border border-border bg-card/80 backdrop-blur-xl shadow-sm overflow-hidden">
-          <div className="relative bg-gradient-to-b from-muted/50 to-transparent border-b border-border/50 p-8 sm:p-12">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-google-blue/40 to-transparent" />
+          <div className={headerVariant.headerClass}>
+            <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
             <div className="flex items-start gap-4">
-              <div className="hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
-                <Film className="h-7 w-7" />
+              <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                {headerVariant.icon}
               </div>
               <div>
                 <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-google-blue/80">
-                  Roteiro estruturado
+                  {scriptHeaderBadge}
                 </p>
                 <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight max-w-4xl">
                   {parsedScript.titulo_da_tela || title}
@@ -281,11 +318,21 @@ export default function ResultViewer({ title = "Resultado", text }: Props) {
     return (
       <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="rounded-[2.5rem] border border-border bg-card/80 backdrop-blur-xl shadow-sm overflow-hidden">
-          <div className="relative bg-gradient-to-b from-muted/50 to-transparent border-b border-border/50 p-8 sm:p-12">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-google-blue/40 to-transparent" />
-            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight max-w-4xl">
-              {parsedBlocks.titulo_da_tela || title}
-            </h2>
+          <div className={headerVariant.headerClass}>
+            <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
+            <div className="flex items-start gap-4">
+              <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                {headerVariant.icon}
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-google-blue/80">
+                  {blockHeaderBadge}
+                </p>
+                <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight max-w-4xl">
+                  {parsedBlocks.titulo_da_tela || title}
+                </h2>
+              </div>
+            </div>
           </div>
 
           <div className="p-8 sm:p-12 space-y-12">

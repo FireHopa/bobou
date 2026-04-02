@@ -170,7 +170,9 @@ export default function AuthorityAgentChatPage() {
         agent_key: agent.key,
         nucleus: { 
           ...(nucleus ?? {}), 
-          requested_task: task.prompt || task.title,
+          requested_task: task.title,
+          requested_task_title: task.title,
+          ...(task.prompt ? { requested_task_prompt: task.prompt } : {}),
           ...(themeContext ? { selected_theme: themeContext } : {}),
           ...(task.inputMode === "textarea" && themeContext ? { review_to_reply: themeContext } : {})
         },
@@ -877,7 +879,7 @@ export default function AuthorityAgentChatPage() {
               </div>
 
               {/* RENDERIZADOR NOVO (ARQUITETURA DE BLOCOS) */}
-              <ResultViewer title={agent.name} text={resultMd} />
+              <ResultViewer title={agent.name} text={resultMd} agentKey={agent.key} />
               
             </motion.div>
           )}

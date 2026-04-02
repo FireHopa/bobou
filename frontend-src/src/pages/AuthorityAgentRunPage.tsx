@@ -620,7 +620,11 @@ export default function AuthorityAgentRunPage() {
         nucleus: {
           ...rawNucleus,
           ...(activeTask && activeTask.title !== "Estratégia Completa Padrão"
-            ? { requested_task: activeTask.prompt || activeTask.title }
+            ? {
+                requested_task: activeTask.title,
+                requested_task_title: activeTask.title,
+                ...(activeTask.prompt ? { requested_task_prompt: activeTask.prompt } : {}),
+              }
             : {}),
           ...(trimmedTheme ? { selected_theme: trimmedTheme } : {}),
           ...(activeTask?.inputMode === "textarea" && trimmedTheme ? { review_to_reply: trimmedTheme } : {}),
@@ -1239,7 +1243,7 @@ export default function AuthorityAgentRunPage() {
               </div>
             </div>
           ) : (
-            <ResultViewer title={agent.name} text={result.output_text} />
+            <ResultViewer title={agent.name} text={result.output_text} agentKey={agentKey} />
           )}
 
           <div className="mt-8 flex justify-center">

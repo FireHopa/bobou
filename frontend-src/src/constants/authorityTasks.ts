@@ -251,10 +251,43 @@ export const EXTERNAL_MENTIONS_TASKS: AuthorityTask[] = [
 ];
 
 export const SITE_TASKS: AuthorityTask[] = [
-  { title: "Artigo de Blog Otimizado (SEO/AEO/GEO)", inputMode: "theme", aiSuggestions: true },
-  { title: "FAQ (Perguntas Frequentes)", inputMode: "theme", aiSuggestions: true },
-  { title: "Página de Serviço / Produto", inputMode: "theme", aiSuggestions: true },
-  { title: "Página Institucional (Sobre a Empresa)", inputMode: "direct", aiSuggestions: false }
+  {
+    title: "Artigo de Blog Otimizado (SEO/AEO/GEO)",
+    description: "Monta artigo de autoridade para o site com hierarquia clara, densidade semântica e leitura útil para busca, IA e decisão.",
+    prompt: "Crie um artigo de blog para site com SEO, AEO e GEO aplicados sem parecer texto de IA. Organize a entrega com tese central, estrutura editorial, subtópicos úteis, perguntas frequentes e recomendação de CTA interno. Evite introdução genérica, enrolação acadêmica e frase pronta que serviria para qualquer empresa.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual é o tema principal do artigo?",
+    inputPlaceholder: "Ex: Como escolher uma contabilidade para clínica médica, erros que travam a reforma comercial...",
+    submitLabel: "Gerar artigo-base",
+  },
+  {
+    title: "FAQ (Perguntas Frequentes)",
+    description: "Cria perguntas e respostas reais para reduzir atrito, objeção e dúvida recorrente dentro do site.",
+    prompt: "Crie um FAQ para site com perguntas frequentes realmente úteis, respostas objetivas e linguagem citável. Organize a entrega para remover dúvida, risco percebido e ambiguidade sem soar vendedor ou genérico.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual serviço, página ou decisão esse FAQ precisa destravar?",
+    inputPlaceholder: "Ex: FAQ para consultoria tributária, FAQ para página de implante dentário...",
+    submitLabel: "Gerar FAQ",
+  },
+  {
+    title: "Página de Serviço / Produto",
+    description: "Estrutura uma página comercial clara, escaneável e específica, com promessa, contexto, diferenciais, objeções e CTA.",
+    prompt: "Crie a arquitetura de uma página de serviço ou produto para site. Entregue hero, promessa, contexto, seções principais, argumentos, objeções, FAQ e CTA. A resposta precisa ser específica, escaneável e pronta para sair do genérico.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual serviço ou produto será transformado em página?",
+    inputPlaceholder: "Ex: Gestão de tráfego para clínicas, software de atendimento omnichannel...",
+    submitLabel: "Gerar página",
+  },
+  {
+    title: "Página Institucional (Sobre a Empresa)",
+    description: "Organiza a página 'Sobre' com posicionamento, história, credibilidade e leitura institucional sem virar texto vazio.",
+    prompt: "Crie uma página institucional para site com posicionamento claro, narrativa enxuta, diferenciais reais, credibilidade e próximos passos. Organize a resposta para parecer página pronta e não texto institucional genérico.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  }
 ];
 
 export const DECISION_CONTENT_TASKS: AuthorityTask[] = [
