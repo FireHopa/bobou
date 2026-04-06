@@ -1480,6 +1480,17 @@ function DueDatePickerField({
                     <Button
                       type="button"
                       variant="outline"
+                      size="icon"
+                      onClick={() => setOpen(false)}
+                      className="h-10 w-10 rounded-2xl border-white/12 bg-white/[0.03]"
+                      aria-label="Fechar calendário"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
                       onClick={() => {
                         onClear();
                         setOpen(false);
@@ -1487,14 +1498,13 @@ function DueDatePickerField({
                       disabled={!value}
                       className="h-10 rounded-2xl border-white/12 bg-white/[0.03] px-4"
                     >
-                      <X className="h-4 w-4" />
                       Limpar
                     </Button>
                   </div>
                 </div>
 
                 <div
-                  className="grid gap-4 overflow-y-auto pr-1 xl:grid-cols-[minmax(0,1fr)_320px]"
+                  className="custom-scrollbar grid gap-4 overflow-y-auto pr-1 xl:grid-cols-[minmax(0,1fr)_320px]"
                   style={{ maxHeight: panelStyle.maxHeight ? `calc(${panelStyle.maxHeight}px - 110px)` : undefined }}
                 >
                   <div className="rounded-[1.35rem] border border-cyan-400/15 bg-[#081224] p-3">
@@ -1618,7 +1628,7 @@ function DueDatePickerField({
                         <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
                           Hora
                         </div>
-                        <div className="max-h-56 overflow-y-auto pr-1">
+                        <div className="custom-scrollbar max-h-56 overflow-y-auto pr-1">
                           <div className="grid gap-1">
                             {hourOptions.map((hour) => {
                               const active = selectedDate && selectedHour === hour && Boolean(selectedTime);
@@ -1649,7 +1659,7 @@ function DueDatePickerField({
                         <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
                           Minuto
                         </div>
-                        <div className="max-h-56 overflow-y-auto pr-1">
+                        <div className="custom-scrollbar max-h-56 overflow-y-auto pr-1">
                           <div className="grid gap-1">
                             {minuteOptions.map((minute) => {
                               const active = selectedDate && selectedMinute === minute && Boolean(selectedTime);
@@ -3198,9 +3208,12 @@ export default function BobarPage() {
   const [newLabelName, setNewLabelName] = React.useState("");
   const [newLabelColor, setNewLabelColor] = React.useState("#22c55e");
   const [labelDrafts, setLabelDrafts] = React.useState<Record<number, LabelDraft>>({});
+  const [labelSavingIds, setLabelSavingIds] = React.useState<number[]>([]);
+  const [labelDeletingIds, setLabelDeletingIds] = React.useState<number[]>([]);
   const [attachmentPreview, setAttachmentPreview] = React.useState<AttachmentPreviewState | null>(null);
   const attachmentInputRef = React.useRef<HTMLInputElement | null>(null);
   const attachmentUrlCacheRef = React.useRef<Map<number, string>>(new Map());
+  const labelSaveTimersRef = React.useRef<Map<number, number>>(new Map());
   const hydrationLocksRef = React.useRef<Set<number>>(new Set());
   const importMetaSyncRef = React.useRef<Set<number>>(new Set());
 
@@ -3696,6 +3709,16 @@ export default function BobarPage() {
 
   React.useEffect(
     () => () => {
+      for (const timeoutId of labelSaveTimersRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      labelSaveTimersRef.current.clear();
+    },
+    [],
+  );
+
+  React.useEffect(
+    () => () => {
       for (const url of attachmentUrlCacheRef.current.values()) {
         URL.revokeObjectURL(url);
       }
@@ -3790,6 +3813,100 @@ export default function BobarPage() {
     [activeBoardId, loadBoardsAndBoard],
   );
 
+  const clearLabelAutosave = React.useCallback((labelId: number) => {
+    const timeoutId = labelSaveTimersRef.current.get(labelId);
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+      labelSaveTimersRef.current.delete(labelId);
+    }
+  }, []);
+
+  const persistLabelDraft = React.useCallback(
+    async (labelId: number, draftOverride?: LabelDraft) => {
+      const draft = draftOverride || labelDrafts[labelId];
+      const original = board?.labels.find((label) => label.id === labelId);
+      if (!draft || !original) return;
+
+      const normalizedName = draft.name.trim();
+      const normalizedColor = (draft.color || original.color || "#22c55e").trim() || "#22c55e";
+
+      if (!normalizedName) {
+        setLabelDrafts((current) => ({
+          ...current,
+          [labelId]: { name: original.name, color: original.color },
+        }));
+        return;
+      }
+
+      if (normalizedName === original.name && normalizedColor.toLowerCase() === original.color.toLowerCase()) {
+        return;
+      }
+
+      setLabelSavingIds((current) => (current.includes(labelId) ? current : [...current, labelId]));
+
+      try {
+        const nextBoard = await bobarService.updateLabel(labelId, {
+          name: normalizedName,
+          color: normalizedColor,
+        });
+        setBoard(nextBoard);
+        syncBoardSummary(nextBoard);
+        syncSelection(nextBoard, selectedCardId);
+      } catch (error) {
+        toastApiError(error, "Não foi possível atualizar a etiqueta.");
+        setLabelDrafts((current) => ({
+          ...current,
+          [labelId]: { name: original.name, color: original.color },
+        }));
+      } finally {
+        setLabelSavingIds((current) => current.filter((currentId) => currentId !== labelId));
+      }
+    },
+    [board?.labels, labelDrafts, selectedCardId, syncBoardSummary, syncSelection],
+  );
+
+  const scheduleLabelAutosave = React.useCallback(
+    (labelId: number, nextDraft: LabelDraft) => {
+      clearLabelAutosave(labelId);
+      if (!nextDraft.name.trim()) return;
+
+      const timeoutId = window.setTimeout(() => {
+        void persistLabelDraft(labelId, nextDraft);
+      }, 450);
+
+      labelSaveTimersRef.current.set(labelId, timeoutId);
+    },
+    [clearLabelAutosave, persistLabelDraft],
+  );
+
+  const updateLabelDraft = React.useCallback(
+    (label: BobarLabel, nextDraft: LabelDraft) => {
+      setLabelDrafts((current) => ({
+        ...current,
+        [label.id]: nextDraft,
+      }));
+      scheduleLabelAutosave(label.id, nextDraft);
+    },
+    [scheduleLabelAutosave],
+  );
+
+  const handleLabelDraftBlur = React.useCallback(
+    (label: BobarLabel) => {
+      const currentDraft = labelDrafts[label.id] || { name: label.name, color: label.color };
+      if (!currentDraft.name.trim()) {
+        setLabelDrafts((current) => ({
+          ...current,
+          [label.id]: { name: label.name, color: label.color },
+        }));
+        return;
+      }
+
+      clearLabelAutosave(label.id);
+      void persistLabelDraft(label.id, currentDraft);
+    },
+    [clearLabelAutosave, labelDrafts, persistLabelDraft],
+  );
+
   const handleCreateLabel = React.useCallback(async () => {
     const name = newLabelName.trim();
     if (!name || !activeBoardId) return;
@@ -3813,39 +3930,12 @@ export default function BobarPage() {
     }
   }, [activeBoardId, newLabelColor, newLabelName, selectedCardId, syncBoardSummary, syncSelection]);
 
-  const handleSaveLabel = React.useCallback(
-    async (labelId: number) => {
-      const draft = labelDrafts[labelId];
-      if (!draft) return;
-      const name = draft.name.trim();
-      if (!name) {
-        toastInfo("Informe um nome para a etiqueta.");
-        return;
-      }
-
-      try {
-        setBusy(true);
-        const nextBoard = await bobarService.updateLabel(labelId, {
-          name,
-          color: draft.color || "#22c55e",
-        });
-        setBoard(nextBoard);
-        syncBoardSummary(nextBoard);
-        syncSelection(nextBoard, selectedCardId);
-        toastSuccess("Etiqueta atualizada.");
-      } catch (error) {
-        toastApiError(error, "Não foi possível atualizar a etiqueta.");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [labelDrafts, selectedCardId, syncBoardSummary, syncSelection],
-  );
-
   const handleDeleteLabel = React.useCallback(
     async (label: BobarLabel) => {
+      clearLabelAutosave(label.id);
+      setLabelDeletingIds((current) => (current.includes(label.id) ? current : [...current, label.id]));
+
       try {
-        setBusy(true);
         const nextBoard = await bobarService.deleteLabel(label.id);
         setBoard(nextBoard);
         syncBoardSummary(nextBoard);
@@ -3854,10 +3944,10 @@ export default function BobarPage() {
       } catch (error) {
         toastApiError(error, "Não foi possível remover a etiqueta.");
       } finally {
-        setBusy(false);
+        setLabelDeletingIds((current) => current.filter((currentId) => currentId !== label.id));
       }
     },
-    [selectedCardId, syncBoardSummary, syncSelection],
+    [clearLabelAutosave, selectedCardId, syncBoardSummary, syncSelection],
   );
 
   const handleToggleCardLabel = React.useCallback((labelId: number) => {
@@ -5018,24 +5108,6 @@ export default function BobarPage() {
                     <Trash2 className="h-4 w-4" />
                     Excluir
                   </Button>
-                  <Button
-                    className="h-11 rounded-2xl px-4"
-                    variant="outline"
-                    onClick={() => void handleCreateCard()}
-                    disabled={busy || !boardHasColumns}
-                  >
-                    <FilePlus2 className="h-4 w-4" />
-                    Novo card
-                  </Button>
-                  <Button
-                    className="h-11 rounded-2xl px-4"
-                    variant="outline"
-                    onClick={openCreateColumnDialog}
-                    disabled={busy || (isImportMode && !activeImportCard)}
-                  >
-                    <Columns3 className="h-4 w-4" />
-                    Criar coluna
-                  </Button>
                   {isImportMode ? (
                     <Button
                       className="h-11 rounded-2xl px-4"
@@ -5256,7 +5328,28 @@ export default function BobarPage() {
             </div>
           </CardHeader>
 
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button
+                className="h-11 rounded-2xl px-4"
+                variant="outline"
+                onClick={() => void handleCreateCard()}
+                disabled={busy || !boardHasColumns}
+              >
+                <FilePlus2 className="h-4 w-4" />
+                Novo card
+              </Button>
+              <Button
+                className="h-11 rounded-2xl px-4"
+                variant="outline"
+                onClick={openCreateColumnDialog}
+                disabled={busy || (isImportMode && !activeImportCard)}
+              >
+                <Columns3 className="h-4 w-4" />
+                Criar coluna
+              </Button>
+            </div>
+
             {loading || (isImportMode && hydratingImportId === activeImportCard?.id && !visibleColumns.length) ? (
               <div className="flex min-h-[260px] flex-col items-center justify-center gap-3">
                 <Loader2 className="h-7 w-7 animate-spin text-cyan-200" />
@@ -5720,6 +5813,196 @@ export default function BobarPage() {
             <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
               <CardHeader>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                  Etiquetas do quadro
+                </div>
+                <CardTitle className="text-3xl font-black text-white">Organização visual</CardTitle>
+                <CardDescription className="text-white/55">
+                  Crie, renomeie e troque a cor das etiquetas do quadro atual.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                        Nova etiqueta
+                      </div>
+                      <div className="mt-1 text-sm text-white/55">
+                        Nome curto, cor clara e tudo alinhado mesmo em telas menores.
+                      </div>
+                    </div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/50">
+                      <Tags className="h-3.5 w-3.5" />
+                      {(board?.labels || []).length} etiquetas
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_84px_auto]">
+                    <Input
+                      value={newLabelName}
+                      onChange={(event) => setNewLabelName(event.target.value)}
+                      placeholder="Nova etiqueta"
+                      className="min-w-0 h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                    />
+                    <Input
+                      type="color"
+                      value={newLabelColor}
+                      onChange={(event) => setNewLabelColor(event.target.value)}
+                      className="h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225] p-2"
+                    />
+                    <Button
+                      type="button"
+                      className="h-11 rounded-2xl md:px-5"
+                      onClick={() => void handleCreateLabel()}
+                      disabled={busy || !newLabelName.trim()}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Criar
+                    </Button>
+                  </div>
+                </div>
+
+                {(board?.labels || []).length ? (
+                  <div className="grid gap-3">
+                    {board?.labels.map((label) => {
+                      const draft = labelDrafts[label.id] || { name: label.name, color: label.color };
+                      const isSaving = labelSavingIds.includes(label.id);
+                      const isDeleting = labelDeletingIds.includes(label.id);
+
+                      return (
+                        <div
+                          key={label.id}
+                          className="group rounded-[1.45rem] border border-white/10 bg-white/[0.03] p-4 transition hover:border-cyan-300/20 hover:bg-white/[0.045]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <span
+                              className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium"
+                              style={{
+                                borderColor: `${draft.color}55`,
+                                backgroundColor: `${draft.color}22`,
+                                color: draft.color,
+                              }}
+                            >
+                              <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: draft.color }}
+                              />
+                              <span className="truncate">{draft.name || "Etiqueta sem nome"}</span>
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteLabel(label)}
+                              disabled={isDeleting}
+                              className={cn(
+                                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-transparent bg-transparent text-white/35 transition",
+                                "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-100",
+                                isDeleting && "cursor-not-allowed opacity-100 text-white/20",
+                              )}
+                              aria-label={`Excluir etiqueta ${label.name}`}
+                              title="Excluir etiqueta"
+                            >
+                              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                            </button>
+                          </div>
+
+                          <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_88px]">
+                            <Input
+                              value={draft.name}
+                              onChange={(event) =>
+                                updateLabelDraft(label, {
+                                  ...draft,
+                                  name: event.target.value,
+                                })
+                              }
+                              onBlur={() => handleLabelDraftBlur(label)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  (event.currentTarget as HTMLInputElement).blur();
+                                }
+                              }}
+                              className="min-w-0 h-10 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                            />
+                            <Input
+                              type="color"
+                              value={draft.color}
+                              onChange={(event) =>
+                                updateLabelDraft(label, {
+                                  ...draft,
+                                  color: event.target.value,
+                                })
+                              }
+                              onBlur={() => handleLabelDraftBlur(label)}
+                              className="h-10 rounded-2xl border-cyan-400/20 bg-[#0a1225] p-2"
+                            />
+                          </div>
+
+                          <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-white/40">
+                            <span>Salvamento automático.</span>
+                            <span className={cn("transition", isSaving ? "text-cyan-100" : "text-white/30")}>
+                              {isSaving ? "Salvando..." : "Salvo automaticamente"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="Sem etiquetas ainda"
+                    description="Crie a primeira etiqueta para começar a classificar seus cards."
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+              <CardHeader>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                  Últimos cards
+                </div>
+                <CardTitle className="text-3xl font-black text-white">Retome rápido</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {recentCards.length ? (
+                  recentCards.map((card) => (
+                    <button
+                      key={card.id}
+                      type="button"
+                      onClick={() => setSelectedCardId(card.id)}
+                      className={cn(
+                        "w-full rounded-[1.4rem] border px-4 py-3 text-left transition",
+                        selectedCardId === card.id
+                          ? "border-cyan-300/50 bg-cyan-400/10"
+                          : "border-white/10 bg-white/[0.03] hover:bg-white/[0.05]",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="break-words text-sm font-medium text-white">
+                            {card.title}
+                          </div>
+                          <div className="mt-1 text-xs text-white/45">
+                            {typeLabel(card.card_type)} · {formatDate(card.updated_at)}
+                          </div>
+                        </div>
+                        <ArrowRight className="h-4 w-4 shrink-0 text-white/35" />
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <EmptyState
+                    title="Sem cards recentes"
+                    description="Quando houver edição recente, ela aparece aqui."
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+              <CardHeader>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
                   Contexto do card
                 </div>
                 <CardTitle className="text-3xl font-black text-white">Resumo rápido</CardTitle>
@@ -5852,190 +6135,6 @@ export default function BobarPage() {
                   <EmptyState
                     title="Nenhum card aberto"
                     description="Selecione um card para ver contexto e ações."
-                  />
-                )}
-              </CardContent>
-            </Card>
-
-            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
-              <CardHeader>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-                  Etiquetas do quadro
-                </div>
-                <CardTitle className="text-3xl font-black text-white">Organização visual</CardTitle>
-                <CardDescription className="text-white/55">
-                  Crie, renomeie e troque a cor das etiquetas do quadro atual.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-                        Nova etiqueta
-                      </div>
-                      <div className="mt-1 text-sm text-white/55">
-                        Nome curto, cor clara e tudo alinhado mesmo em telas menores.
-                      </div>
-                    </div>
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/50">
-                      <Tags className="h-3.5 w-3.5" />
-                      {(board?.labels || []).length} etiquetas
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_84px_auto]">
-                    <Input
-                      value={newLabelName}
-                      onChange={(event) => setNewLabelName(event.target.value)}
-                      placeholder="Nova etiqueta"
-                      className="min-w-0 h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
-                    />
-                    <Input
-                      type="color"
-                      value={newLabelColor}
-                      onChange={(event) => setNewLabelColor(event.target.value)}
-                      className="h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225] p-2"
-                    />
-                    <Button
-                      type="button"
-                      className="h-11 rounded-2xl md:px-5"
-                      onClick={() => void handleCreateLabel()}
-                      disabled={busy || !newLabelName.trim()}
-                    >
-                      <Plus className="h-4 w-4" />
-                      Criar
-                    </Button>
-                  </div>
-                </div>
-
-                {(board?.labels || []).length ? (
-                  <div className="grid gap-3">
-                    {board?.labels.map((label) => {
-                      const draft = labelDrafts[label.id] || { name: label.name, color: label.color };
-                      return (
-                        <div
-                          key={label.id}
-                          className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4"
-                        >
-                          <div className="flex flex-wrap items-center gap-3">
-                            <span
-                              className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium"
-                              style={{
-                                borderColor: `${draft.color}55`,
-                                backgroundColor: `${draft.color}22`,
-                                color: draft.color,
-                              }}
-                            >
-                              <span
-                                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: draft.color }}
-                              />
-                              <span className="truncate">{draft.name || "Etiqueta sem nome"}</span>
-                            </span>
-
-                            <div className="text-xs text-white/40">
-                              Renomeie, troque a cor ou remova.
-                            </div>
-                          </div>
-
-                          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_92px]">
-                            <Input
-                              value={draft.name}
-                              onChange={(event) =>
-                                setLabelDrafts((current) => ({
-                                  ...current,
-                                  [label.id]: { ...(current[label.id] || draft), name: event.target.value },
-                                }))
-                              }
-                              className="min-w-0 h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
-                            />
-                            <Input
-                              type="color"
-                              value={draft.color}
-                              onChange={(event) =>
-                                setLabelDrafts((current) => ({
-                                  ...current,
-                                  [label.id]: { ...(current[label.id] || draft), color: event.target.value },
-                                }))
-                              }
-                              className="h-11 rounded-2xl border-cyan-400/20 bg-[#0a1225] p-2"
-                            />
-                          </div>
-
-                          <div className="mt-3 flex flex-wrap gap-3">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-11 min-w-[150px] flex-1 rounded-2xl"
-                              onClick={() => void handleSaveLabel(label.id)}
-                              disabled={busy || !draft.name.trim()}
-                            >
-                              <Save className="h-4 w-4" />
-                              Salvar
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-11 min-w-[150px] flex-1 rounded-2xl text-red-200 hover:text-red-100"
-                              onClick={() => void handleDeleteLabel(label)}
-                              disabled={busy}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Excluir
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="Sem etiquetas ainda"
-                    description="Crie a primeira etiqueta para começar a classificar seus cards."
-                  />
-                )}
-              </CardContent>
-            </Card>
-
-            <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
-              <CardHeader>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-                  Últimos cards
-                </div>
-                <CardTitle className="text-3xl font-black text-white">Retome rápido</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {recentCards.length ? (
-                  recentCards.map((card) => (
-                    <button
-                      key={card.id}
-                      type="button"
-                      onClick={() => setSelectedCardId(card.id)}
-                      className={cn(
-                        "w-full rounded-[1.4rem] border px-4 py-3 text-left transition",
-                        selectedCardId === card.id
-                          ? "border-cyan-300/50 bg-cyan-400/10"
-                          : "border-white/10 bg-white/[0.03] hover:bg-white/[0.05]",
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="break-words text-sm font-medium text-white">
-                            {card.title}
-                          </div>
-                          <div className="mt-1 text-xs text-white/45">
-                            {typeLabel(card.card_type)} · {formatDate(card.updated_at)}
-                          </div>
-                        </div>
-                        <ArrowRight className="h-4 w-4 shrink-0 text-white/35" />
-                      </div>
-                    </button>
-                  ))
-                ) : (
-                  <EmptyState
-                    title="Sem cards recentes"
-                    description="Quando houver edição recente, ela aparece aqui."
                   />
                 )}
               </CardContent>
