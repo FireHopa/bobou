@@ -333,6 +333,9 @@ class BobarBoardInvite(SQLModel, table=True):
     board_id: int = Field(foreign_key="bobar_board.id", index=True)
     created_by_user_id: int = Field(foreign_key="user.id", index=True)
     token: str = Field(index=True, unique=True)
+    role: str = Field(default="editor", index=True)
+    max_uses: Optional[int] = Field(default=None, index=True)
+    uses_count: int = Field(default=0, index=True)
     is_active: bool = Field(default=True, index=True)
 
     created_at: datetime = Field(default_factory=utcnow, index=True)

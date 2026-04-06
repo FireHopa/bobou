@@ -95,6 +95,16 @@ def _ensure_sqlite_columns() -> None:
     )
 
 
+    _ensure_sqlite_table_columns(
+        "bobar_board_invite",
+        {
+            "role": "TEXT",
+            "max_uses": "INTEGER",
+            "uses_count": "INTEGER DEFAULT 0",
+        },
+    )
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_sqlite_columns()

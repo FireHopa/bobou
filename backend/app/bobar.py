@@ -125,6 +125,11 @@ class BobarBoardSummaryOut(BaseModel):
     position: int
     total_cards: int
     updated_at: str
+    is_owner: bool = False
+    owner_name: Optional[str] = None
+    owner_email: Optional[str] = None
+    access_role: str = "owner"
+    can_edit: bool = True
 
 
 class BobarBoardListOut(BaseModel):
@@ -196,7 +201,12 @@ class BobarBoardMemberOut(BaseModel):
 
 
 class BobarBoardInviteOut(BaseModel):
+    id: int
     token: str
+    role: str
+    max_uses: Optional[int] = None
+    uses_count: int = 0
+    remaining_uses: Optional[int] = None
     is_active: bool
     created_at: str
     revoked_at: Optional[str] = None
@@ -226,8 +236,11 @@ class BobarBoardChatMessageOut(BaseModel):
 class BobarBoardCollaborationOut(BaseModel):
     board_id: int
     can_manage_access: bool = False
+    can_edit: bool = False
+    current_user_role: str = "viewer"
     members: list[BobarBoardMemberOut] = Field(default_factory=list)
     invite: Optional[BobarBoardInviteOut] = None
+    invites: list[BobarBoardInviteOut] = Field(default_factory=list)
     activities: list[BobarBoardActivityOut] = Field(default_factory=list)
     chat_messages: list[BobarBoardChatMessageOut] = Field(default_factory=list)
 
@@ -238,6 +251,10 @@ class BobarBoardSharePreviewOut(BaseModel):
     board_title: str
     owner_name: Optional[str] = None
     owner_email: str
+    role: str = "editor"
+    max_uses: Optional[int] = None
+    uses_count: int = 0
+    remaining_uses: Optional[int] = None
     already_has_access: bool = False
     can_accept: bool = False
     is_active: bool = False
@@ -246,6 +263,12 @@ class BobarBoardSharePreviewOut(BaseModel):
 
 class BobarBoardShareAcceptOut(BaseModel):
     board_id: int
+    role: str = "viewer"
+
+
+class BobarBoardCreateShareLinkIn(BaseModel):
+    role: str = Field(default="editor", max_length=20)
+    max_uses: Optional[int] = Field(default=None, ge=1, le=9999)
 
 
 class BobarBoardChatMessageIn(BaseModel):
@@ -835,9 +858,60 @@ def _get_board_membership(
     ).first()
 
 
+def _normalize_board_role(value: Optional[str]) -> str:
+    role = _clean_text(value).lower()
+    return role if role in {"editor", "viewer"} else "editor"
+
+
+def _invite_remaining_uses(invite: BobarBoardInvite) -> Optional[int]:
+    if invite.max_uses is None:
+        return None
+    return max(0, int(invite.max_uses or 0) - int(invite.uses_count or 0))
+
+
+def _invite_is_usable(invite: BobarBoardInvite) -> bool:
+    return bool(invite.is_active and (_invite_remaining_uses(invite) is None or _invite_remaining_uses(invite) > 0))
+
+
+def _board_role_for_user(session: Session, board: BobarBoard, current_user: User) -> str:
+    if board.user_id == current_user.id:
+        return "owner"
+
+    membership = _get_board_membership(session, board.id or 0, current_user.id)
+    if not membership:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a este quadro.")
+
+    return _normalize_board_role(membership.role)
+
+
+def _board_can_edit(session: Session, board: BobarBoard, current_user: User) -> bool:
+    return _board_role_for_user(session, board, current_user) in {"owner", "editor"}
+
+
 def _require_board_owner(board: BobarBoard, current_user: User) -> None:
     if board.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Somente o dono do quadro pode gerenciar este acesso.")
+
+
+def _require_board_editor(session: Session, board: BobarBoard, current_user: User) -> str:
+    role = _board_role_for_user(session, board, current_user)
+    if role not in {"owner", "editor"}:
+        raise HTTPException(status_code=403, detail="Esse quadro está em modo visualização para você.")
+    return role
+
+
+def _board_invite_out(invite: BobarBoardInvite) -> BobarBoardInviteOut:
+    return BobarBoardInviteOut(
+        id=invite.id or 0,
+        token=invite.token,
+        role=_normalize_board_role(invite.role),
+        max_uses=invite.max_uses,
+        uses_count=invite.uses_count or 0,
+        remaining_uses=_invite_remaining_uses(invite),
+        is_active=invite.is_active,
+        created_at=invite.created_at.isoformat(),
+        revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
+    )
 
 
 def _list_accessible_boards(session: Session, current_user: User) -> list[BobarBoard]:
@@ -926,12 +1000,24 @@ def _get_accessible_attachment_or_404(
     return attachment
 
 
-def _get_active_board_invite(session: Session, board_id: int) -> BobarBoardInvite | None:
+def _list_board_invites(session: Session, board_id: int) -> list[BobarBoardInvite]:
     return session.exec(
         select(BobarBoardInvite)
-        .where(BobarBoardInvite.board_id == board_id, BobarBoardInvite.is_active == True)
-        .order_by(BobarBoardInvite.created_at.desc(), BobarBoardInvite.id.desc())
-    ).first()
+        .where(BobarBoardInvite.board_id == board_id)
+        .order_by(BobarBoardInvite.is_active.desc(), BobarBoardInvite.created_at.desc(), BobarBoardInvite.id.desc())
+    ).all()
+
+
+def _get_active_board_invite(session: Session, board_id: int) -> BobarBoardInvite | None:
+    invites = _list_board_invites(session, board_id)
+    return next((invite for invite in invites if _invite_is_usable(invite)), None)
+
+
+def _get_board_invite_or_404(session: Session, board_id: int, invite_id: int) -> BobarBoardInvite:
+    invite = session.get(BobarBoardInvite, invite_id)
+    if not invite or invite.board_id != board_id:
+        raise HTTPException(status_code=404, detail="Link de compartilhamento não encontrado.")
+    return invite
 
 
 def _record_board_activity(
@@ -968,6 +1054,7 @@ def _build_collaboration_payload(
     chat_limit: int = 80,
 ) -> BobarBoardCollaborationOut:
     owner = _get_board_owner_user(session, board)
+    current_user_role = _board_role_for_user(session, board, current_user)
 
     memberships = session.exec(
         select(BobarBoardMember)
@@ -1005,21 +1092,19 @@ def _build_collaboration_payload(
                 user_id=user.id or 0,
                 email=user.email,
                 full_name=user.full_name,
-                role=membership.role or "editor",
+                role=_normalize_board_role(membership.role),
                 is_owner=False,
                 joined_at=(membership.accepted_at or membership.created_at).isoformat(),
             )
         )
 
-    invite = _get_active_board_invite(session, board.id or 0)
+    invites_rows = _list_board_invites(session, board.id or 0)
     invite_out = None
-    if current_user.id == board.user_id and invite:
-        invite_out = BobarBoardInviteOut(
-            token=invite.token,
-            is_active=invite.is_active,
-            created_at=invite.created_at.isoformat(),
-            revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
-        )
+    invites_out: list[BobarBoardInviteOut] = []
+    if current_user.id == board.user_id:
+        usable_invites = [invite for invite in invites_rows if _invite_is_usable(invite)]
+        invites_out = [_board_invite_out(invite) for invite in usable_invites]
+        invite_out = invites_out[0] if invites_out else None
 
     activities_rows = session.exec(
         select(BobarBoardActivity)
@@ -1073,12 +1158,14 @@ def _build_collaboration_payload(
     return BobarBoardCollaborationOut(
         board_id=board.id or 0,
         can_manage_access=current_user.id == board.user_id,
+        can_edit=current_user_role in {"owner", "editor"},
+        current_user_role=current_user_role,
         members=members,
         invite=invite_out,
+        invites=invites_out,
         activities=activities,
         chat_messages=chat_messages,
     )
-
 
 def _build_accessible_board_list(session: Session, current_user: User) -> BobarBoardListOut:
     boards = _list_accessible_boards(session, current_user)
@@ -1094,20 +1181,48 @@ def _build_accessible_board_list(session: Session, current_user: User) -> BobarB
                 continue
             totals[board_id] = totals.get(board_id, 0) + 1
 
+    owners_by_id: dict[int, User] = {}
+    owner_ids = {board.user_id for board in boards}
+    if owner_ids:
+        for owner in session.exec(select(User).where(User.id.in_(owner_ids))).all():
+            owners_by_id[owner.id or 0] = owner
+
     return BobarBoardListOut(
-        boards=[_board_summary_out(board, totals.get(board.id or 0, 0)) for board in boards]
+        boards=[
+            _board_summary_out(
+                session,
+                board,
+                totals.get(board.id or 0, 0),
+                current_user=current_user,
+                owner=owners_by_id.get(board.user_id),
+            )
+            for board in boards
+        ]
     )
 
 
-def _board_summary_out(board: BobarBoard, total_cards: int) -> BobarBoardSummaryOut:
+def _board_summary_out(
+    session: Session,
+    board: BobarBoard,
+    total_cards: int,
+    *,
+    current_user: User,
+    owner: User | None = None,
+) -> BobarBoardSummaryOut:
+    owner_user = owner or _get_board_owner_user(session, board)
+    role = _board_role_for_user(session, board, current_user)
     return BobarBoardSummaryOut(
         id=board.id or 0,
         title=board.title,
         position=board.position,
         total_cards=total_cards,
         updated_at=board.updated_at.isoformat(),
+        is_owner=board.user_id == current_user.id,
+        owner_name=owner_user.full_name,
+        owner_email=owner_user.email,
+        access_role=role,
+        can_edit=role in {"owner", "editor"},
     )
-
 
 def _list_boards(session: Session, current_user: User) -> list[BobarBoard]:
     boards = session.exec(
@@ -1453,7 +1568,16 @@ def _build_board_list(session: Session, current_user: User) -> BobarBoardListOut
         totals[board_id] = totals.get(board_id, 0) + 1
 
     return BobarBoardListOut(
-        boards=[_board_summary_out(board, totals.get(board.id or 0, 0)) for board in boards]
+        boards=[
+            _board_summary_out(
+                session,
+                board,
+                totals.get(board.id or 0, 0),
+                current_user=current_user,
+                owner=current_user,
+            )
+            for board in boards
+        ]
     )
 
 
@@ -1822,6 +1946,7 @@ def bobar_create_label(
     current_user: User = Depends(get_current_user),
 ):
     board = _get_accessible_board_or_default(session, current_user, board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
 
     labels = session.exec(
@@ -1869,6 +1994,7 @@ def bobar_update_label(
 ):
     label = _get_accessible_label_or_404(session, current_user, label_id)
     board = _get_accessible_board_or_default(session, current_user, label.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
 
     previous_name = label.name
@@ -1909,6 +2035,7 @@ def bobar_delete_label(
 ):
     label = _get_accessible_label_or_404(session, current_user, label_id)
     board = _get_accessible_board_or_default(session, current_user, label.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
     removed_label_id = label.id or 0
     removed_label_name = label.name
@@ -1950,6 +2077,7 @@ def bobar_create_column(
     current_user: User = Depends(get_current_user),
 ):
     board = _get_accessible_board_or_default(session, current_user, board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
     columns = _ensure_default_columns(session, owner_user, board)
     name = _clean_text(payload.name)
@@ -1990,6 +2118,7 @@ def bobar_update_column(
 ):
     column = _get_accessible_column_or_404(session, current_user, column_id)
     board = _get_accessible_board_or_default(session, current_user, column.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
 
     previous_name = column.name
@@ -2025,6 +2154,7 @@ def bobar_delete_column(
 ):
     target = _get_accessible_column_or_404(session, current_user, column_id)
     board = _get_accessible_board_or_default(session, current_user, target.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
     columns = _ensure_default_columns(session, owner_user, board)
 
@@ -2087,6 +2217,7 @@ def bobar_create_card(
     current_user: User = Depends(get_current_user),
 ):
     board = _get_accessible_board_or_default(session, current_user, board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
     columns = _ensure_default_columns(session, owner_user, board)
     column = _get_accessible_column_or_404(session, current_user, payload.column_id) if payload.column_id else columns[0]
@@ -2159,6 +2290,7 @@ def bobar_update_card(
 ):
     card = _get_accessible_card_or_404(session, current_user, card_id)
     board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
     old_column_id = card.column_id
     previous_title = card.title
@@ -2245,6 +2377,7 @@ async def bobar_upload_attachment(
 ):
     card = _get_accessible_card_or_404(session, current_user, card_id)
     board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
 
     filename = _safe_filename(file.filename)
@@ -2298,6 +2431,7 @@ def bobar_delete_attachment(
     attachment = _get_accessible_attachment_or_404(session, current_user, attachment_id)
     card = _get_accessible_card_or_404(session, current_user, attachment.card_id)
     board = _get_accessible_board_or_default(session, current_user, attachment.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
 
     attachment_name = attachment.filename
@@ -2343,6 +2477,7 @@ def bobar_cleanup_import_duplicates(
     if not _is_authority_import_source_kind(import_card.source_kind):
         raise HTTPException(status_code=400, detail="Esse card não é um roteiro importado.")
     board = _get_accessible_board_or_default(session, current_user, import_card.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
     result = _cleanup_duplicate_workspace_for_import(session, owner_user, import_card, board)
     _record_board_activity(
@@ -2367,6 +2502,7 @@ def bobar_move_card(
 ):
     card = _get_accessible_card_or_404(session, current_user, card_id)
     board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
     target_column = _get_accessible_column_or_404(session, current_user, payload.column_id)
     if (target_column.board_id or 0) != (board.id or 0):
@@ -2439,6 +2575,7 @@ def bobar_transform_to_flowchart(
 ):
     card = _get_accessible_card_or_404(session, current_user, card_id)
     board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
 
     card.card_type = "fluxograma"
@@ -2468,6 +2605,7 @@ def bobar_delete_card(
 ):
     card = _get_accessible_card_or_404(session, current_user, card_id)
     board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    _require_board_editor(session, board, current_user)
     owner_user = _get_board_owner_user(session, board)
 
     column_id = card.column_id
@@ -2511,62 +2649,62 @@ def bobar_board_collaboration(
 @router.post("/boards/{board_id}/share-link", response_model=BobarBoardInviteOut)
 def bobar_create_share_link(
     board_id: int,
+    payload: BobarBoardCreateShareLinkIn,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     board = _get_board_or_default(session, current_user, board_id)
     _require_board_owner(board, current_user)
 
-    invite = _get_active_board_invite(session, board.id or 0)
-    if invite:
-        return BobarBoardInviteOut(
-            token=invite.token,
-            is_active=invite.is_active,
-            created_at=invite.created_at.isoformat(),
-            revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
-        )
-
+    role = _normalize_board_role(payload.role)
     invite = BobarBoardInvite(
         board_id=board.id or 0,
         created_by_user_id=current_user.id,
         token=secrets.token_urlsafe(24),
+        role=role,
+        max_uses=payload.max_uses,
+        uses_count=0,
         is_active=True,
         created_at=utcnow(),
         revoked_at=None,
     )
     _touch_board(board)
     session.add(invite)
+    session.flush()
     session.add(board)
     _record_board_activity(
         session,
         board,
         actor=current_user,
         event_type="share_link_created",
-        message=f"{_display_user_name(current_user)} gerou um novo link de acesso.",
-        entity_type="board",
-        entity_id=board.id or 0,
+        message=(
+            f"{_display_user_name(current_user)} gerou um novo link de acesso "
+            f"({role}, {'uso ilimitado' if payload.max_uses is None else f'{payload.max_uses} uso(s)'})."
+        ),
+        entity_type="invite",
+        entity_id=invite.id or 0,
+        metadata={
+            "role": role,
+            "max_uses": payload.max_uses,
+        },
     )
     session.commit()
-    return BobarBoardInviteOut(
-        token=invite.token,
-        is_active=invite.is_active,
-        created_at=invite.created_at.isoformat(),
-        revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
-    )
+    return _board_invite_out(invite)
 
 
-@router.post("/boards/{board_id}/share-link/revoke", response_model=BobarBoardInviteOut)
+@router.post("/boards/{board_id}/share-links/{invite_id}/revoke", response_model=BobarBoardInviteOut)
 def bobar_revoke_share_link(
     board_id: int,
+    invite_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     board = _get_board_or_default(session, current_user, board_id)
     _require_board_owner(board, current_user)
 
-    invite = _get_active_board_invite(session, board.id or 0)
-    if not invite:
-        raise HTTPException(status_code=404, detail="Não existe link ativo para esse quadro.")
+    invite = _get_board_invite_or_404(session, board.id or 0, invite_id)
+    if not invite.is_active:
+        return _board_invite_out(invite)
 
     invite.is_active = False
     invite.revoked_at = utcnow()
@@ -2578,17 +2716,17 @@ def bobar_revoke_share_link(
         board,
         actor=current_user,
         event_type="share_link_revoked",
-        message=f"{_display_user_name(current_user)} revogou o link de acesso do quadro.",
-        entity_type="board",
-        entity_id=board.id or 0,
+        message=f"{_display_user_name(current_user)} revogou um link de acesso ({_normalize_board_role(invite.role)}).",
+        entity_type="invite",
+        entity_id=invite.id or 0,
+        metadata={
+            "role": _normalize_board_role(invite.role),
+            "max_uses": invite.max_uses,
+            "uses_count": invite.uses_count,
+        },
     )
     session.commit()
-    return BobarBoardInviteOut(
-        token=invite.token,
-        is_active=invite.is_active,
-        created_at=invite.created_at.isoformat(),
-        revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
-    )
+    return _board_invite_out(invite)
 
 
 @router.get("/share/{token}", response_model=BobarBoardSharePreviewOut)
@@ -2600,7 +2738,7 @@ def bobar_share_preview(
     invite = session.exec(
         select(BobarBoardInvite).where(BobarBoardInvite.token == token)
     ).first()
-    if not invite:
+    if not invite or not _invite_is_usable(invite):
         raise HTTPException(status_code=404, detail="Link de compartilhamento não encontrado.")
 
     board = session.get(BobarBoard, invite.board_id)
@@ -2621,8 +2759,12 @@ def bobar_share_preview(
         board_title=board.title,
         owner_name=owner.full_name,
         owner_email=owner.email,
+        role=_normalize_board_role(invite.role),
+        max_uses=invite.max_uses,
+        uses_count=invite.uses_count or 0,
+        remaining_uses=_invite_remaining_uses(invite),
         already_has_access=already_has_access,
-        can_accept=invite.is_active and not already_has_access,
+        can_accept=_invite_is_usable(invite) and not already_has_access,
         is_active=invite.is_active,
         total_members=members_count,
     )
@@ -2637,42 +2779,72 @@ def bobar_accept_share(
     invite = session.exec(
         select(BobarBoardInvite).where(BobarBoardInvite.token == token)
     ).first()
-    if not invite or not invite.is_active:
+    if not invite or not _invite_is_usable(invite):
         raise HTTPException(status_code=404, detail="Esse link de compartilhamento não está mais disponível.")
 
     board = session.get(BobarBoard, invite.board_id)
     if not board:
         raise HTTPException(status_code=404, detail="Quadro compartilhado não encontrado.")
 
+    invite_role = _normalize_board_role(invite.role)
+
     if board.user_id == current_user.id:
-        return BobarBoardShareAcceptOut(board_id=board.id or 0)
+        return BobarBoardShareAcceptOut(board_id=board.id or 0, role="owner")
 
     membership = _get_board_membership(session, board.id or 0, current_user.id)
     if membership:
-        return BobarBoardShareAcceptOut(board_id=board.id or 0)
+        return BobarBoardShareAcceptOut(
+            board_id=board.id or 0,
+            role=_normalize_board_role(membership.role),
+        )
 
     membership = BobarBoardMember(
         board_id=board.id or 0,
         user_id=current_user.id,
-        role="editor",
+        role=invite_role,
         created_at=utcnow(),
         updated_at=utcnow(),
         accepted_at=utcnow(),
     )
+    invite.uses_count = int(invite.uses_count or 0) + 1
+    if invite.max_uses is not None and invite.uses_count >= invite.max_uses:
+        invite.is_active = False
+        invite.revoked_at = invite.revoked_at or utcnow()
+
     _touch_board(board)
     session.add(membership)
+    session.add(invite)
     session.add(board)
+    session.flush()
     _record_board_activity(
         session,
         board,
         actor=current_user,
         event_type="member_joined",
-        message=f"{_display_user_name(current_user)} entrou no quadro compartilhado.",
+        message=f"{_display_user_name(current_user)} entrou no quadro compartilhado como {invite_role}.",
         entity_type="member",
         entity_id=current_user.id,
+        metadata={
+            "invite_id": invite.id,
+            "role": invite_role,
+        },
     )
+    if invite.max_uses is not None and invite.uses_count >= invite.max_uses:
+        _record_board_activity(
+            session,
+            board,
+            actor=current_user,
+            event_type="share_link_exhausted",
+            message=f"O link {invite.id or 0} atingiu o limite de uso e foi encerrado automaticamente.",
+            entity_type="invite",
+            entity_id=invite.id or 0,
+            metadata={
+                "max_uses": invite.max_uses,
+                "uses_count": invite.uses_count,
+            },
+        )
     session.commit()
-    return BobarBoardShareAcceptOut(board_id=board.id or 0)
+    return BobarBoardShareAcceptOut(board_id=board.id or 0, role=invite_role)
 
 
 @router.delete("/boards/{board_id}/members/{member_user_id}", response_model=BobarBoardCollaborationOut)
@@ -2717,6 +2889,7 @@ def bobar_send_chat_message(
     current_user: User = Depends(get_current_user),
 ):
     board = _get_accessible_board_or_default(session, current_user, board_id)
+    _require_board_editor(session, board, current_user)
     message_text = _clean_text(payload.message)
     if not message_text:
         raise HTTPException(status_code=400, detail="A mensagem não pode ficar vazia.")
