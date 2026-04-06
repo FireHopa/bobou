@@ -153,8 +153,40 @@ type DeleteDialogState =
   | { type: "column"; column: BobarColumn }
   | { type: "card"; card: BobarCard };
 
-type BobarViewMode = "board" | "imports";
+type BobarViewMode = "board" | "imports" | "shared";
 type ImportProgressStatus = "todo" | "in_progress" | "done";
+type BobarShareRole = "editor" | "viewer";
+
+const BOARD_ROLE_LABEL: Record<BobarShareRole | "owner", string> = {
+  owner: "Dono",
+  editor: "Editor",
+  viewer: "Visualizador",
+};
+
+const BOARD_ACTIVITY_LABELS: Record<string, string> = {
+  board_created: "Quadro criado",
+  board_renamed: "Quadro renomeado",
+  label_created: "Etiqueta criada",
+  label_updated: "Etiqueta atualizada",
+  label_deleted: "Etiqueta removida",
+  column_created: "Coluna criada",
+  column_updated: "Coluna renomeada",
+  column_deleted: "Coluna removida",
+  card_created: "Card criado",
+  card_updated: "Card atualizado",
+  card_deleted: "Card removido",
+  card_moved: "Card movido",
+  card_flowchart: "Fluxograma criado",
+  attachment_created: "Anexo enviado",
+  attachment_deleted: "Anexo removido",
+  workspace_cleanup: "Duplicados limpos",
+  share_link_created: "Link criado",
+  share_link_revoked: "Link revogado",
+  share_link_exhausted: "Link esgotado",
+  member_joined: "Acesso confirmado",
+  member_removed: "Acesso removido",
+  chat_message: "Mensagem no chat",
+};
 
 const CARD_TYPE_OPTIONS: Array<{ value: BobarCardType; label: string }> = [
   { value: "manual", label: "Manual" },
@@ -857,6 +889,28 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function formatBoardRoleLabel(role?: string | null) {
+  const normalized = String(role || "").toLowerCase() as BobarShareRole | "owner";
+  return BOARD_ROLE_LABEL[normalized] || "Editor";
+}
+
+function formatActivityLabel(eventType?: string | null) {
+  const key = String(eventType || "").trim();
+  return BOARD_ACTIVITY_LABELS[key] || key.replace(/_/g, " ").trim() || "Ação";
+}
+
+function formatInviteUsage(invite: {
+  max_uses?: number | null;
+  uses_count?: number | null;
+  remaining_uses?: number | null;
+}) {
+  if (invite.max_uses == null) {
+    return "Uso ilimitado";
+  }
+
+  return `${invite.uses_count || 0}/${invite.max_uses} uso(s) · ${invite.remaining_uses || 0} restante(s)`;
+}
+
 function toDatetimeLocalValue(value?: string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -1234,12 +1288,14 @@ function DueDatePickerField({
   onClear,
   invalid,
   overdue,
+  disabled,
 }: {
   value: string;
   onChange: (nextValue: string) => void;
   onClear: () => void;
   invalid?: boolean;
   overdue?: boolean;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
@@ -1290,7 +1346,7 @@ function DueDatePickerField({
   }, []);
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!open || disabled) return;
     updatePanelPosition();
 
     const handlePointerDown = (event: MouseEvent) => {
@@ -1387,7 +1443,11 @@ function DueDatePickerField({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <button
             type="button"
-            onClick={() => setOpen((current) => !current)}
+            onClick={() => {
+              if (disabled) return;
+              setOpen((current) => !current);
+            }}
+            disabled={disabled}
             className={cn(
               "group flex min-w-0 flex-1 items-center gap-3 rounded-[1.3rem] border px-4 py-3 text-left transition",
               invalid
@@ -1425,6 +1485,7 @@ function DueDatePickerField({
               <button
                 type="button"
                 onClick={clearTime}
+                disabled={disabled}
                 className={cn(
                   "inline-flex h-11 items-center justify-center rounded-2xl border px-3 text-xs font-semibold uppercase tracking-[0.16em] transition",
                   selectedTime
@@ -1443,7 +1504,7 @@ function DueDatePickerField({
                 onClear();
                 setOpen(false);
               }}
-              disabled={!value}
+              disabled={disabled || !value}
               className="h-11 rounded-2xl border-white/12 bg-white/[0.03] px-4"
             >
               <X className="h-4 w-4" />
@@ -1874,7 +1935,7 @@ function SelectField({
                 style={menuStyle}
                 className="overflow-hidden rounded-[1.4rem] border border-cyan-400/20 bg-[#07101f] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
               >
-                <div className="overflow-y-auto pr-1" style={{ maxHeight: menuStyle.maxHeight }}>
+                <div className="custom-scrollbar scrollbar-gutter-stable overflow-y-auto pr-1" style={{ maxHeight: menuStyle.maxHeight }}>
                   {options.map((option) => {
                     const activeOption = option.value === value;
                     return (
@@ -2019,6 +2080,7 @@ function ColumnLane({
   onEndDragCard,
   onDragColumn,
   onDropColumn,
+  canEdit = true,
 }: {
   column: BobarColumn;
   selectedCardId: number | null;
@@ -2033,9 +2095,10 @@ function ColumnLane({
   onEndDragCard: () => void;
   onDragColumn: (columnId: number) => void;
   onDropColumn: (columnId: number) => void;
+  canEdit?: boolean;
 }) {
   const isDropActive =
-    dragState && dragOverColumnId === column.id && dragState.fromColumnId !== column.id;
+    canEdit && dragState && dragOverColumnId === column.id && dragState.fromColumnId !== column.id;
   const selectedCount = column.cards.filter((card) => card.id === selectedCardId).length;
 
   return (
@@ -2048,18 +2111,18 @@ function ColumnLane({
           : "border-cyan-400/12",
       )}
       onDragOver={(event) => {
-        if (!dragState) return;
+        if (!canEdit || !dragState) return;
         event.preventDefault();
         onDragColumn(column.id);
       }}
       onDragLeave={(event) => {
-        if (!dragState) return;
+        if (!canEdit || !dragState) return;
         const related = event.relatedTarget as Node | null;
         if (related && event.currentTarget.contains(related)) return;
         onDragColumn(-1);
       }}
       onDrop={(event) => {
-        if (!dragState) return;
+        if (!canEdit || !dragState) return;
         event.preventDefault();
         onDropColumn(column.id);
       }}
@@ -2094,6 +2157,7 @@ function ColumnLane({
               size="icon"
               className="h-10 w-10 rounded-2xl"
               onClick={() => onRenameColumn(column)}
+              disabled={!canEdit}
               aria-label={`Renomear coluna ${column.name}`}
             >
               <Pencil className="h-4 w-4" />
@@ -2103,6 +2167,7 @@ function ColumnLane({
               size="icon"
               className="h-10 w-10 rounded-2xl"
               onClick={() => onDeleteColumn(column)}
+              disabled={!canEdit}
               aria-label={`Excluir coluna ${column.name}`}
             >
               <Trash2 className="h-4 w-4" />
@@ -2116,6 +2181,7 @@ function ColumnLane({
           className="h-10 w-full rounded-2xl"
           variant="outline"
           onClick={() => onCreateCard(column.id)}
+          disabled={!canEdit}
         >
           <Plus className="h-4 w-4" />
           Novo card nesta coluna
@@ -2142,8 +2208,11 @@ function ColumnLane({
                 <button
                   key={card.id}
                   type="button"
-                  draggable
-                  onDragStart={(event) => onStartDragCard(card, event)}
+                  draggable={canEdit}
+                  onDragStart={(event) => {
+                    if (!canEdit) return;
+                    onStartDragCard(card, event);
+                  }}
                   onDragEnd={onEndDragCard}
                   onClick={() => onSelectCard(card.id)}
                   className={cn(
@@ -2712,6 +2781,7 @@ function ChecklistEditor({
   onAddItem,
   onRemoveItem,
   onClearCompleted,
+  disabled = false,
 }: {
   items: ChecklistItem[];
   summary: { total: number; checked: number; pending: number };
@@ -2720,6 +2790,7 @@ function ChecklistEditor({
   onAddItem: () => void;
   onRemoveItem: (itemId: string) => void;
   onClearCompleted: () => void;
+  disabled?: boolean;
 }) {
   const progress = summary.total ? Math.round((summary.checked / summary.total) * 100) : 0;
 
@@ -2784,6 +2855,7 @@ function ChecklistEditor({
             <button
               type="button"
               onClick={() => onToggleItem(item.id)}
+              disabled={disabled}
               className={cn(
                 "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border transition",
                 item.checked
@@ -2798,6 +2870,7 @@ function ChecklistEditor({
             <Input
               value={item.text}
               onChange={(event) => onChangeItemText(item.id, event.target.value)}
+              readOnly={disabled}
               placeholder={`Item ${index + 1}`}
               className={cn(
                 "h-12 border-white/10 bg-[#0a1225]",
@@ -2811,6 +2884,7 @@ function ChecklistEditor({
               size="icon"
               className="h-11 w-11 shrink-0 rounded-2xl"
               onClick={() => onRemoveItem(item.id)}
+              disabled={disabled}
               aria-label={`Remover item ${index + 1}`}
             >
               <Trash2 className="h-4 w-4" />
@@ -2820,7 +2894,7 @@ function ChecklistEditor({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" className="h-11 rounded-2xl" onClick={onAddItem}>
+        <Button type="button" className="h-11 rounded-2xl" onClick={onAddItem} disabled={disabled}>
           <Plus className="h-4 w-4" />
           Adicionar item
         </Button>
@@ -2830,7 +2904,7 @@ function ChecklistEditor({
           variant="outline"
           className="h-11 rounded-2xl"
           onClick={onClearCompleted}
-          disabled={!summary.checked}
+          disabled={disabled || !summary.checked}
         >
           <Trash2 className="h-4 w-4" />
           Limpar concluídos
@@ -2848,6 +2922,7 @@ function AttachmentPreviewTile({
   onOpenPreview,
   onDownload,
   onDelete,
+  canDelete = true,
 }: {
   attachment: BobarAttachment;
   busy: boolean;
@@ -2857,6 +2932,7 @@ function AttachmentPreviewTile({
   onOpenPreview: (attachment: BobarAttachment) => void | Promise<void>;
   onDownload: (attachment: BobarAttachment) => void | Promise<void>;
   onDelete: (attachment: BobarAttachment) => void | Promise<void>;
+  canDelete?: boolean;
 }) {
   const canPreview = isAttachmentPreviewable(attachment);
   const baseKind = attachmentPreviewKind(attachment);
@@ -3052,10 +3128,10 @@ function AttachmentPreviewTile({
             variant="outline"
             className="h-10 rounded-2xl text-red-200 hover:text-red-100"
             onClick={() => void onDelete(attachment)}
-            disabled={busy}
+            disabled={busy || !canDelete}
           >
             <Trash2 className="h-4 w-4" />
-            Remover
+            {canDelete ? "Remover" : "Somente leitura"}
           </Button>
         </div>
       </div>
@@ -3199,7 +3275,9 @@ export default function BobarPage() {
   const [collaborationLoading, setCollaborationLoading] = React.useState(false);
   const [sharePreview, setSharePreview] = React.useState<BobarBoardSharePreview | null>(null);
   const [shareBusy, setShareBusy] = React.useState(false);
-  const [shareLink, setShareLink] = React.useState<BobarBoardInvite | null>(null);
+  const [shareAccessRole, setShareAccessRole] = React.useState<BobarShareRole>("editor");
+  const [shareMaxUsesDraft, setShareMaxUsesDraft] = React.useState("");
+  const [activityFilter, setActivityFilter] = React.useState("all");
   const [chatMessageDraft, setChatMessageDraft] = React.useState("");
   const [board, setBoard] = React.useState<BobarBoard | null>(null);
   const [boards, setBoards] = React.useState<BobarBoardSummary[]>([]);
@@ -3234,6 +3312,7 @@ export default function BobarPage() {
   const [labelDeletingIds, setLabelDeletingIds] = React.useState<number[]>([]);
   const [attachmentPreview, setAttachmentPreview] = React.useState<AttachmentPreviewState | null>(null);
   const attachmentInputRef = React.useRef<HTMLInputElement | null>(null);
+  const chatMessagesRef = React.useRef<HTMLDivElement | null>(null);
   const attachmentUrlCacheRef = React.useRef<Map<number, string>>(new Map());
   const labelSaveTimersRef = React.useRef<Map<number, number>>(new Map());
   const hydrationLocksRef = React.useRef<Set<number>>(new Set());
@@ -3259,13 +3338,23 @@ export default function BobarPage() {
       inferImportedWorkspaceColumnIds(board, activeImportCard.id),
     ).filter((columnId) => boardColumnIds.has(columnId));
   }, [activeImportCard, board]);
+  const activeBoardSummary = React.useMemo(
+    () => boards.find((boardItem) => boardItem.id === activeBoardId) || null,
+    [activeBoardId, boards],
+  );
   const visibleColumns = React.useMemo(() => {
     if (!board) return [];
-    if (activeView !== "imports" || !activeImportCard) return board.columns;
-    if (!activeWorkspaceColumnIds.length) return [];
-    const workspaceIds = new Set(activeWorkspaceColumnIds);
-    return board.columns.filter((column) => workspaceIds.has(column.id));
-  }, [activeImportCard, activeView, activeWorkspaceColumnIds, board]);
+    if (activeView === "imports") {
+      if (!activeImportCard) return [];
+      if (!activeWorkspaceColumnIds.length) return [];
+      const workspaceIds = new Set(activeWorkspaceColumnIds);
+      return board.columns.filter((column) => workspaceIds.has(column.id));
+    }
+    if (activeView === "shared" && activeBoardSummary?.is_owner) {
+      return [];
+    }
+    return board.columns;
+  }, [activeBoardSummary?.is_owner, activeImportCard, activeView, activeWorkspaceColumnIds, board]);
   const cards = React.useMemo(
     () => visibleColumns.flatMap((column) => column.cards),
     [visibleColumns],
@@ -3312,15 +3401,82 @@ export default function BobarPage() {
       >,
     [board?.labels],
   );
+  const sharedBoards = React.useMemo(
+    () => boards.filter((boardItem) => !boardItem.is_owner),
+    [boards],
+  );
+  const ownedBoards = React.useMemo(
+    () => boards.filter((boardItem) => boardItem.is_owner),
+    [boards],
+  );
+  const canEditBoard = Boolean(
+    collaboration?.can_edit ??
+      activeBoardSummary?.can_edit ??
+      (activeBoardSummary ? activeBoardSummary.access_role !== "viewer" : true),
+  );
+  const hasSharedBoardSelected = Boolean(activeBoardSummary && !activeBoardSummary.is_owner);
+  const hasWorkspaceContext = Boolean(
+    activeView === "board" ||
+      (activeView === "imports" && activeImportCard) ||
+      (activeView === "shared" && hasSharedBoardSelected),
+  );
   const boardOptions = React.useMemo<DropdownOption[]>(
     () =>
       boards.map((currentBoard) => ({
         value: String(currentBoard.id),
         label: currentBoard.title,
-        description: `${currentBoard.total_cards} ${currentBoard.total_cards === 1 ? "card" : "cards"}`,
+        description: `${currentBoard.total_cards} ${currentBoard.total_cards === 1 ? "card" : "cards"} · ${
+          currentBoard.is_owner
+            ? "seu quadro"
+            : `${formatBoardRoleLabel(currentBoard.access_role)} · ${currentBoard.owner_name || currentBoard.owner_email || "compartilhado"}`
+        }`,
       })),
     [boards],
   );
+  const sharedBoardOptions = React.useMemo<DropdownOption[]>(
+    () =>
+      sharedBoards.map((currentBoard) => ({
+        value: String(currentBoard.id),
+        label: currentBoard.title,
+        description: `${currentBoard.total_cards} ${currentBoard.total_cards === 1 ? "card" : "cards"} · ${
+          formatBoardRoleLabel(currentBoard.access_role)
+        } · ${currentBoard.owner_name || currentBoard.owner_email || "compartilhado"}`,
+      })),
+    [sharedBoards],
+  );
+  const contextualBoardOptions = activeView === "shared" ? sharedBoardOptions : boardOptions;
+  const visibleInvites = React.useMemo(
+    () =>
+      (collaboration?.invites || []).filter(
+        (invite) => invite.is_active && !invite.revoked_at && (invite.remaining_uses == null || invite.remaining_uses > 0),
+      ),
+    [collaboration?.invites],
+  );
+  const activityFilterOptions = React.useMemo<DropdownOption[]>(
+    () => [
+      {
+        value: "all",
+        label: "Todas as ações",
+        description: `${collaboration?.activities.length || 0} registros`,
+      },
+      ...Array.from(new Set((collaboration?.activities || []).map((activity) => activity.event_type)))
+        .filter((eventType): eventType is string => Boolean(eventType))
+        .map((eventType) => ({
+          value: eventType,
+          label: formatActivityLabel(eventType),
+          description: eventType,
+        })),
+    ],
+    [collaboration?.activities],
+  );
+  const filteredActivities = React.useMemo(
+    () =>
+      (collaboration?.activities || []).filter((activity) =>
+        activityFilter === "all" ? true : activity.event_type === activityFilter,
+      ),
+    [activityFilter, collaboration?.activities],
+  );
+
   const selectedCardLabels = React.useMemo(
     () => (cardDraft?.label_ids || []).map((labelId) => labelsById[labelId]).filter(Boolean),
     [cardDraft?.label_ids, labelsById],
@@ -3446,23 +3602,31 @@ export default function BobarPage() {
     [],
   );
 
-  const syncBoardSummary = React.useCallback((nextBoard: BobarBoard | null) => {
-    if (!nextBoard) return;
-    setBoards((currentBoards) => {
-      if (!currentBoards.length) return currentBoards;
-      const existing = currentBoards.find((boardItem) => boardItem.id === nextBoard.id);
-      const nextSummary: BobarBoardSummary = {
-        id: nextBoard.id,
-        title: nextBoard.title,
-        position: existing?.position ?? currentBoards.length,
-        total_cards: nextBoard.total_cards,
-        updated_at: new Date().toISOString(),
-      };
-      if (!existing) return [...currentBoards, nextSummary];
-      return currentBoards.map((boardItem) => (boardItem.id === nextBoard.id ? nextSummary : boardItem));
-    });
-    setActiveBoardId(nextBoard.id);
-  }, []);
+  const syncBoardSummary = React.useCallback(
+    (nextBoard: BobarBoard | null) => {
+      if (!nextBoard) return;
+      setBoards((currentBoards) => {
+        if (!currentBoards.length) return currentBoards;
+        const existing = currentBoards.find((boardItem) => boardItem.id === nextBoard.id);
+        const nextSummary: BobarBoardSummary = {
+          id: nextBoard.id,
+          title: nextBoard.title,
+          position: existing?.position ?? currentBoards.length,
+          total_cards: nextBoard.total_cards,
+          updated_at: new Date().toISOString(),
+          is_owner: existing?.is_owner ?? true,
+          owner_name: existing?.owner_name ?? null,
+          owner_email: existing?.owner_email ?? currentUser?.email ?? null,
+          access_role: existing?.access_role ?? "owner",
+          can_edit: existing?.can_edit ?? true,
+        };
+        if (!existing) return [...currentBoards, nextSummary];
+        return currentBoards.map((boardItem) => (boardItem.id === nextBoard.id ? nextSummary : boardItem));
+      });
+      setActiveBoardId(nextBoard.id);
+    },
+    [currentUser?.email],
+  );
 
   const loadBoardsAndBoard = React.useCallback(
     async (preferredBoardId?: number | null, preferredCardId?: number | null) => {
@@ -3501,7 +3665,6 @@ export default function BobarPage() {
         }
         const payload = await bobarService.collaboration(boardId);
         setCollaboration(payload);
-        setShareLink(payload.invite || null);
         return payload;
       } catch (error) {
         if (!options?.silent) {
@@ -3665,7 +3828,6 @@ export default function BobarPage() {
   React.useEffect(() => {
     if (!activeBoardId) {
       setCollaboration(null);
-      setShareLink(null);
       return;
     }
     void loadCollaboration(activeBoardId);
@@ -3727,9 +3889,33 @@ export default function BobarPage() {
   }, [location.pathname, location.search, navigate, shareTokenFromUrl]);
 
   React.useEffect(() => {
+    const nextEvents = new Set((collaboration?.activities || []).map((activity) => activity.event_type));
+    if (activityFilter !== "all" && !nextEvents.has(activityFilter)) {
+      setActivityFilter("all");
+    }
+  }, [activityFilter, collaboration?.activities]);
+
+  React.useEffect(() => {
+    const element = chatMessagesRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+  }, [collaboration?.chat_messages]);
+
+  React.useEffect(() => {
+    if (!canEditBoard && chatMessageDraft) {
+      setChatMessageDraft("");
+    }
+  }, [canEditBoard, chatMessageDraft]);
+
+  React.useEffect(() => {
+    if (activeView === "shared" && !sharedBoards.length) {
+      setSelectedImportCardId(null);
+    }
+  }, [activeView, sharedBoards.length]);
+
+  React.useEffect(() => {
     if (!importedCards.length) {
       setSelectedImportCardId(null);
-      if (activeView === "imports") setActiveView("board");
       return;
     }
 
@@ -3879,26 +4065,40 @@ export default function BobarPage() {
 
   const handleCreateShareLink = React.useCallback(async () => {
     if (!board) return;
+
+    const normalizedMaxUses = shareMaxUsesDraft.trim();
+    let maxUses: number | null = null;
+
+    if (normalizedMaxUses) {
+      const parsed = Number(normalizedMaxUses);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        toastInfo("Defina uma quantidade de usos válida. Use vazio para ilimitado.");
+        return;
+      }
+      maxUses = parsed;
+    }
+
     try {
       setShareBusy(true);
-      const invite = await bobarService.createShareLink(board.id);
-      setShareLink(invite);
+      const invite = await bobarService.createShareLink(board.id, {
+        role: shareAccessRole,
+        max_uses: maxUses,
+      });
       await loadCollaboration(board.id, { silent: true });
       await navigator.clipboard.writeText(`${window.location.origin}/bobar?share=${invite.token}`);
-      toastSuccess("Link de compartilhamento copiado.");
+      toastSuccess("Link de compartilhamento criado e copiado.");
     } catch (error) {
       toastApiError(error, "Não foi possível gerar o link de compartilhamento.");
     } finally {
       setShareBusy(false);
     }
-  }, [board, loadCollaboration]);
+  }, [board, loadCollaboration, shareAccessRole, shareMaxUsesDraft]);
 
-  const handleRevokeShareLink = React.useCallback(async () => {
+  const handleRevokeShareLink = React.useCallback(async (inviteId: number) => {
     if (!board) return;
     try {
       setShareBusy(true);
-      await bobarService.revokeShareLink(board.id);
-      setShareLink(null);
+      await bobarService.revokeShareLink(board.id, inviteId);
       await loadCollaboration(board.id, { silent: true });
       toastSuccess("Link de compartilhamento revogado.");
     } catch (error) {
@@ -3953,7 +4153,6 @@ export default function BobarPage() {
         setShareBusy(true);
         const payload = await bobarService.removeMember(board.id, memberUserId);
         setCollaboration(payload);
-        setShareLink(payload.invite || null);
         toastSuccess("Acesso removido.");
       } catch (error) {
         toastApiError(error, "Não foi possível remover esse acesso.");
@@ -3973,7 +4172,6 @@ export default function BobarPage() {
       setShareBusy(true);
       const payload = await bobarService.sendChatMessage(board.id, { message });
       setCollaboration(payload);
-      setShareLink(payload.invite || null);
       setChatMessageDraft("");
     } catch (error) {
       toastApiError(error, "Não foi possível enviar a mensagem.");
@@ -4044,6 +4242,17 @@ export default function BobarPage() {
       setSelectedImportCardId(null);
     },
     [activeBoardId, loadBoardsAndBoard],
+  );
+
+  const handleSwitchBoardInView = React.useCallback(
+    async (value: string) => {
+      const nextBoardId = Number(value);
+      if (!Number.isFinite(nextBoardId) || nextBoardId <= 0 || nextBoardId === activeBoardId) return;
+      await loadBoardsAndBoard(nextBoardId);
+      setSelectedImportCardId(null);
+      setActiveView(activeView === "shared" ? "shared" : "board");
+    },
+    [activeBoardId, activeView, loadBoardsAndBoard],
   );
 
   const clearLabelAutosave = React.useCallback((labelId: number) => {
@@ -5130,7 +5339,7 @@ export default function BobarPage() {
                     <Button
                       className="h-11 rounded-2xl px-6"
                       onClick={() => void handleSaveCard()}
-                      disabled={busy || !hasPendingChanges}
+                      disabled={busy || !hasPendingChanges || !canEditBoard}
                     >
                       {busy ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -5283,17 +5492,38 @@ export default function BobarPage() {
                     <Inbox className="h-4 w-4" />
                     Importados
                   </Button>
+                  <Button
+                    className={cn(
+                      "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
+                      activeView === "shared"
+                        ? "bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        : "border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
+                    )}
+                    variant="ghost"
+                    onClick={() => setActiveView("shared")}
+                  >
+                    <Users className="h-4 w-4" />
+                    Compartilhados
+                  </Button>
                 </div>
               </div>
 
               <div className="mt-5 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
                 <SelectField
-                  label="Quadro ativo"
-                  value={activeBoardId ? String(activeBoardId) : ""}
-                  options={boardOptions}
-                  placeholder="Escolha um quadro"
-                  onChange={(value) => void handleSwitchBoard(value)}
-                  disabled={busy || !boardOptions.length}
+                  label={activeView === "shared" ? "Quadro compartilhado" : "Quadro ativo"}
+                  value={
+                    activeView === "shared"
+                      ? hasSharedBoardSelected && activeBoardId
+                        ? String(activeBoardId)
+                        : ""
+                      : activeBoardId
+                        ? String(activeBoardId)
+                        : ""
+                  }
+                  options={contextualBoardOptions}
+                  placeholder={activeView === "shared" ? "Nenhum quadro compartilhado" : "Escolha um quadro"}
+                  onChange={(value) => void handleSwitchBoardInView(value)}
+                  disabled={busy || !contextualBoardOptions.length}
                 />
 
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -5314,9 +5544,14 @@ export default function BobarPage() {
                         updated_at:
                           boards.find((boardItem) => boardItem.id === board.id)?.updated_at ||
                           new Date().toISOString(),
+                        is_owner: activeBoardSummary?.is_owner ?? true,
+                        owner_name: activeBoardSummary?.owner_name || null,
+                        owner_email: activeBoardSummary?.owner_email || currentUser?.email || null,
+                        access_role: activeBoardSummary?.access_role || "owner",
+                        can_edit: activeBoardSummary?.can_edit ?? true,
                       })
                     }
-                    disabled={busy || !board || !collaboration?.can_manage_access}
+                    disabled={busy || !board || !collaboration?.can_manage_access || (activeView === "shared" && !hasSharedBoardSelected)}
                   >
                     <Pencil className="h-4 w-4" />
                     Renomear
@@ -5325,7 +5560,7 @@ export default function BobarPage() {
                     className="h-11 rounded-2xl px-4"
                     variant="outline"
                     onClick={() => void handleCreateShareLink()}
-                    disabled={busy || shareBusy || !board || !collaboration?.can_manage_access}
+                    disabled={busy || shareBusy || !board || !collaboration?.can_manage_access || (activeView === "shared" && !hasSharedBoardSelected)}
                   >
                     <Link2 className="h-4 w-4" />
                     Compartilhar
@@ -5343,9 +5578,14 @@ export default function BobarPage() {
                         updated_at:
                           boards.find((boardItem) => boardItem.id === board.id)?.updated_at ||
                           new Date().toISOString(),
+                        is_owner: activeBoardSummary?.is_owner ?? true,
+                        owner_name: activeBoardSummary?.owner_name || null,
+                        owner_email: activeBoardSummary?.owner_email || currentUser?.email || null,
+                        access_role: activeBoardSummary?.access_role || "owner",
+                        can_edit: activeBoardSummary?.can_edit ?? true,
                       })
                     }
-                    disabled={busy || !board || boards.length <= 1 || !collaboration?.can_manage_access}
+                    disabled={busy || !board || boards.length <= 1 || !collaboration?.can_manage_access || (activeView === "shared" && !hasSharedBoardSelected)}
                   >
                     <Trash2 className="h-4 w-4" />
                     Excluir
@@ -5355,7 +5595,7 @@ export default function BobarPage() {
                       className="h-11 rounded-2xl px-4"
                       variant="outline"
                       onClick={() => void handleCleanupImportDuplicates()}
-                      disabled={busy || !activeImportCard}
+                      disabled={busy || !activeImportCard || !canEditBoard}
                     >
                       <Trash2 className="h-4 w-4" />
                       Limpar duplicados
@@ -5369,6 +5609,10 @@ export default function BobarPage() {
                   <span className="block truncate">
                     Importado ativo: <span className="font-semibold text-white">{activeImportTitle}</span>
                   </span>
+                </div>
+              ) : activeView === "shared" && !hasSharedBoardSelected ? (
+                <div className="mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/58">
+                  Nenhum quadro compartilhado selecionado.
                 </div>
               ) : selectedCard ? (
                 <div className="mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/58">
@@ -5458,7 +5702,7 @@ export default function BobarPage() {
                                   event.stopPropagation();
                                   void handleSetImportProgressStatus(card, option.value);
                                 }}
-                                disabled={busy}
+                                disabled={busy || !canEditBoard}
                                 className={cn(
                                   "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition disabled:cursor-not-allowed disabled:opacity-60",
                                   importProgressButtonClasses(status === option.value, option.value),
@@ -5539,19 +5783,106 @@ export default function BobarPage() {
           </div>
         ) : null}
 
+        {activeView === "shared" ? (
+          <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+            <CardHeader>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                Compartilhados
+              </div>
+              <CardTitle className="text-3xl font-black text-white">Quadros compartilhados com você</CardTitle>
+              <CardDescription className="max-w-3xl text-white/55">
+                Escolha um quadro recebido por compartilhamento para abrir no Bobar. Se não houver nenhum, ele aparece vazio aqui.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {sharedBoards.length ? (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {sharedBoards.map((sharedBoard) => (
+                    <div
+                      key={sharedBoard.id}
+                      className={cn(
+                        "rounded-[1.8rem] border p-4 transition",
+                        activeBoardId === sharedBoard.id
+                          ? "border-cyan-400/35 bg-cyan-400/10 ring-2 ring-cyan-400/20"
+                          : "border-white/10 bg-white/[0.03]",
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] bg-cyan-400/10 text-cyan-100">
+                          <FolderKanban className="h-7 w-7" />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                              {formatBoardRoleLabel(sharedBoard.access_role)}
+                            </Badge>
+                            {!sharedBoard.can_edit ? (
+                              <Badge className="rounded-full border border-amber-400/25 bg-amber-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                                Visualização
+                              </Badge>
+                            ) : null}
+                          </div>
+
+                          <div className="break-words text-2xl font-black leading-tight text-white">
+                            {sharedBoard.title}
+                          </div>
+                          <div className="mt-2 text-sm text-white/55">
+                            Dono: {sharedBoard.owner_name || sharedBoard.owner_email || "Compartilhado"}
+                          </div>
+                          <div className="mt-1 text-sm text-white/45">
+                            {sharedBoard.total_cards} {sharedBoard.total_cards === 1 ? "card" : "cards"} · atualizado em {formatDate(sharedBoard.updated_at)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <Button
+                          className="h-11 w-full rounded-2xl"
+                          variant="outline"
+                          onClick={() => void handleSwitchBoardInView(String(sharedBoard.id))}
+                          disabled={busy || loading}
+                        >
+                          <ArrowRight className="h-4 w-4" />
+                          Abrir quadro
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  title="Nenhum quadro compartilhado ainda"
+                  description="Quando alguém compartilhar um quadro com você e você confirmar o acesso, ele aparece aqui."
+                />
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
           <CardHeader className="gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-                {isImportMode ? "Quadro importado" : "Quadro visual"}
+                {isImportMode ? "Quadro importado" : activeView === "shared" ? "Quadro compartilhado" : "Quadro visual"}
               </div>
               <CardTitle className="mt-2 text-3xl font-black text-white">
-                {isImportMode ? activeImportTitle : board?.title || "Quadro por coluna"}
+                {isImportMode
+                  ? activeImportTitle
+                  : activeView === "shared"
+                    ? hasSharedBoardSelected
+                      ? board?.title || "Quadro compartilhado"
+                      : "Nenhum quadro compartilhado"
+                    : board?.title || "Quadro por coluna"}
               </CardTitle>
               <CardDescription className="mt-2 max-w-4xl text-white/55">
                 {isImportMode
                   ? "Arraste cards, crie colunas e edite a base no mesmo quadro."
-                  : "Bateu o olho, entendeu. Clique para editar e arraste para mover."}
+                  : activeView === "shared"
+                    ? hasSharedBoardSelected
+                      ? "Abra um quadro compartilhado para visualizar ou editar conforme a permissão recebida."
+                      : "Quando alguém compartilhar um quadro com você, ele vai aparecer aqui."
+                    : "Bateu o olho, entendeu. Clique para editar e arraste para mover."}
               </CardDescription>
             </div>
 
@@ -5562,6 +5893,12 @@ export default function BobarPage() {
               <Badge className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">
                 {cards.length} cards
               </Badge>
+              {!canEditBoard && hasWorkspaceContext ? (
+                <Badge className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                  <Eye className="mr-1 h-3.5 w-3.5" />
+                  Somente visualização
+                </Badge>
+              ) : null}
               {selectedCard ? (
                 <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
                   {typeLabel(cardDraft?.card_type)}
@@ -5576,7 +5913,7 @@ export default function BobarPage() {
                 className="h-11 rounded-2xl px-4"
                 variant="outline"
                 onClick={() => void handleCreateCard()}
-                disabled={busy || !boardHasColumns}
+                disabled={busy || !hasWorkspaceContext || !boardHasColumns || !canEditBoard}
               >
                 <FilePlus2 className="h-4 w-4" />
                 Novo card
@@ -5585,7 +5922,7 @@ export default function BobarPage() {
                 className="h-11 rounded-2xl px-4"
                 variant="outline"
                 onClick={openCreateColumnDialog}
-                disabled={busy || (isImportMode && !activeImportCard)}
+                disabled={busy || !hasWorkspaceContext || (isImportMode && !activeImportCard) || !canEditBoard}
               >
                 <Columns3 className="h-4 w-4" />
                 Criar coluna
@@ -5620,6 +5957,7 @@ export default function BobarPage() {
                         setDragOverColumnId(columnId > 0 ? columnId : null)
                       }
                       onDropColumn={(columnId) => void handleDropColumn(columnId)}
+                      canEdit={canEditBoard}
                     />
                   ))}
                 </div>
@@ -5627,20 +5965,38 @@ export default function BobarPage() {
             ) : (
               <div className="space-y-5">
                 <EmptyState
-                  title={isImportMode ? "Escolha um roteiro importado" : "Sem colunas ainda"}
+                  title={
+                    isImportMode
+                      ? "Escolha um roteiro importado"
+                      : activeView === "shared"
+                        ? "Nenhum quadro compartilhado selecionado"
+                        : "Sem colunas ainda"
+                  }
                   description={
                     isImportMode
                       ? "Selecione um item em Importados para abrir a base no quadro."
-                      : "Crie a primeira coluna para dar forma ao quadro."
+                      : activeView === "shared"
+                        ? "Abra um quadro da aba Compartilhados para começar por aqui."
+                        : "Crie a primeira coluna para dar forma ao quadro."
                   }
                 />
                 <div className="flex justify-center">
                   <Button
                     className="h-12 rounded-2xl px-6"
-                    onClick={isImportMode ? () => setActiveView("imports") : openCreateColumnDialog}
+                    onClick={
+                      isImportMode
+                        ? () => setActiveView("imports")
+                        : activeView === "shared"
+                          ? () => setActiveView("shared")
+                          : openCreateColumnDialog
+                    }
                   >
-                    {isImportMode ? <Inbox className="h-4 w-4" /> : <Columns3 className="h-4 w-4" />}
-                    {isImportMode ? "Ver importados" : "Criar primeira coluna"}
+                    {isImportMode ? <Inbox className="h-4 w-4" /> : activeView === "shared" ? <Users className="h-4 w-4" /> : <Columns3 className="h-4 w-4" />}
+                    {isImportMode
+                      ? "Ver importados"
+                      : activeView === "shared"
+                        ? "Ver compartilhados"
+                        : "Criar primeira coluna"}
                   </Button>
                 </div>
               </div>
@@ -5648,6 +6004,7 @@ export default function BobarPage() {
           </CardContent>
         </Card>
 
+        {hasWorkspaceContext ? (
         <div className="grid gap-6 2xl:items-start 2xl:grid-cols-[minmax(0,1fr)_360px]">
           <Card
             id="bobar-editor"
@@ -5702,6 +6059,7 @@ export default function BobarPage() {
                       value={String(cardDraft.card_type || "")}
                       options={cardTypeOptions}
                       onChange={handleCardTypeChange}
+                      disabled={!canEditBoard}
                     />
 
                     <SelectField
@@ -5710,6 +6068,7 @@ export default function BobarPage() {
                       options={templateOptions}
                       placeholder="Escolha um template"
                       onChange={applyTemplateByKey}
+                      disabled={!canEditBoard}
                     />
                   </div>
 
@@ -5732,6 +6091,7 @@ export default function BobarPage() {
                           )
                         }
                         placeholder="Dê um nome claro para o card"
+                        disabled={!canEditBoard}
                         className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
                       />
                     </div>
@@ -5745,6 +6105,7 @@ export default function BobarPage() {
                           current ? { ...current, column_id: Number(value) } : current,
                         )
                       }
+                      disabled={!canEditBoard}
                     />
                   </div>
 
@@ -5756,6 +6117,7 @@ export default function BobarPage() {
                         onClear={clearDueDate}
                         invalid={dueDateIsInvalid}
                         overdue={selectedCardIsOverdue}
+                        disabled={!canEditBoard}
                       />
 
                       {dueDateIsInvalid ? (
@@ -5784,7 +6146,8 @@ export default function BobarPage() {
                                 key={label.id}
                                 type="button"
                                 onClick={() => handleToggleCardLabel(label.id)}
-                                className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium"
+                                disabled={!canEditBoard}
+                                className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
                                 style={{
                                   borderColor: `${label.color}55`,
                                   backgroundColor: `${label.color}22`,
@@ -5834,8 +6197,9 @@ export default function BobarPage() {
                               key={label.id}
                               type="button"
                               onClick={() => handleToggleCardLabel(label.id)}
+                              disabled={!canEditBoard}
                               className={cn(
-                                "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition",
+                                "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
                                 active ? "ring-2 ring-white/15" : "opacity-80 hover:opacity-100",
                               )}
                               style={{
@@ -5884,7 +6248,7 @@ export default function BobarPage() {
                         className="h-11 rounded-2xl"
                         variant="outline"
                         onClick={handleOpenAttachmentPicker}
-                        disabled={busy}
+                        disabled={busy || !canEditBoard}
                       >
                         <Paperclip className="h-4 w-4" />
                         Anexar arquivo
@@ -5902,6 +6266,7 @@ export default function BobarPage() {
                             onOpenPreview={handlePreviewAttachment}
                             onDownload={handleDownloadAttachment}
                             onDelete={handleDeleteAttachment}
+                            canDelete={canEditBoard}
                           />
                         ))}
                       </div>
@@ -5914,7 +6279,7 @@ export default function BobarPage() {
 
                   {isFlowCard ? (
                     <div className="flex flex-wrap items-center gap-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
-                      <Button className="h-11 rounded-2xl" onClick={openFlowEditor}>
+                      <Button className="h-11 rounded-2xl" onClick={openFlowEditor} disabled={!canEditBoard}>
                         <Pencil className="h-4 w-4" />
                         Editar fluxograma
                       </Button>
@@ -5966,7 +6331,7 @@ export default function BobarPage() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3">
-                          <Button className="h-11 rounded-2xl" onClick={openFlowEditor}>
+                          <Button className="h-11 rounded-2xl" onClick={openFlowEditor} disabled={!canEditBoard}>
                             <Pencil className="h-4 w-4" />
                             Editar fluxograma
                           </Button>
@@ -5988,6 +6353,7 @@ export default function BobarPage() {
                       onAddItem={handleAddChecklistItem}
                       onRemoveItem={handleRemoveChecklistItem}
                       onClearCompleted={handleClearCompletedChecklistItems}
+                      disabled={!canEditBoard}
                     />
                   ) : (
                     <div className="space-y-2">
@@ -6002,6 +6368,7 @@ export default function BobarPage() {
                           )
                         }
                         placeholder="Escreva o conteúdo principal do card."
+                        readOnly={!canEditBoard}
                         className="custom-scrollbar min-h-[320px] rounded-[1.8rem] border-cyan-400/15 bg-[#0a1225]"
                       />
                     </div>
@@ -6019,6 +6386,7 @@ export default function BobarPage() {
                         )
                       }
                       placeholder="Observações rápidas, responsáveis ou contexto do card."
+                      readOnly={!canEditBoard}
                       className="custom-scrollbar min-h-[120px] rounded-[1.6rem] border-cyan-400/15 bg-[#0a1225]"
                     />
                   </div>
@@ -6032,7 +6400,7 @@ export default function BobarPage() {
                     <Button
                       className="h-12 rounded-2xl px-6"
                       onClick={() => void handleSaveCard()}
-                      disabled={busy || !hasPendingChanges}
+                      disabled={busy || !hasPendingChanges || !canEditBoard}
                     >
                       {busy ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -6042,7 +6410,8 @@ export default function BobarPage() {
                       Salvar card
                     </Button>
                   </div>
-                </>              ) : (
+                </>
+              ) : (
                 <EmptyState
                   title="Selecione um card"
                   description="Clique em um card para abrir o editor."
@@ -6096,7 +6465,7 @@ export default function BobarPage() {
                       type="button"
                       className="h-11 rounded-2xl md:px-5"
                       onClick={() => void handleCreateLabel()}
-                      disabled={busy || !newLabelName.trim()}
+                      disabled={busy || !newLabelName.trim() || !canEditBoard}
                     >
                       <Plus className="h-4 w-4" />
                       Criar
@@ -6135,7 +6504,7 @@ export default function BobarPage() {
                             <button
                               type="button"
                               onClick={() => void handleDeleteLabel(label)}
-                              disabled={isDeleting}
+                              disabled={isDeleting || !canEditBoard}
                               className={cn(
                                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-transparent bg-transparent text-white/35 transition",
                                 "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-100",
@@ -6164,6 +6533,7 @@ export default function BobarPage() {
                                   (event.currentTarget as HTMLInputElement).blur();
                                 }
                               }}
+                              disabled={!canEditBoard}
                               className="min-w-0 h-10 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
                             />
                             <Input
@@ -6346,7 +6716,7 @@ export default function BobarPage() {
                       <Button
                         className="h-11 rounded-2xl"
                         onClick={() => void handleSaveCard()}
-                        disabled={busy || !hasPendingChanges}
+                        disabled={busy || !hasPendingChanges || !canEditBoard}
                       >
                         {busy ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -6367,6 +6737,7 @@ export default function BobarPage() {
                         className="h-11 rounded-2xl text-red-200 hover:text-red-100"
                         variant="outline"
                         onClick={openDeleteSelectedCardDialog}
+                        disabled={!canEditBoard}
                       >
                         <Trash2 className="h-4 w-4" />
                         Excluir card
@@ -6383,10 +6754,11 @@ export default function BobarPage() {
             </Card>
           </div>
         </div>
+        ) : null}
       </div>
 
-      {board ? (
-        <div className="mt-8 grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+      {board && hasWorkspaceContext ? (
+        <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,560px)_minmax(0,1fr)]">
           <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
             <CardHeader>
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
@@ -6410,44 +6782,165 @@ export default function BobarPage() {
                   </div>
                 </div>
 
-                {collaboration?.can_manage_access ? (
-                  <div className="mt-4 space-y-3">
-                    <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] p-3 text-sm text-white/70">
-                      {shareLink?.token ? (
-                        <div className="break-all">
-                          {`${window.location.origin}/bobar?share=${shareLink.token}`}
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                        {formatBoardRoleLabel(collaboration?.current_user_role)}
+                      </Badge>
+                      <Badge
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]",
+                          canEditBoard
+                            ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-100"
+                            : "border-amber-400/25 bg-amber-400/10 text-amber-100",
+                        )}
+                      >
+                        {canEditBoard ? "Pode editar" : "Somente visualização"}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 text-sm text-white/70">
+                      {collaboration?.can_manage_access
+                        ? "Você é o dono deste quadro e pode gerar, copiar e revogar quantos links quiser."
+                        : canEditBoard
+                          ? "Você pode editar o quadro, mas somente o dono gerencia os links de acesso."
+                          : "Você recebeu acesso apenas para visualizar o quadro. Não é possível alterar cards, colunas, etiquetas ou chat."}
+                    </div>
+                  </div>
+
+                  {collaboration?.can_manage_access ? (
+                    <>
+                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] p-4 sm:p-5">
+                        <div className="mb-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                            Gerar link de compartilhamento
+                          </div>
+                          <div className="mt-1 text-sm text-white/55">
+                            Defina o papel e, se quiser, limite a quantidade de usos antes de criar o link.
+                          </div>
                         </div>
-                      ) : (
-                        <div>Gere um link para convidar outra pessoa que já tenha conta no site.</div>
-                      )}
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Button
-                        className="h-11 rounded-2xl"
-                        onClick={() =>
-                          shareLink?.token ? void handleCopyShareLink(shareLink.token) : void handleCreateShareLink()
-                        }
-                        disabled={shareBusy || busy}
-                      >
-                        {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
-                        {shareLink?.token ? "Copiar link" : "Gerar link"}
-                      </Button>
-                      <Button
-                        className="h-11 rounded-2xl"
-                        variant="outline"
-                        onClick={() => void handleRevokeShareLink()}
-                        disabled={shareBusy || busy || !shareLink?.token}
-                      >
-                        <Unlink className="h-4 w-4" />
-                        Revogar link
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-[1.3rem] border border-white/10 bg-[#07101f] p-3 text-sm text-white/70">
-                    Você pode editar o quadro e conversar no projeto, mas apenas o dono gerencia o link e os acessos.
-                  </div>
-                )}
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="min-w-0">
+                            <SelectField
+                              label="Nível de acesso"
+                              value={shareAccessRole}
+                              options={[
+                                {
+                                  value: "editor",
+                                  label: "Editor",
+                                  description: "Pode editar quadro, anexos e chat",
+                                },
+                                {
+                                  value: "viewer",
+                                  label: "Visualizador",
+                                  description: "Pode apenas visualizar o quadro",
+                                },
+                              ]}
+                              onChange={(value) => setShareAccessRole(value as BobarShareRole)}
+                              disabled={shareBusy || busy}
+                            />
+                          </div>
+
+                          <div className="min-w-0 space-y-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                              Quantidade de usos
+                            </div>
+                            <Input
+                              value={shareMaxUsesDraft}
+                              onChange={(event) => setShareMaxUsesDraft(event.target.value.replace(/[^0-9]/g, ""))}
+                              inputMode="numeric"
+                              placeholder="Vazio = ilimitado"
+                              className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                              disabled={shareBusy || busy}
+                            />
+                            <div className="text-xs leading-5 text-white/45">
+                              Defina quantas vezes o link pode ser usado. Deixe vazio para ilimitado.
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex justify-end">
+                          <Button
+                            className="h-12 w-full rounded-2xl px-5 sm:w-auto"
+                            onClick={() => void handleCreateShareLink()}
+                            disabled={shareBusy || busy}
+                          >
+                            {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                            Gerar novo link
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {visibleInvites.length ? (
+                          visibleInvites.map((invite) => {
+                            const shareUrl = `${window.location.origin}/bobar?share=${invite.token}`;
+
+                            return (
+                              <div
+                                key={invite.id}
+                                className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                                      {formatBoardRoleLabel(invite.role)}
+                                    </Badge>
+                                    <Badge className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+                                      Ativo
+                                    </Badge>
+                                  </div>
+
+                                  <div className="text-right text-xs text-white/45">
+                                    <div>Criado em {formatDate(invite.created_at)}</div>
+                                    <div className="mt-1">{formatInviteUsage(invite)}</div>
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 rounded-[1.2rem] border border-white/10 bg-[#07101f] p-3">
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
+                                    Link
+                                  </div>
+                                  <div className="custom-scrollbar scrollbar-gutter-stable mt-2 max-h-24 overflow-y-auto break-all pr-1 text-sm leading-6 text-white/78">
+                                    {shareUrl}
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                                  <Button
+                                    className="h-10 min-w-[122px] rounded-2xl px-4"
+                                    variant="outline"
+                                    onClick={() => void handleCopyShareLink(invite.token)}
+                                    disabled={shareBusy}
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                    Copiar
+                                  </Button>
+                                  <Button
+                                    className="h-10 min-w-[122px] rounded-2xl px-4 text-red-200 hover:text-red-100"
+                                    variant="outline"
+                                    onClick={() => void handleRevokeShareLink(invite.id)}
+                                    disabled={shareBusy}
+                                  >
+                                    <Unlink className="h-4 w-4" />
+                                    Revogar
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <EmptyState
+                            title="Nenhum link ativo"
+                            description="Crie um novo link para compartilhar este quadro com editor ou visualizador."
+                          />
+                        )}
+                      </div>
+                    </>
+                  ) : null}
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -6474,7 +6967,7 @@ export default function BobarPage() {
                                     : "border-white/10 bg-white/[0.06] text-white/70",
                                 )}
                               >
-                                {member.is_owner ? "Dono" : member.role}
+                                {member.is_owner ? "Dono" : formatBoardRoleLabel(member.role)}
                               </Badge>
                               {isCurrentUser ? (
                                 <Badge className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
@@ -6549,14 +7042,24 @@ export default function BobarPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+              <div className="space-y-4">
                 <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-                    <MessageSquare className="h-4 w-4 text-cyan-200" />
-                    Chat do projeto
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <MessageSquare className="h-4 w-4 text-cyan-200" />
+                      Chat do projeto
+                    </div>
+                    {!canEditBoard ? (
+                      <Badge className="rounded-full border border-amber-400/25 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                        Visualização
+                      </Badge>
+                    ) : null}
                   </div>
 
-                  <div className="custom-scrollbar max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                  <div
+                    ref={chatMessagesRef}
+                    className="custom-scrollbar scrollbar-gutter-stable h-[520px] space-y-3 overflow-y-auto pr-1"
+                  >
                     {(collaboration?.chat_messages || []).length ? (
                       collaboration?.chat_messages.map((message) => {
                         const mine = currentUser?.email === message.user_email;
@@ -6564,7 +7067,7 @@ export default function BobarPage() {
                           <div
                             key={message.id}
                             className={cn(
-                              "rounded-[1.3rem] border px-4 py-3",
+                              "max-w-[92%] rounded-[1.3rem] border px-4 py-3",
                               mine
                                 ? "ml-auto border-cyan-400/20 bg-cyan-400/10"
                                 : "border-white/10 bg-[#07101f]",
@@ -6584,7 +7087,9 @@ export default function BobarPage() {
                       })
                     ) : (
                       <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-8 text-center text-sm text-white/50">
-                        Nenhuma mensagem ainda. Use o campo abaixo para começar o chat do projeto.
+                        {canEditBoard
+                          ? "Nenhuma mensagem ainda. Use o campo abaixo para começar o chat do projeto."
+                          : "Nenhuma mensagem ainda. Visualizadores acompanham a conversa, mas não podem enviar mensagens."}
                       </div>
                     )}
                   </div>
@@ -6593,9 +7098,15 @@ export default function BobarPage() {
                     <Textarea
                       value={chatMessageDraft}
                       onChange={(event) => setChatMessageDraft(event.target.value)}
-                      placeholder="Escreva uma mensagem para quem está colaborando nesse quadro..."
-                      className="min-h-[88px] rounded-[1.6rem] border-cyan-400/20 bg-[#0a1225]"
+                      placeholder={
+                        canEditBoard
+                          ? "Escreva uma mensagem para quem está colaborando nesse quadro..."
+                          : "Somente editores podem enviar mensagens no chat."
+                      }
+                      readOnly={!canEditBoard}
+                      className="custom-scrollbar min-h-[110px] rounded-[1.6rem] border-cyan-400/20 bg-[#0a1225]"
                       onKeyDown={(event) => {
+                        if (!canEditBoard) return;
                         if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                           event.preventDefault();
                           void handleSendProjectMessage();
@@ -6604,9 +7115,9 @@ export default function BobarPage() {
                     />
                     <Button
                       type="button"
-                      className="h-auto min-h-[88px] rounded-[1.6rem] px-5"
+                      className="h-auto min-h-[110px] rounded-[1.6rem] px-5"
                       onClick={() => void handleSendProjectMessage()}
-                      disabled={shareBusy || !chatMessageDraft.trim()}
+                      disabled={shareBusy || !chatMessageDraft.trim() || !canEditBoard}
                     >
                       {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       Enviar
@@ -6615,21 +7126,37 @@ export default function BobarPage() {
                 </div>
 
                 <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-                    <Clock3 className="h-4 w-4 text-cyan-200" />
-                    Log do projeto
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <Clock3 className="h-4 w-4 text-cyan-200" />
+                      Log do projeto
+                    </div>
+                    <div className="w-full max-w-[320px]">
+                      <SelectField
+                        label="Filtrar ação"
+                        value={activityFilter}
+                        options={activityFilterOptions}
+                        onChange={setActivityFilter}
+                        disabled={collaborationLoading}
+                      />
+                    </div>
                   </div>
 
-                  <div className="custom-scrollbar max-h-[460px] space-y-3 overflow-y-auto pr-1">
-                    {(collaboration?.activities || []).length ? (
-                      collaboration?.activities.map((activity) => (
+                  <div className="custom-scrollbar scrollbar-gutter-stable max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                    {filteredActivities.length ? (
+                      filteredActivities.map((activity) => (
                         <div
                           key={activity.id}
                           className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-3"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">
-                              {activity.actor_name || activity.actor_email || "Sistema"}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">
+                                {activity.actor_name || activity.actor_email || "Sistema"}
+                              </div>
+                              <Badge className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                                {formatActivityLabel(activity.event_type)}
+                              </Badge>
                             </div>
                             <div className="text-[11px] text-white/35">{formatDate(activity.created_at)}</div>
                           </div>
@@ -6638,7 +7165,9 @@ export default function BobarPage() {
                       ))
                     ) : (
                       <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-8 text-center text-sm text-white/50">
-                        O histórico de ações aparece aqui conforme alguém mexe no quadro.
+                        {(collaboration?.activities || []).length
+                          ? "Nenhum registro para o filtro selecionado."
+                          : "O histórico de ações aparece aqui conforme alguém mexe no quadro."}
                       </div>
                     )}
                   </div>
@@ -6690,6 +7219,8 @@ export default function BobarPage() {
                 }
               />
               <InfoRow label="Membros" value={`${sharePreview.total_members} com acesso`} />
+              <InfoRow label="Nível de acesso" value={formatBoardRoleLabel(sharePreview.role)} />
+              <InfoRow label="Usos" value={formatInviteUsage(sharePreview)} />
               <InfoRow
                 label="Status"
                 value={

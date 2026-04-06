@@ -95,6 +95,11 @@ export type BobarBoardSummary = {
   position: number;
   total_cards: number;
   updated_at: string;
+  is_owner: boolean;
+  owner_name?: string | null;
+  owner_email?: string | null;
+  access_role: "owner" | "editor" | "viewer";
+  can_edit: boolean;
 };
 
 export type BobarBoardList = {
@@ -111,7 +116,12 @@ export type BobarBoardMember = {
 };
 
 export type BobarBoardInvite = {
+  id: number;
   token: string;
+  role: "editor" | "viewer";
+  max_uses?: number | null;
+  uses_count: number;
+  remaining_uses?: number | null;
   is_active: boolean;
   created_at: string;
   revoked_at?: string | null;
@@ -141,8 +151,11 @@ export type BobarBoardChatMessage = {
 export type BobarBoardCollaboration = {
   board_id: number;
   can_manage_access: boolean;
+  can_edit: boolean;
+  current_user_role: "owner" | "editor" | "viewer";
   members: BobarBoardMember[];
   invite?: BobarBoardInvite | null;
+  invites: BobarBoardInvite[];
   activities: BobarBoardActivity[];
   chat_messages: BobarBoardChatMessage[];
 };
@@ -153,6 +166,10 @@ export type BobarBoardSharePreview = {
   board_title: string;
   owner_name?: string | null;
   owner_email: string;
+  role: "editor" | "viewer";
+  max_uses?: number | null;
+  uses_count: number;
+  remaining_uses?: number | null;
   already_has_access: boolean;
   can_accept: boolean;
   is_active: boolean;
@@ -161,6 +178,12 @@ export type BobarBoardSharePreview = {
 
 export type BobarBoardShareAccept = {
   board_id: number;
+  role: "owner" | "editor" | "viewer";
+};
+
+export type CreateBobarBoardShareLinkIn = {
+  role: "editor" | "viewer";
+  max_uses?: number | null;
 };
 
 export type CreateBobarBoardIn = {
@@ -333,11 +356,11 @@ export const bobarService = {
     return http<BobarBoardCollaboration>(`/api/bobar/boards/${boardId}/collaboration${suffix}`);
   },
 
-  createShareLink: (boardId: number) =>
-    http<BobarBoardInvite>(`/api/bobar/boards/${boardId}/share-link`, { method: "POST" }),
+  createShareLink: (boardId: number, payload: CreateBobarBoardShareLinkIn) =>
+    http<BobarBoardInvite>(`/api/bobar/boards/${boardId}/share-link`, { method: "POST", json: payload }),
 
-  revokeShareLink: (boardId: number) =>
-    http<BobarBoardInvite>(`/api/bobar/boards/${boardId}/share-link/revoke`, { method: "POST" }),
+  revokeShareLink: (boardId: number, inviteId: number) =>
+    http<BobarBoardInvite>(`/api/bobar/boards/${boardId}/share-links/${inviteId}/revoke`, { method: "POST" }),
 
   sharePreview: (token: string) =>
     http<BobarBoardSharePreview>(`/api/bobar/share/${encodeURIComponent(token)}`),

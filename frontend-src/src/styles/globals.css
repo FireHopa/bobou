@@ -205,12 +205,19 @@
   /* Subtle themed scrollbar (prevents the ugly white bar on dark UI) */
   .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 200, 232, 0.18) transparent;
+    scrollbar-color: rgba(0, 200, 232, 0.28) rgba(255, 255, 255, 0.04);
+    color-scheme: dark;
   }
 
   .custom-scrollbar::-webkit-scrollbar {
     width: 10px;
     height: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
