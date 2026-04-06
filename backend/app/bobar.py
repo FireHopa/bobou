@@ -1711,7 +1711,7 @@ def bobar_update_card(
             payload.content_text if payload.content_text is not None else card.content_text,
         )
 
-    if payload.due_at is not None:
+    if "due_at" in payload.model_fields_set:
         card.due_at = _parse_due_at(payload.due_at)
 
     if payload.label_ids is not None:
