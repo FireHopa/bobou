@@ -210,6 +210,43 @@ export const TIKTOK_TASKS: AuthorityTask[] = [
   },
 ];
 
+
+export const SOCIAL_PROOF_TASKS: AuthorityTask[] = [
+  {
+    title: "Perguntas para coletar depoimentos fortes",
+    description: "Monta perguntas que puxam contexto, antes e depois, processo e impacto real sem parecer entrevista engessada.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Que tipo de caso, cliente ou transformação você quer capturar?",
+    inputPlaceholder: "Ex: clientes que chegaram sem clareza comercial e hoje entendem melhor o processo...",
+    submitLabel: "Gerar perguntas",
+  },
+  {
+    title: "Transformar feedback bruto em prova social",
+    description: "Converte mensagens, elogios, prints transcritos ou feedback solto em ativos utilizáveis sem inventar nada.",
+    inputMode: "textarea",
+    aiSuggestions: false,
+    inputLabel: "Cole o feedback bruto, mensagem, elogio ou relato real",
+    inputPlaceholder: "Ex: O cliente disse que antes tinha dificuldade em entender o processo, depois passou a ter mais clareza e segurança...",
+    submitLabel: "Transformar feedback",
+  },
+  {
+    title: "Case de sucesso em múltiplos formatos",
+    description: "Estrutura um caso de sucesso pronto para virar versão curta, versão comercial, ângulos de prova e reaproveitamentos por canal.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual caso, cliente ou transformação você quer estruturar?",
+    inputPlaceholder: "Ex: redução de retrabalho no onboarding, mais previsibilidade na operação, clareza da proposta...",
+    submitLabel: "Gerar case",
+  },
+  {
+    title: "Biblioteca de prova social por etapa da decisão",
+    description: "Organiza quais provas usar na descoberta, consideração, decisão e validação para reduzir risco percebido em cada etapa.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+];
+
 export const LINKEDIN_TASKS: AuthorityTask[] = [
   { title: "Post Educacional / Opinião Técnica", inputMode: "theme", aiSuggestions: true },
   { title: "Estudo de Caso / Resultado B2B", inputMode: "theme", aiSuggestions: true },
@@ -453,6 +490,8 @@ export function tasksByAgentKey(agentKey?: string | null): AuthorityTask[] {
       return INSTAGRAM_TASKS;
     case "tiktok":
       return TIKTOK_TASKS;
+    case "social_proof":
+      return SOCIAL_PROOF_TASKS;
     case "linkedin":
       return LINKEDIN_TASKS;
     case "google_business_profile":

@@ -43,10 +43,28 @@ type ScriptJson = {
   legenda?: string;
 };
 
+type HeaderVariant = {
+  icon: React.ReactNode;
+  iconWrapperClass: string;
+  topBarClass: string;
+  headerClass: string;
+};
+
+type SocialProofInsights = {
+  summary: string;
+  quoteText: string;
+  quoteAuthor: string;
+  readyAssetCount: number;
+  signalCount: number;
+  sectionCount: number;
+};
+
 export default function ResultViewer({ title = "Resultado", text, agentKey }: Props) {
   const isGoogleBusiness = agentKey === "google_business_profile";
   const isSiteAgent = agentKey === "site";
-  const headerVariant = isGoogleBusiness
+  const isSocialProof = agentKey === "social_proof";
+
+  const headerVariant: HeaderVariant = isGoogleBusiness
     ? {
         icon: <MapPin className="h-7 w-7" />,
         iconWrapperClass: "bg-google-blue/10 text-google-blue",
@@ -60,23 +78,34 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
           topBarClass: "bg-gradient-to-r from-amber-400/70 via-orange-300/50 to-yellow-200/60",
           headerClass: "relative bg-gradient-to-br from-amber-500/10 via-transparent to-orange-400/10 border-b border-border/50 p-8 sm:p-12",
         }
-      : {
-          icon: <Film className="h-7 w-7" />,
-          iconWrapperClass: "bg-google-blue/10 text-google-blue",
-          topBarClass: "bg-gradient-to-r from-transparent via-google-blue/40 to-transparent",
-          headerClass: "relative bg-gradient-to-b from-muted/50 to-transparent border-b border-border/50 p-8 sm:p-12",
-        };
+      : isSocialProof
+        ? {
+            icon: <Star className="h-7 w-7" />,
+            iconWrapperClass: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+            topBarClass: "bg-gradient-to-r from-amber-400/80 via-orange-300/60 to-rose-300/60",
+            headerClass: "relative bg-gradient-to-br from-amber-500/10 via-transparent to-rose-400/10 border-b border-border/50 p-8 sm:p-12",
+          }
+        : {
+            icon: <Film className="h-7 w-7" />,
+            iconWrapperClass: "bg-google-blue/10 text-google-blue",
+            topBarClass: "bg-gradient-to-r from-transparent via-google-blue/40 to-transparent",
+            headerClass: "relative bg-gradient-to-b from-muted/50 to-transparent border-b border-border/50 p-8 sm:p-12",
+          };
 
   const scriptHeaderBadge = isGoogleBusiness
     ? "Perfil de Empresa Google"
     : isSiteAgent
       ? "Agente Site"
-      : "Roteiro estruturado";
+      : isSocialProof
+        ? "Prova social estruturada"
+        : "Roteiro estruturado";
   const blockHeaderBadge = isGoogleBusiness
     ? "Perfil de Empresa Google"
     : isSiteAgent
       ? "Arquitetura de conteúdo para site"
-      : "Entrega estruturada";
+      : isSocialProof
+        ? "Prova social e reputação"
+        : "Entrega estruturada";
 
   const parsed = useMemo(() => {
     try {
@@ -107,6 +136,11 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
     if (Array.isArray((parsed as any).blocos)) return parsed as any;
     return null;
   }, [parsed]);
+
+  const socialProofInsights = useMemo(
+    () => extractSocialProofInsights(parsedBlocks),
+    [parsedBlocks],
+  );
 
   const legacyBlocks = useMemo(() => {
     if (parsedScript || parsedBlocks) return [];
@@ -315,6 +349,18 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
   }
 
   if (parsedBlocks) {
+    if (isSocialProof) {
+      return (
+        <SocialProofResult
+          title={title}
+          parsedBlocks={parsedBlocks}
+          headerVariant={headerVariant}
+          badge={blockHeaderBadge}
+          insights={socialProofInsights}
+        />
+      );
+    }
+
     return (
       <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="rounded-[2.5rem] border border-border bg-card/80 backdrop-blur-xl shadow-sm overflow-hidden">
@@ -366,6 +412,480 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
       </div>
     </section>
   );
+}
+
+
+function SocialProofResult({
+  title,
+  parsedBlocks,
+  headerVariant,
+  badge,
+  insights,
+}: {
+  title: string;
+  parsedBlocks: any;
+  headerVariant: HeaderVariant;
+  badge: string;
+  insights: SocialProofInsights;
+}) {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+  const heroTitle = parsedBlocks?.titulo_da_tela || title;
+
+  return (
+    <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="rounded-[2.5rem] border border-border bg-card/90 backdrop-blur-xl shadow-sm overflow-hidden">
+        <div className={headerVariant.headerClass}>
+          <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-4xl">
+              <div className="flex items-start gap-4">
+                <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                  {headerVariant.icon}
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-700/90 dark:text-amber-300/90">
+                    {badge}
+                  </p>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight">
+                    {heroTitle}
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-base sm:text-lg leading-relaxed text-foreground/75">
+                    {insights.summary || "Material estruturado para transformar percepção positiva em credibilidade utilizável sem soar genérico."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[28rem]">
+              <SocialProofMetric
+                label="Ativos prontos"
+                value={String(insights.readyAssetCount)}
+                helper="blocos reaproveitáveis"
+              />
+              <SocialProofMetric
+                label="Sinais mapeados"
+                value={String(insights.signalCount)}
+                helper="provas identificadas"
+              />
+              <SocialProofMetric
+                label="Estrutura"
+                value={String(insights.sectionCount)}
+                helper="seções organizadas"
+              />
+            </div>
+          </div>
+
+          {insights.quoteText ? (
+            <div className="mt-8 rounded-[2rem] border border-amber-200/70 bg-background/70 p-5 sm:p-6 shadow-sm">
+              <div className="mb-4 flex items-center gap-3 text-amber-700 dark:text-amber-300">
+                <Quote className="h-5 w-5" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em]">Trecho de prova em destaque</span>
+              </div>
+              <p className="text-lg sm:text-2xl leading-relaxed font-semibold text-foreground/90">
+                “{insights.quoteText}”
+              </p>
+              {insights.quoteAuthor ? (
+                <p className="mt-4 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  {insights.quoteAuthor}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-6 sm:p-10 space-y-6">
+          {blocks.map((bloco: any, idx: number) => (
+            <React.Fragment key={idx}>{renderSocialProofBlock(bloco, idx)}</React.Fragment>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SocialProofMetric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-[1.75rem] border border-border/70 bg-background/75 p-4 shadow-sm">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-3xl font-extrabold tracking-tight text-foreground">{value}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{helper}</div>
+    </div>
+  );
+}
+
+function extractSocialProofInsights(parsedBlocks: any): SocialProofInsights {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+
+  let summary = "";
+  let quoteText = "";
+  let quoteAuthor = "";
+  let readyAssetCount = 0;
+  let signalCount = 0;
+
+  for (const block of blocks) {
+    const tipo = typeof block?.tipo === "string" ? block.tipo.toLowerCase() : "";
+    const conteudo = typeof block?.conteudo === "object" && block?.conteudo ? block.conteudo : {};
+
+    if (!summary && tipo === "markdown" && typeof conteudo.texto === "string") {
+      const firstParagraph = parseBlocks(conteudo.texto).find((item) => item.kind === "p");
+      if (firstParagraph && "text" in firstParagraph) {
+        summary = firstParagraph.text;
+      }
+    }
+
+    if (!quoteText && tipo === "quote") {
+      quoteText = String(conteudo.texto || "").trim();
+      quoteAuthor = String(conteudo.autor || "").trim();
+    }
+
+    if (tipo === "response_variations" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+    }
+
+    if (tipo === "service_cards" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+    }
+
+    if (tipo === "keyword_list" && Array.isArray(conteudo.items)) {
+      signalCount += conteudo.items.length;
+    }
+
+    if (tipo === "faq" && Array.isArray(conteudo.perguntas)) {
+      signalCount += conteudo.perguntas.length;
+    }
+  }
+
+  return {
+    summary,
+    quoteText,
+    quoteAuthor,
+    readyAssetCount,
+    signalCount,
+    sectionCount: blocks.length,
+  };
+}
+
+function renderSocialProofBlock(bloco: any, key: number) {
+  const tipo = typeof bloco?.tipo === "string" ? bloco.tipo.toLowerCase() : "";
+  const conteudo = typeof bloco?.conteudo === "object" && bloco?.conteudo ? bloco.conteudo : {};
+
+  switch (tipo) {
+    case "markdown": {
+      const mBlocks = parseBlocks(conteudo.texto || "");
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Leitura estratégica</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Contexto da prova"}
+              </h3>
+            </div>
+          </div>
+          <div className="prose prose-zinc dark:prose-invert prose-lg max-w-none text-foreground/80 leading-relaxed font-normal marker:text-amber-500/70">
+            {mBlocks.map((block, idx) => renderLegacyBlock(block, idx))}
+          </div>
+        </section>
+      );
+    }
+
+    case "quote": {
+      return (
+        <section key={key} className="relative overflow-hidden rounded-[2rem] border border-amber-200/70 bg-gradient-to-br from-amber-50/90 via-background to-rose-50/70 p-6 sm:p-8 shadow-sm dark:from-[#2b2419] dark:via-[#171717] dark:to-[#22181a] dark:border-amber-900/50">
+          <Quote className="absolute right-6 top-6 h-16 w-16 text-amber-400/25" />
+          <div className="relative z-10">
+            <div className="mb-4 flex items-center gap-3 text-amber-700 dark:text-amber-300">
+              <MessageSquareQuote className="h-5 w-5" />
+              <span className="text-[11px] font-bold uppercase tracking-[0.18em]">Trecho central</span>
+            </div>
+            <p className="max-w-4xl text-2xl sm:text-3xl font-semibold leading-relaxed tracking-tight text-foreground/90">
+              “{conteudo.texto || "não informado"}”
+            </p>
+            {conteudo.autor ? (
+              <p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                {conteudo.autor}
+              </p>
+            ) : null}
+          </div>
+        </section>
+      );
+    }
+
+    case "response_variations": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+              <MessageSquareQuote className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Ativos prontos</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Variações de prova social"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {items.map((item: string, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
+                  {socialProofVariationLabel(conteudo.titulo, idx)}
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "keyword_list": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
+              <Search className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Mapa de sinais</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Sinais de prova"}
+              </h3>
+              {conteudo.limite_por_item ? (
+                <p className="mt-1 text-sm text-muted-foreground">{conteudo.limite_por_item}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {items.map((item: string, idx: number) => (
+              <span
+                key={idx}
+                className="rounded-full border border-google-blue/20 bg-google-blue/5 px-4 py-2 text-sm font-medium text-foreground/90"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "service_cards": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
+              <ListVideo className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Biblioteca organizada</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Blocos de prova social"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {items.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.75rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.nome || `Bloco ${idx + 1}`}</h4>
+                  <span className="shrink-0 rounded-full bg-amber-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+                    Item {idx + 1}
+                  </span>
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item.descricao || "não informado"}</p>
+                {Array.isArray(item.palavras_chave) && item.palavras_chave.length > 0 ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {item.palavras_chave.map((keyword: string, keywordIdx: number) => (
+                      <span key={keywordIdx} className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium text-foreground/80">
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "timeline": {
+      const passos = Array.isArray(conteudo.passos) ? conteudo.passos : [];
+      if (!passos.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
+              <Clock3 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Sequência de uso</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Como aplicar a prova"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="relative pl-2 sm:pl-4">
+            <div className="relative border-l-[3px] border-amber-300/40 dark:border-amber-700/40 space-y-6 py-2">
+              {passos.map((passo: string, idx: number) => (
+                <div key={idx} className="relative pl-8 sm:pl-10">
+                  <div className="absolute -left-[11px] top-4 flex h-5 w-5 items-center justify-center rounded-full bg-background border-[4px] border-amber-500 ring-4 ring-background shadow-sm" />
+                  <div className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                    <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+                      Passo {idx + 1}
+                    </div>
+                    <p
+                      className="text-sm sm:text-base leading-relaxed text-foreground/90"
+                      dangerouslySetInnerHTML={{ __html: inlineFormat(passo) }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    case "faq": {
+      const perguntas = Array.isArray(conteudo.perguntas) ? conteudo.perguntas : [];
+      if (!perguntas.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
+              <CheckCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Redução de dúvida</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Perguntas que essa prova ajuda a responder"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            {perguntas.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-google-blue/80">Pergunta {idx + 1}</div>
+                <h4 className="text-lg font-bold tracking-tight text-foreground">{item.pergunta || "não informado"}</h4>
+                <p className="mt-3 text-sm sm:text-base leading-relaxed text-muted-foreground">{item.resposta || "não informado"}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "highlight": {
+      const tone = socialProofHighlightTone(conteudo.icone);
+      const Icon = tone.icon;
+
+      return (
+        <section key={key} className={`rounded-[2rem] border p-5 sm:p-7 shadow-sm ${tone.containerClass}`}>
+          <div className="flex items-start gap-4">
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tone.iconWrapperClass}`}>
+              <Icon className="h-5 w-5" />
+            </div>
+            <div>
+              <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${tone.eyebrowClass}`}>Recomendação</p>
+              {conteudo.titulo ? (
+                <h3 className={`mt-1 text-xl sm:text-2xl font-extrabold tracking-tight ${tone.titleClass}`}>
+                  {conteudo.titulo}
+                </h3>
+              ) : null}
+              <p className={`mt-3 text-sm sm:text-base leading-relaxed ${tone.textClass}`}>
+                {conteudo.texto || "não informado"}
+              </p>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    default:
+      return renderJsonBlock(bloco, key);
+  }
+}
+
+function socialProofVariationLabel(title: string | undefined, index: number) {
+  const normalized = String(title || "").toLowerCase();
+
+  if (normalized.includes("pull quote")) {
+    return `Pull quote ${index + 1}`;
+  }
+
+  if (normalized.includes("resposta")) {
+    return `Versão pronta ${index + 1}`;
+  }
+
+  if (normalized.includes("ângulo")) {
+    return `Ângulo ${index + 1}`;
+  }
+
+  return `Ativo ${index + 1}`;
+}
+
+function socialProofHighlightTone(iconName: string | undefined) {
+  const icon = String(iconName || "").toLowerCase();
+
+  if (icon === "alert") {
+    return {
+      icon: AlertTriangle,
+      containerClass: "border-red-200/70 bg-red-50/80 dark:bg-[#2a1616] dark:border-red-900/50",
+      iconWrapperClass: "bg-red-200/50 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+      eyebrowClass: "text-red-700 dark:text-red-300",
+      titleClass: "text-red-900 dark:text-red-200",
+      textClass: "text-red-950/90 dark:text-red-100/90",
+    };
+  }
+
+  if (icon === "check") {
+    return {
+      icon: CheckCircle,
+      containerClass: "border-emerald-200/70 bg-emerald-50/80 dark:bg-[#162a20] dark:border-emerald-900/50",
+      iconWrapperClass: "bg-emerald-200/50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+      eyebrowClass: "text-emerald-700 dark:text-emerald-300",
+      titleClass: "text-emerald-900 dark:text-emerald-200",
+      textClass: "text-emerald-950/90 dark:text-emerald-100/90",
+    };
+  }
+
+  return {
+    icon: Star,
+    containerClass: "border-amber-200/70 bg-amber-50/80 dark:bg-[#2a2416] dark:border-amber-900/50",
+    iconWrapperClass: "bg-amber-200/50 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+    eyebrowClass: "text-amber-700 dark:text-amber-300",
+    titleClass: "text-amber-900 dark:text-amber-200",
+    textClass: "text-amber-950/90 dark:text-amber-100/90",
+  };
 }
 
 function ScriptSection({
