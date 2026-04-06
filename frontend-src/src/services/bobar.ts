@@ -101,6 +101,68 @@ export type BobarBoardList = {
   boards: BobarBoardSummary[];
 };
 
+export type BobarBoardMember = {
+  user_id: number;
+  email: string;
+  full_name?: string | null;
+  role: string;
+  is_owner: boolean;
+  joined_at: string;
+};
+
+export type BobarBoardInvite = {
+  token: string;
+  is_active: boolean;
+  created_at: string;
+  revoked_at?: string | null;
+};
+
+export type BobarBoardActivity = {
+  id: number;
+  board_id: number;
+  actor_user_id?: number | null;
+  actor_name?: string | null;
+  actor_email?: string | null;
+  event_type: string;
+  message: string;
+  created_at: string;
+};
+
+export type BobarBoardChatMessage = {
+  id: number;
+  board_id: number;
+  user_id: number;
+  user_name?: string | null;
+  user_email: string;
+  message: string;
+  created_at: string;
+};
+
+export type BobarBoardCollaboration = {
+  board_id: number;
+  can_manage_access: boolean;
+  members: BobarBoardMember[];
+  invite?: BobarBoardInvite | null;
+  activities: BobarBoardActivity[];
+  chat_messages: BobarBoardChatMessage[];
+};
+
+export type BobarBoardSharePreview = {
+  token: string;
+  board_id: number;
+  board_title: string;
+  owner_name?: string | null;
+  owner_email: string;
+  already_has_access: boolean;
+  can_accept: boolean;
+  is_active: boolean;
+  total_members: number;
+};
+
+export type BobarBoardShareAccept = {
+  board_id: number;
+};
+
 export type CreateBobarBoardIn = {
   title: string;
 };
@@ -262,4 +324,37 @@ export const bobarService = {
 
   deleteCard: (cardId: number) =>
     http<BobarBoard>(`/api/bobar/cards/${cardId}`, { method: "DELETE" }),
+
+  collaboration: (boardId: number, params?: { activityLimit?: number; chatLimit?: number }) => {
+    const search = new URLSearchParams();
+    if (params?.activityLimit) search.set("activity_limit", String(params.activityLimit));
+    if (params?.chatLimit) search.set("chat_limit", String(params.chatLimit));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return http<BobarBoardCollaboration>(`/api/bobar/boards/${boardId}/collaboration${suffix}`);
+  },
+
+  createShareLink: (boardId: number) =>
+    http<BobarBoardInvite>(`/api/bobar/boards/${boardId}/share-link`, { method: "POST" }),
+
+  revokeShareLink: (boardId: number) =>
+    http<BobarBoardInvite>(`/api/bobar/boards/${boardId}/share-link/revoke`, { method: "POST" }),
+
+  sharePreview: (token: string) =>
+    http<BobarBoardSharePreview>(`/api/bobar/share/${encodeURIComponent(token)}`),
+
+  acceptShare: (token: string) =>
+    http<BobarBoardShareAccept>(`/api/bobar/share/${encodeURIComponent(token)}/accept`, {
+      method: "POST",
+    }),
+
+  removeMember: (boardId: number, userId: number) =>
+    http<BobarBoardCollaboration>(`/api/bobar/boards/${boardId}/members/${userId}`, {
+      method: "DELETE",
+    }),
+
+  sendChatMessage: (boardId: number, payload: { message: string }) =>
+    http<BobarBoardCollaboration>(`/api/bobar/boards/${boardId}/chat-messages`, {
+      method: "POST",
+      json: payload,
+    }),
 };

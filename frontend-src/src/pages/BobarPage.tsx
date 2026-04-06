@@ -11,6 +11,7 @@ import {
   CircleAlert,
   Clock3,
   Columns3,
+  Copy,
   Download,
   Eye,
   FilePlus2,
@@ -19,15 +20,21 @@ import {
   GripVertical,
   Inbox,
   LayoutTemplate,
+  Link2,
   Loader2,
+  MessageSquare,
   Paperclip,
   Pencil,
   Plus,
+  RefreshCcw,
   Save,
+  Send,
+  ShieldCheck,
   Sparkles,
   Tags,
   Trash2,
   Unlink,
+  Users,
   X,
 } from "lucide-react";
 
@@ -44,6 +51,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { useLocation, useNavigate } from "react-router-dom";
 import { exportAuthorityFormat } from "@/lib/authorityExport";
 import { AUTHORITY_AGENTS, authorityAgentByKey } from "@/constants/authorityAgents";
 import {
@@ -57,10 +65,14 @@ import {
 } from "@/lib/bobarImported";
 import { toastApiError, toastInfo, toastSuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/state/authStore";
 import {
   bobarService,
   type BobarAttachment,
   type BobarBoard,
+  type BobarBoardCollaboration,
+  type BobarBoardInvite,
+  type BobarBoardSharePreview,
   type BobarBoardSummary,
   type BobarCard,
   type BobarCardType,
@@ -3179,6 +3191,16 @@ function FlowEditorInspector({
 
 
 export default function BobarPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentUser = useAuthStore((state) => state.user);
+  const shareTokenFromUrl = React.useMemo(() => new URLSearchParams(location.search).get("share"), [location.search]);
+  const [collaboration, setCollaboration] = React.useState<BobarBoardCollaboration | null>(null);
+  const [collaborationLoading, setCollaborationLoading] = React.useState(false);
+  const [sharePreview, setSharePreview] = React.useState<BobarBoardSharePreview | null>(null);
+  const [shareBusy, setShareBusy] = React.useState(false);
+  const [shareLink, setShareLink] = React.useState<BobarBoardInvite | null>(null);
+  const [chatMessageDraft, setChatMessageDraft] = React.useState("");
   const [board, setBoard] = React.useState<BobarBoard | null>(null);
   const [boards, setBoards] = React.useState<BobarBoardSummary[]>([]);
   const [activeBoardId, setActiveBoardId] = React.useState<number | null>(null);
@@ -3471,6 +3493,45 @@ export default function BobarPage() {
     [activeBoardId, syncBoardSummary, syncSelection],
   );
 
+  const loadCollaboration = React.useCallback(
+    async (boardId: number, options?: { silent?: boolean }) => {
+      try {
+        if (!options?.silent) {
+          setCollaborationLoading(true);
+        }
+        const payload = await bobarService.collaboration(boardId);
+        setCollaboration(payload);
+        setShareLink(payload.invite || null);
+        return payload;
+      } catch (error) {
+        if (!options?.silent) {
+          toastApiError(error, "Não foi possível carregar os dados de colaboração do quadro.");
+        }
+        return null;
+      } finally {
+        if (!options?.silent) {
+          setCollaborationLoading(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const refreshBoardSilently = React.useCallback(
+    async (boardId: number, preferredCardId?: number | null) => {
+      try {
+        const nextBoard = await bobarService.board(boardId);
+        setBoard(nextBoard);
+        syncBoardSummary(nextBoard);
+        syncSelection(nextBoard, preferredCardId ?? selectedCardId);
+        return nextBoard;
+      } catch {
+        return null;
+      }
+    },
+    [selectedCardId, syncBoardSummary, syncSelection],
+  );
+
   const updateImportWorkspaceColumns = React.useCallback(
     async (
       boardSnapshot: BobarBoard,
@@ -3600,6 +3661,70 @@ export default function BobarPage() {
   React.useEffect(() => {
     void loadBoardsAndBoard();
   }, [loadBoardsAndBoard]);
+
+  React.useEffect(() => {
+    if (!activeBoardId) {
+      setCollaboration(null);
+      setShareLink(null);
+      return;
+    }
+    void loadCollaboration(activeBoardId);
+  }, [activeBoardId, loadCollaboration]);
+
+  React.useEffect(() => {
+    if (!activeBoardId) return;
+    const interval = window.setInterval(() => {
+      void loadCollaboration(activeBoardId, { silent: true });
+      if (!busy && !loading && !hasPendingChanges) {
+        void refreshBoardSilently(activeBoardId, selectedCardId);
+      }
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [
+    activeBoardId,
+    busy,
+    hasPendingChanges,
+    loadCollaboration,
+    loading,
+    refreshBoardSilently,
+    selectedCardId,
+  ]);
+
+  React.useEffect(() => {
+    if (!shareTokenFromUrl) {
+      setSharePreview(null);
+      return;
+    }
+
+    let cancelled = false;
+    bobarService
+      .sharePreview(shareTokenFromUrl)
+      .then((payload) => {
+        if (!cancelled) {
+          setSharePreview(payload);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSharePreview(null);
+          toastApiError(error, "Esse link de compartilhamento não está disponível.");
+          const params = new URLSearchParams(location.search);
+          params.delete("share");
+          navigate(
+            {
+              pathname: location.pathname,
+              search: params.toString() ? `?${params.toString()}` : "",
+            },
+            { replace: true },
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname, location.search, navigate, shareTokenFromUrl]);
 
   React.useEffect(() => {
     if (!importedCards.length) {
@@ -3752,6 +3877,111 @@ export default function BobarPage() {
   );
 
 
+  const handleCreateShareLink = React.useCallback(async () => {
+    if (!board) return;
+    try {
+      setShareBusy(true);
+      const invite = await bobarService.createShareLink(board.id);
+      setShareLink(invite);
+      await loadCollaboration(board.id, { silent: true });
+      await navigator.clipboard.writeText(`${window.location.origin}/bobar?share=${invite.token}`);
+      toastSuccess("Link de compartilhamento copiado.");
+    } catch (error) {
+      toastApiError(error, "Não foi possível gerar o link de compartilhamento.");
+    } finally {
+      setShareBusy(false);
+    }
+  }, [board, loadCollaboration]);
+
+  const handleRevokeShareLink = React.useCallback(async () => {
+    if (!board) return;
+    try {
+      setShareBusy(true);
+      await bobarService.revokeShareLink(board.id);
+      setShareLink(null);
+      await loadCollaboration(board.id, { silent: true });
+      toastSuccess("Link de compartilhamento revogado.");
+    } catch (error) {
+      toastApiError(error, "Não foi possível revogar o link de compartilhamento.");
+    } finally {
+      setShareBusy(false);
+    }
+  }, [board, loadCollaboration]);
+
+  const handleCopyShareLink = React.useCallback(async (token?: string | null) => {
+    if (!token) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/bobar?share=${token}`);
+      toastSuccess("Link copiado.");
+    } catch {
+      toastInfo("Não foi possível copiar automaticamente. Copie manualmente.");
+    }
+  }, []);
+
+  const handleAcceptSharedBoard = React.useCallback(async () => {
+    if (!shareTokenFromUrl) return;
+    try {
+      setShareBusy(true);
+      const result = await bobarService.acceptShare(shareTokenFromUrl);
+      const params = new URLSearchParams(location.search);
+      params.delete("share");
+      navigate(
+        {
+          pathname: location.pathname,
+          search: params.toString() ? `?${params.toString()}` : "",
+        },
+        { replace: true },
+      );
+      setSharePreview(null);
+      await loadBoardsAndBoard(result.board_id);
+      await loadCollaboration(result.board_id, { silent: true });
+      toastSuccess("Acesso ao quadro confirmado.");
+    } catch (error) {
+      toastApiError(error, "Não foi possível confirmar o acesso ao quadro.");
+    } finally {
+      setShareBusy(false);
+    }
+  }, [loadBoardsAndBoard, loadCollaboration, location.pathname, location.search, navigate, shareTokenFromUrl]);
+
+  const handleRemoveMember = React.useCallback(
+    async (memberUserId: number, memberName: string) => {
+      if (!board) return;
+      const confirmed = window.confirm(`Remover o acesso de ${memberName}?`);
+      if (!confirmed) return;
+
+      try {
+        setShareBusy(true);
+        const payload = await bobarService.removeMember(board.id, memberUserId);
+        setCollaboration(payload);
+        setShareLink(payload.invite || null);
+        toastSuccess("Acesso removido.");
+      } catch (error) {
+        toastApiError(error, "Não foi possível remover esse acesso.");
+      } finally {
+        setShareBusy(false);
+      }
+    },
+    [board],
+  );
+
+  const handleSendProjectMessage = React.useCallback(async () => {
+    if (!board) return;
+    const message = chatMessageDraft.trim();
+    if (!message) return;
+
+    try {
+      setShareBusy(true);
+      const payload = await bobarService.sendChatMessage(board.id, { message });
+      setCollaboration(payload);
+      setShareLink(payload.invite || null);
+      setChatMessageDraft("");
+    } catch (error) {
+      toastApiError(error, "Não foi possível enviar a mensagem.");
+    } finally {
+      setShareBusy(false);
+    }
+  }, [board, chatMessageDraft]);
+
   const openCreateBoardDialog = React.useCallback(() => {
     setBoardNameDraft("");
     setBoardDialog({ mode: "create", board: null });
@@ -3773,7 +4003,10 @@ export default function BobarPage() {
         if (boardDialog.mode === "create") {
           const boardList = await bobarService.createBoard({ title });
           setBoards(boardList.boards);
-          const createdBoard = boardList.boards[boardList.boards.length - 1] || null;
+          const createdBoard =
+            boardList.boards.find((boardItem) => !boards.some((existingBoard) => existingBoard.id === boardItem.id)) ||
+            boardList.boards.find((boardItem) => boardItem.title === title) ||
+            null;
           setBoardDialog(null);
           setBoardNameDraft("");
           if (createdBoard) {
@@ -3795,7 +4028,7 @@ export default function BobarPage() {
         setBusy(false);
       }
     },
-    [boardDialog, boardNameDraft, loadBoardsAndBoard, selectedCardId],
+    [boardDialog, boardNameDraft, boards, loadBoardsAndBoard, selectedCardId],
   );
 
   const handleDeleteBoard = React.useCallback((boardItem: BobarBoardSummary) => {
@@ -5063,7 +5296,7 @@ export default function BobarPage() {
                   disabled={busy || !boardOptions.length}
                 />
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <Button className="h-11 rounded-2xl px-4" onClick={openCreateBoardDialog}>
                     <Plus className="h-4 w-4" />
                     Novo quadro
@@ -5083,10 +5316,19 @@ export default function BobarPage() {
                           new Date().toISOString(),
                       })
                     }
-                    disabled={busy || !board}
+                    disabled={busy || !board || !collaboration?.can_manage_access}
                   >
                     <Pencil className="h-4 w-4" />
                     Renomear
+                  </Button>
+                  <Button
+                    className="h-11 rounded-2xl px-4"
+                    variant="outline"
+                    onClick={() => void handleCreateShareLink()}
+                    disabled={busy || shareBusy || !board || !collaboration?.can_manage_access}
+                  >
+                    <Link2 className="h-4 w-4" />
+                    Compartilhar
                   </Button>
                   <Button
                     className="h-11 rounded-2xl px-4"
@@ -5103,7 +5345,7 @@ export default function BobarPage() {
                           new Date().toISOString(),
                       })
                     }
-                    disabled={busy || !board || boards.length <= 1}
+                    disabled={busy || !board || boards.length <= 1 || !collaboration?.can_manage_access}
                   >
                     <Trash2 className="h-4 w-4" />
                     Excluir
@@ -6142,6 +6384,357 @@ export default function BobarPage() {
           </div>
         </div>
       </div>
+
+      {board ? (
+        <div className="mt-8 grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+          <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+            <CardHeader>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                Compartilhamento do quadro
+              </div>
+              <CardTitle className="text-3xl font-black text-white">Acesso e membros</CardTitle>
+              <CardDescription className="text-white/55">
+                Compartilhe por link com quem já tem conta e acompanhe quem pode acessar esse quadro.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    {collaboration?.can_manage_access ? "Você gerencia esse acesso" : "Quadro compartilhado"}
+                  </div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-white/55">
+                    <Users className="h-3.5 w-3.5" />
+                    {collaboration?.members.length || 0} pessoas
+                  </div>
+                </div>
+
+                {collaboration?.can_manage_access ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] p-3 text-sm text-white/70">
+                      {shareLink?.token ? (
+                        <div className="break-all">
+                          {`${window.location.origin}/bobar?share=${shareLink.token}`}
+                        </div>
+                      ) : (
+                        <div>Gere um link para convidar outra pessoa que já tenha conta no site.</div>
+                      )}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Button
+                        className="h-11 rounded-2xl"
+                        onClick={() =>
+                          shareLink?.token ? void handleCopyShareLink(shareLink.token) : void handleCreateShareLink()
+                        }
+                        disabled={shareBusy || busy}
+                      >
+                        {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                        {shareLink?.token ? "Copiar link" : "Gerar link"}
+                      </Button>
+                      <Button
+                        className="h-11 rounded-2xl"
+                        variant="outline"
+                        onClick={() => void handleRevokeShareLink()}
+                        disabled={shareBusy || busy || !shareLink?.token}
+                      >
+                        <Unlink className="h-4 w-4" />
+                        Revogar link
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-[1.3rem] border border-white/10 bg-[#07101f] p-3 text-sm text-white/70">
+                    Você pode editar o quadro e conversar no projeto, mas apenas o dono gerencia o link e os acessos.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {(collaboration?.members || []).length ? (
+                  collaboration?.members.map((member) => {
+                    const displayName =
+                      member.full_name?.trim() || member.email.split("@")[0] || "Usuário";
+                    const isCurrentUser = currentUser?.email === member.email;
+
+                    return (
+                      <div
+                        key={member.user_id}
+                        className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="truncate text-sm font-semibold text-white">{displayName}</div>
+                              <Badge
+                                className={cn(
+                                  "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]",
+                                  member.is_owner
+                                    ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-100"
+                                    : "border-white/10 bg-white/[0.06] text-white/70",
+                                )}
+                              >
+                                {member.is_owner ? "Dono" : member.role}
+                              </Badge>
+                              {isCurrentUser ? (
+                                <Badge className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                                  Você
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <div className="mt-1 truncate text-xs text-white/45">{member.email}</div>
+                            <div className="mt-2 text-xs text-white/40">
+                              Entrou em {formatDate(member.joined_at)}
+                            </div>
+                          </div>
+
+                          {collaboration?.can_manage_access && !member.is_owner ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              className="h-9 w-9 rounded-2xl"
+                              onClick={() => void handleRemoveMember(member.user_id, displayName)}
+                              disabled={shareBusy}
+                              aria-label={`Remover acesso de ${displayName}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <EmptyState
+                    title="Sem membros ainda"
+                    description="Quando alguém confirmar o link, o acesso aparece aqui."
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card variant="glass" className="rounded-[2.2rem] border-cyan-400/10 bg-[#040914]">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                    Colaboração em tempo real
+                  </div>
+                  <CardTitle className="text-3xl font-black text-white">Chat e atividade</CardTitle>
+                  <CardDescription className="text-white/55">
+                    Mensagens entre quem está no quadro e histórico do que foi feito. Atualização automática a cada 3 segundos.
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 rounded-2xl px-4"
+                  onClick={() => {
+                    void loadCollaboration(board.id);
+                    if (!hasPendingChanges) {
+                      void refreshBoardSilently(board.id, selectedCardId);
+                    }
+                  }}
+                  disabled={collaborationLoading || shareBusy}
+                >
+                  {collaborationLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="h-4 w-4" />
+                  )}
+                  Atualizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                    <MessageSquare className="h-4 w-4 text-cyan-200" />
+                    Chat do projeto
+                  </div>
+
+                  <div className="custom-scrollbar max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                    {(collaboration?.chat_messages || []).length ? (
+                      collaboration?.chat_messages.map((message) => {
+                        const mine = currentUser?.email === message.user_email;
+                        return (
+                          <div
+                            key={message.id}
+                            className={cn(
+                              "rounded-[1.3rem] border px-4 py-3",
+                              mine
+                                ? "ml-auto border-cyan-400/20 bg-cyan-400/10"
+                                : "border-white/10 bg-[#07101f]",
+                            )}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">
+                                {message.user_name || message.user_email}
+                              </div>
+                              <div className="text-[11px] text-white/35">{formatDate(message.created_at)}</div>
+                            </div>
+                            <div className="mt-2 whitespace-pre-wrap break-words text-sm text-white/82">
+                              {message.message}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-8 text-center text-sm text-white/50">
+                        Nenhuma mensagem ainda. Use o campo abaixo para começar o chat do projeto.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex gap-3">
+                    <Textarea
+                      value={chatMessageDraft}
+                      onChange={(event) => setChatMessageDraft(event.target.value)}
+                      placeholder="Escreva uma mensagem para quem está colaborando nesse quadro..."
+                      className="min-h-[88px] rounded-[1.6rem] border-cyan-400/20 bg-[#0a1225]"
+                      onKeyDown={(event) => {
+                        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                          event.preventDefault();
+                          void handleSendProjectMessage();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      className="h-auto min-h-[88px] rounded-[1.6rem] px-5"
+                      onClick={() => void handleSendProjectMessage()}
+                      disabled={shareBusy || !chatMessageDraft.trim()}
+                    >
+                      {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      Enviar
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                    <Clock3 className="h-4 w-4 text-cyan-200" />
+                    Log do projeto
+                  </div>
+
+                  <div className="custom-scrollbar max-h-[460px] space-y-3 overflow-y-auto pr-1">
+                    {(collaboration?.activities || []).length ? (
+                      collaboration?.activities.map((activity) => (
+                        <div
+                          key={activity.id}
+                          className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">
+                              {activity.actor_name || activity.actor_email || "Sistema"}
+                            </div>
+                            <div className="text-[11px] text-white/35">{formatDate(activity.created_at)}</div>
+                          </div>
+                          <div className="mt-2 break-words text-sm text-white/80">{activity.message}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-8 text-center text-sm text-white/50">
+                        O histórico de ações aparece aqui conforme alguém mexe no quadro.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
+      {sharePreview ? (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              const params = new URLSearchParams(location.search);
+              params.delete("share");
+              navigate(
+                {
+                  pathname: location.pathname,
+                  search: params.toString() ? `?${params.toString()}` : "",
+                },
+                { replace: true },
+              );
+              setSharePreview(null);
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                <Link2 className="h-3.5 w-3.5" />
+                Quadro compartilhado
+              </div>
+              <DialogTitle>Confirmar acesso ao quadro</DialogTitle>
+              <DialogDescription>
+                Você está entrando em um quadro compartilhado. Depois de confirmar, ele vai aparecer na sua lista de quadros.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3 rounded-[1.6rem] border border-white/10 bg-[#07101f] p-4">
+              <InfoRow label="Quadro" value={<span className="font-medium text-white">{sharePreview.board_title}</span>} />
+              <InfoRow
+                label="Dono"
+                value={
+                  <span className="font-medium text-white">
+                    {sharePreview.owner_name || sharePreview.owner_email}
+                  </span>
+                }
+              />
+              <InfoRow label="Membros" value={`${sharePreview.total_members} com acesso`} />
+              <InfoRow
+                label="Status"
+                value={
+                  sharePreview.already_has_access
+                    ? "Você já tem acesso"
+                    : sharePreview.is_active
+                      ? "Link ativo"
+                      : "Link indisponível"
+                }
+              />
+            </div>
+
+            <DialogFooter className="gap-3 sm:justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 rounded-2xl"
+                onClick={() => {
+                  const params = new URLSearchParams(location.search);
+                  params.delete("share");
+                  navigate(
+                    {
+                      pathname: location.pathname,
+                      search: params.toString() ? `?${params.toString()}` : "",
+                    },
+                    { replace: true },
+                  );
+                  setSharePreview(null);
+                }}
+              >
+                Fechar
+              </Button>
+              <Button
+                type="button"
+                className="h-11 rounded-2xl"
+                onClick={() => void handleAcceptSharedBoard()}
+                disabled={shareBusy || !sharePreview.can_accept}
+              >
+                {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {sharePreview.already_has_access ? "Você já acessa esse quadro" : "Confirmar acesso"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
 
       {flowEditorOverlay}
 
