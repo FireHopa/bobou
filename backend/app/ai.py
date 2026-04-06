@@ -4231,6 +4231,15 @@ def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
     if agent_key == "tiktok" and _is_tiktok_bio_task(requested_task_lower):
         return _json_dumps(_run_tiktok_bio_task(nucleus, requested_task, selected_theme))
 
+    if agent_key == "social_proof" and "perguntas para coletar depoimentos fortes" in requested_task_lower:
+        return _json_dumps(_run_social_proof_collection_questions_task(nucleus, requested_task, selected_theme))
+    if agent_key == "social_proof" and "transformar feedback bruto em prova social" in requested_task_lower:
+        return _json_dumps(_run_social_proof_feedback_task(nucleus, requested_task, selected_theme))
+    if agent_key == "social_proof" and "case de sucesso em múltiplos formatos" in requested_task_lower:
+        return _json_dumps(_run_social_proof_case_task(nucleus, requested_task, selected_theme))
+    if agent_key == "social_proof" and "biblioteca de prova social por etapa da decisão" in requested_task_lower:
+        return _json_dumps(_run_social_proof_decision_library_task(nucleus, requested_task))
+
     if agent_key == "decision_content" and "faq focado em quebra de obje" in requested_task_lower:
         return _json_dumps(_run_decision_content_faq_task(nucleus, requested_task, selected_theme))
     if agent_key == "decision_content" and "landing page" in requested_task_lower:
@@ -6299,6 +6308,704 @@ Regras:
         pass
 
     return _build_tiktok_trends_fallback(nucleus or {}, web_results)
+
+
+
+
+def _social_proof_context_map(nucleus: Dict[str, Any]) -> Dict[str, str]:
+    digest = _build_nucleus_digest(nucleus or {})
+    proofs = _trim_text(digest.get("provas"), max_chars=700) or "não informado"
+    return {
+        "empresa": _trim_text(digest.get("empresa_marca"), max_chars=120) or "a empresa",
+        "especialidade": _trim_text(digest.get("especialidade"), max_chars=180) or "não informado",
+        "oferta": _trim_text(digest.get("oferta_principal"), max_chars=180) or "não informado",
+        "publico": _trim_text(digest.get("publico_alvo"), max_chars=180) or "não informado",
+        "regiao": _trim_text(digest.get("regiao_contexto"), max_chars=120) or "não informado",
+        "diferenciais": _trim_text(digest.get("diferenciais"), max_chars=220) or "não informado",
+        "provas": proofs,
+    }
+
+
+def _social_proof_feedback_source(nucleus: Dict[str, Any], selected_theme: str) -> str:
+    direct = _trim_text(selected_theme, max_chars=2400)
+    if direct:
+        return direct
+    digest = _build_nucleus_digest(nucleus or {})
+    proofs = _trim_text(digest.get("provas"), max_chars=1800)
+    if proofs:
+        return proofs
+    return "não informado"
+
+
+def _is_valid_social_proof_collection_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_cards = False
+    has_questions = False
+    has_timeline = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_cards = True
+        elif tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 6:
+                has_questions = True
+        elif tipo == "timeline":
+            passos = conteudo.get("passos")
+            if isinstance(passos, list) and len(passos) >= 3:
+                has_timeline = True
+
+    return has_cards and has_questions and has_timeline
+
+
+def _build_social_proof_collection_questions_fallback(nucleus: Dict[str, Any], selected_theme: str) -> Dict[str, Any]:
+    ctx = _social_proof_context_map(nucleus)
+    focus = _trim_text(selected_theme, max_chars=140) or "a transformação mais relevante do cliente"
+    empresa = ctx["empresa"] if ctx["empresa"] != "não informado" else "a empresa"
+    oferta = ctx["oferta"] if ctx["oferta"] != "não informado" else "a entrega principal"
+    publico = ctx["publico"] if ctx["publico"] != "não informado" else "o cliente ideal"
+    diferencial = ctx["diferenciais"] if ctx["diferenciais"] != "não informado" else "a forma de trabalhar"
+
+    questions = [
+        f"O que estava travando antes de procurar {empresa} em relação a {focus}?",
+        f"Por que você decidiu buscar ajuda para {focus} naquele momento?",
+        f"O que fez {oferta} parecer mais adequado para o seu cenário do que seguir sozinho ou escolher outra saída?",
+        f"Qual era o medo, dúvida ou objeção principal antes de contratar?",
+        f"Como você descreveria o problema inicial com suas próprias palavras?",
+        f"Qual parte do processo de {empresa} mais te ajudou a ganhar clareza ou segurança?",
+        f"O que mudou no dia a dia depois que {oferta} entrou em prática?",
+        f"Se você fosse explicar a transformação para alguém parecido com {publico}, o que diria?",
+        f"Qual detalhe da execução mostrou que {diferencial} não era só discurso?",
+        f"O que ainda precisa de contexto para o depoimento parecer verdadeiro e útil, sem exagero?",
+    ]
+
+    return {
+        "titulo_da_tela": "Perguntas para coletar depoimentos fortes",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura estratégica\n"
+                        f"Para transformar {focus} em prova social forte, o depoimento precisa capturar cenário inicial, motivo da decisão, experiência real com {empresa} e mudança percebida. "
+                        "O objetivo aqui não é arrancar elogio genérico; é revelar contexto, processo, redução de risco e legitimidade."
+                    )
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Camadas que o depoimento precisa cobrir",
+                    "items": [
+                        {
+                            "nome": "Contexto inicial",
+                            "descricao": "Descobrir como era o cenário antes da contratação, qual dor estava aberta e por que isso importava.",
+                            "palavras_chave": ["antes", "dor real", "cenário"],
+                        },
+                        {
+                            "nome": "Decisão",
+                            "descricao": f"Entender o gatilho de decisão, o que travava a escolha e por que {oferta} fez sentido naquele momento.",
+                            "palavras_chave": ["objeção", "escolha", "risco"],
+                        },
+                        {
+                            "nome": "Processo",
+                            "descricao": f"Extrair o que aconteceu durante a execução para provar método, clareza e aderência de {empresa}.",
+                            "palavras_chave": ["execução", "processo", "experiência"],
+                        },
+                        {
+                            "nome": "Mudança percebida",
+                            "descricao": "Mapear o que mudou na prática: entendimento, segurança, organização, velocidade, qualidade ou confiança.",
+                            "palavras_chave": ["mudança", "resultado", "impacto"],
+                        },
+                        {
+                            "nome": "Recomendação",
+                            "descricao": f"Fechar com leitura útil para alguém parecido com {publico}, sem transformar o depoimento em propaganda forçada.",
+                            "palavras_chave": ["para quem serve", "indicação", "credibilidade"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Perguntas prontas para usar",
+                    "items": questions,
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "passos": [
+                        "1. Comece pelo cenário anterior e pela dor concreta.",
+                        "2. Puxe a decisão: por que a pessoa resolveu agir agora.",
+                        "3. Explore o processo vivido durante a entrega, sem pressa.",
+                        "4. Feche com a mudança percebida e o que ficou mais claro ou seguro.",
+                        "5. Só depois pergunte se a pessoa recomendaria e para quem isso faria sentido.",
+                    ]
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Peça exemplos, contexto e sensação de segurança. Quanto mais específico o depoimento for sobre antes, processo e mudança, menos ele vai parecer texto de marketing.",
+                    "icone": "lightbulb",
+                },
+            },
+        ],
+    }
+
+
+def _run_social_proof_collection_questions_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    system = """
+Sua missão é montar um kit de coleta de depoimentos realmente fortes.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, service_cards, response_variations, timeline, highlight.
+
+Estruture em:
+1. leitura estratégica
+2. camadas que o depoimento precisa cobrir (service_cards)
+3. 8 a 12 perguntas prontas para usar
+4. ordem recomendada de coleta
+5. recomendação final
+
+Regras:
+- não invente nomes, números, resultados ou falas
+- perguntas devem puxar contexto, antes, decisão, processo, mudança e impacto percebido
+- evite perguntas genéricas como "o que achou?" ou "gostou do atendimento?"
+- o material precisa servir para depoimento escrito, áudio ou vídeo
+- a linguagem deve ser humana, clara e prática
+""".strip()
+
+    user = {
+        "task": requested_task or "Perguntas para coletar depoimentos fortes",
+        "focus": _trim_text(selected_theme) or "não informado",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.4, max_tokens=2600)
+        )
+        if _is_valid_social_proof_collection_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_social_proof_collection_questions_fallback(nucleus or {}, selected_theme)
+
+
+def _is_valid_social_proof_feedback_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_quote = False
+    has_variations = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "quote":
+            if _trim_text(conteudo.get("texto")):
+                has_quote = True
+        elif tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_variations = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keywords = True
+
+    return has_quote and has_variations and has_keywords
+
+
+def _build_social_proof_feedback_fallback(nucleus: Dict[str, Any], selected_theme: str) -> Dict[str, Any]:
+    ctx = _social_proof_context_map(nucleus)
+    raw_feedback = _social_proof_feedback_source(nucleus, selected_theme)
+    empresa = ctx["empresa"] if ctx["empresa"] != "não informado" else "a empresa"
+    oferta = ctx["oferta"] if ctx["oferta"] != "não informado" else "a entrega"
+    publico = ctx["publico"] if ctx["publico"] != "não informado" else "o cliente ideal"
+    proof_sentence = raw_feedback if raw_feedback != "não informado" else f"O cliente percebeu mais clareza e segurança ao longo da execução de {oferta} com {empresa}."
+    short_quote = _compact_inline_text(proof_sentence, max_chars=220) or f"{empresa} ajudou a transformar uma percepção solta em prova social utilizável."
+
+    variations = [
+        f"**Versão site:** Antes havia dúvida ou fricção no cenário. Com {empresa}, o cliente passou a enxergar mais clareza, direção e confiança durante a execução de {oferta}.",
+        f"**Versão comercial:** O relato mostra que {empresa} não vende só promessa: existe processo, acompanhamento e sensação de segurança ao longo da entrega.",
+        f"**Versão proposta ou WhatsApp:** Esse tipo de feedback ajuda a provar que a decisão fica mais segura quando o cliente entende o processo e percebe avanço real.",
+        f"**Versão post ou carrossel:** Prova social boa não é elogio vazio. É quando alguém consegue explicar o antes, o processo e a mudança sentida depois da entrega.",
+        f"**Versão caso curto:** Para alguém parecido com {publico}, o ganho central aqui é sair da incerteza e passar a enxergar mais clareza sobre o que está sendo feito e por quê.",
+    ]
+
+    pull_quotes = [
+        "Ficou mais claro o que estava sendo feito e por quê.",
+        "A decisão deixou de parecer escura e passou a fazer sentido.",
+        "O processo gerou mais segurança do que promessa.",
+        "A percepção de valor apareceu na prática, não no discurso.",
+        "O atendimento ajudou a reduzir dúvida e ruído.",
+        "A experiência ficou mais concreta e menos abstrata.",
+    ]
+
+    return {
+        "titulo_da_tela": "Transformação do feedback em prova social",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura estratégica\n"
+                        "O material abaixo foi tratado como evidência parcial. O foco não é enfeitar o feedback, e sim organizar o que já existe para ele ganhar forma, contexto e reaproveitamento sem inventar dados."
+                    )
+                },
+            },
+            {
+                "tipo": "quote",
+                "conteudo": {
+                    "autor": "Trecho central reaproveitável",
+                    "texto": short_quote,
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Versões prontas de prova social",
+                    "items": variations,
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Pull quotes curtas",
+                    "items": pull_quotes,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais de prova presentes no material",
+                    "limite_por_item": "curtos, específicos e reaproveitáveis",
+                    "items": [
+                        "clareza de processo",
+                        "redução de dúvida",
+                        "segurança na decisão",
+                        "experiência concreta",
+                        "resultado percebido",
+                        "contexto real",
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Se possível, valide depois três pontos que ainda fortalecem muito a prova: cenário anterior, por que a decisão foi tomada e qual mudança prática ficou mais visível.",
+                    "icone": "lightbulb",
+                },
+            },
+        ],
+    }
+
+
+def _run_social_proof_feedback_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    raw_feedback = _social_proof_feedback_source(nucleus, selected_theme)
+
+    system = """
+Sua missão é transformar feedback bruto em prova social utilizável sem inventar nada.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, quote, response_variations, keyword_list, highlight.
+
+Estruture em:
+1. leitura estratégica do material
+2. trecho central reaproveitável (quote)
+3. 4 a 6 versões prontas da prova social
+4. 4 a 8 pull quotes curtas
+5. sinais de prova presentes no material
+6. recomendação final
+
+Regras:
+- preserve o sentido do feedback original
+- não crie números, falas, promessas ou causalidades não presentes
+- se o material estiver incompleto, assuma leitura conservadora
+- as versões prontas devem servir para site, comercial, proposta, WhatsApp ou social
+- o texto deve soar humano, específico e plausível
+""".strip()
+
+    user = {
+        "task": requested_task or "Transformar feedback bruto em prova social",
+        "raw_feedback": raw_feedback,
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2600)
+        )
+        if _is_valid_social_proof_feedback_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_social_proof_feedback_fallback(nucleus or {}, selected_theme)
+
+
+def _is_valid_social_proof_case_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_timeline = False
+    has_cards = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "timeline":
+            passos = conteudo.get("passos")
+            if isinstance(passos, list) and len(passos) >= 4:
+                has_timeline = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_cards = True
+
+    return has_timeline and has_cards
+
+
+def _build_social_proof_case_fallback(nucleus: Dict[str, Any], selected_theme: str) -> Dict[str, Any]:
+    ctx = _social_proof_context_map(nucleus)
+    case_focus = _trim_text(selected_theme, max_chars=140) or "um caso de sucesso real"
+    empresa = ctx["empresa"] if ctx["empresa"] != "não informado" else "a empresa"
+    oferta = ctx["oferta"] if ctx["oferta"] != "não informado" else "a entrega"
+    publico = ctx["publico"] if ctx["publico"] != "não informado" else "o cliente ideal"
+
+    return {
+        "titulo_da_tela": "Case de sucesso em múltiplos formatos",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura estratégica\n"
+                        f"O caso precisa provar por que {case_focus} importa, em qual cenário {empresa} entrou, o que foi feito e qual mudança percebida ficou concreta. "
+                        "Sem contexto, o case vira elogio solto; com contexto, ele reduz risco percebido."
+                    )
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "passos": [
+                        f"1. **Antes:** descreva como {case_focus} aparecia no cenário do cliente antes da ajuda.",
+                        f"2. **Decisão:** explique por que o cliente decidiu avançar com {empresa}.",
+                        f"3. **Execução:** mostre como {oferta} foi conduzida na prática.",
+                        "4. **Mudança percebida:** destaque o que ficou mais claro, seguro, rápido ou organizado.",
+                        f"5. **Impacto final:** feche com a leitura do que esse caso prova para alguém parecido com {publico}.",
+                    ]
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Reaproveitamentos do mesmo case",
+                    "items": [
+                        {
+                            "nome": "Versão curta para site",
+                            "descricao": "1 a 2 parágrafos com cenário inicial, processo e mudança percebida em linguagem objetiva.",
+                            "palavras_chave": ["site", "curto", "credibilidade"],
+                        },
+                        {
+                            "nome": "Versão comercial",
+                            "descricao": "Use o case para responder objeção, reduzir risco e mostrar aderência do processo ao cenário do lead.",
+                            "palavras_chave": ["proposta", "objeção", "decisão"],
+                        },
+                        {
+                            "nome": "Versão social",
+                            "descricao": "Transforme o caso em aprendizado público: erro inicial, virada prática e lição final reaproveitável.",
+                            "palavras_chave": ["post", "carrossel", "conteúdo"],
+                        },
+                        {
+                            "nome": "Versão para call",
+                            "descricao": "Conte em 30 a 60 segundos, focando problema inicial, decisão e percepção de segurança após a execução.",
+                            "palavras_chave": ["pitch", "call", "vendas"],
+                        },
+                        {
+                            "nome": "Versão para FAQ",
+                            "descricao": "Quebre o case em perguntas e respostas para reforçar clareza, processo e expectativa real.",
+                            "palavras_chave": ["faq", "clareza", "redução de risco"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Ângulos de prova para abrir o case",
+                    "items": [
+                        f"O valor desse case não está em parecer grandioso, e sim em mostrar como {case_focus} saiu do abstrato e ganhou direção.",
+                        f"Esse caso ajuda a provar que {empresa} não opera só no discurso: existe processo, leitura e execução adaptada ao cenário.",
+                        f"Para alguém parecido com {publico}, o ponto mais forte aqui é a redução de incerteza ao longo da entrega.",
+                        "A melhor abertura é aquela que mostra o que estava travando antes e o que ficou mais claro depois.",
+                        "Evite começar pelo elogio; comece pelo contexto que torna a mudança relevante.",
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Estruture o case sempre em quatro camadas: cenário inicial, decisão, execução e mudança percebida. Isso deixa a prova social mais forte do que qualquer adjetivo.",
+                    "icone": "lightbulb",
+                },
+            },
+        ],
+    }
+
+
+def _run_social_proof_case_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    system = """
+Sua missão é estruturar um case de sucesso em múltiplos formatos.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, timeline, service_cards, response_variations, highlight.
+
+Estruture em:
+1. leitura estratégica
+2. narrativa do case em etapas
+3. formatos de reaproveitamento do mesmo case
+4. ângulos de prova ou aberturas possíveis
+5. recomendação final
+
+Regras:
+- não invente resultado, número, nome ou fala
+- o case precisa mostrar antes, decisão, processo, mudança e implicação
+- cada formato precisa ter uma função clara
+- evite transformar o case em anúncio genérico
+- a linguagem deve ser sóbria, humana e utilizável
+""".strip()
+
+    user = {
+        "task": requested_task or "Case de sucesso em múltiplos formatos",
+        "case_focus": _trim_text(selected_theme) or "não informado",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2600)
+        )
+        if _is_valid_social_proof_case_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_social_proof_case_fallback(nucleus or {}, selected_theme)
+
+
+def _is_valid_social_proof_decision_library_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_cards = False
+    has_faq = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_cards = True
+        elif tipo == "faq":
+            perguntas = conteudo.get("perguntas")
+            if isinstance(perguntas, list) and len(perguntas) >= 3:
+                has_faq = True
+
+    return has_cards and has_faq
+
+
+def _build_social_proof_decision_library_fallback(nucleus: Dict[str, Any]) -> Dict[str, Any]:
+    ctx = _social_proof_context_map(nucleus)
+    empresa = ctx["empresa"] if ctx["empresa"] != "não informado" else "a empresa"
+    oferta = ctx["oferta"] if ctx["oferta"] != "não informado" else "a entrega"
+    publico = ctx["publico"] if ctx["publico"] != "não informado" else "o cliente ideal"
+
+    return {
+        "titulo_da_tela": "Biblioteca de prova social por etapa da decisão",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura estratégica\n"
+                        f"A mesma prova não serve para todos os momentos. Para {empresa}, a prova social precisa mudar conforme a maturidade de quem avalia {oferta}: descoberta pede contexto; decisão pede redução de risco."
+                    )
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Qual prova usar em cada etapa",
+                    "items": [
+                        {
+                            "nome": "Descoberta",
+                            "descricao": "Use relatos curtos com identificação imediata do problema, cenário e tipo de cliente. O objetivo é fazer a pessoa pensar: isso parece comigo.",
+                            "palavras_chave": ["identificação", "cenário", "problema"],
+                        },
+                        {
+                            "nome": "Consideração",
+                            "descricao": "Use provas que mostram processo, critérios de escolha e por que a abordagem de vocês faz sentido naquele contexto.",
+                            "palavras_chave": ["processo", "método", "escolha"],
+                        },
+                        {
+                            "nome": "Decisão",
+                            "descricao": "Use cases, falas contextualizadas, objeções respondidas e evidências de segurança, clareza e aderência à realidade do cliente.",
+                            "palavras_chave": ["objeção", "segurança", "risco"],
+                        },
+                        {
+                            "nome": "Validação final",
+                            "descricao": f"Use prova que ajude {publico} a justificar internamente a escolha: antes, processo, mudança e leitura final do que fez valer a decisão.",
+                            "palavras_chave": ["aprovação", "justificativa", "confiança"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "passos": [
+                        "1. Levante tudo o que hoje já existe de feedback, avaliação, print, áudio, mensagem e observação interna.",
+                        "2. Classifique cada prova por estágio da decisão, não só por canal.",
+                        "3. Reescreva o material para deixar antes, processo e mudança mais nítidos.",
+                        "4. Publique e reutilize a prova certa em site, comercial, social e follow-up.",
+                    ]
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "perguntas": [
+                        {
+                            "pergunta": "O que enfraquece uma prova social na fase de descoberta?",
+                            "resposta": "Quando ela vira elogio genérico e não mostra cenário, dor ou contexto suficiente para gerar identificação.",
+                        },
+                        {
+                            "pergunta": "O que mais ajuda na fase de decisão?",
+                            "resposta": "Mostrar por que a escolha fez sentido, como o processo aconteceu e qual mudança prática foi percebida sem exagero.",
+                        },
+                        {
+                            "pergunta": "Precisa ter número para ser convincente?",
+                            "resposta": "Não. Prova social também pode fortalecer confiança com contexto, clareza, segurança, organização, experiência e legitimidade.",
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Evidências que vale priorizar na coleta",
+                    "limite_por_item": "curtas e reaproveitáveis",
+                    "items": [
+                        "cenário anterior",
+                        "motivo da decisão",
+                        "objeção inicial",
+                        "processo vivido",
+                        "mudança percebida",
+                        "segurança gerada",
+                        "resultado sentido",
+                        "para quem faz sentido",
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Monte a biblioteca pensando em estágio de decisão e não apenas em canal. Isso evita usar a mesma prova fraca em todos os lugares e aumenta a utilidade real do material.",
+                    "icone": "lightbulb",
+                },
+            },
+        ],
+    }
+
+
+def _run_social_proof_decision_library_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é montar uma biblioteca de prova social por etapa da decisão.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, service_cards, timeline, faq, keyword_list, highlight.
+
+Estruture em:
+1. leitura estratégica
+2. qual prova usar em cada etapa da decisão
+3. plano de priorização
+4. dúvidas que cada prova ajuda a reduzir
+5. tipos de evidência a coletar
+6. recomendação final
+
+Regras:
+- não invente provas nem transforme elogio vago em fato
+- diferencie descoberta, consideração, decisão e validação
+- explique função prática de cada tipo de prova
+- a saída deve ficar pronta para reaproveitamento comercial e editorial
+""".strip()
+
+    user = {
+        "task": requested_task or "Biblioteca de prova social por etapa da decisão",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2600)
+        )
+        if _is_valid_social_proof_decision_library_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_social_proof_decision_library_fallback(nucleus or {})
+
 
 
 def suggest_themes_for_task(agent_key: str, nucleus: Dict[str, Any], task: str) -> List[str]:
