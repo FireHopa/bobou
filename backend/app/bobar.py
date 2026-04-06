@@ -4,6 +4,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -18,6 +19,10 @@ from .deps import get_current_user
 from .models import (
     BobarAttachment,
     BobarBoard,
+    BobarBoardActivity,
+    BobarBoardChatMessage,
+    BobarBoardInvite,
+    BobarBoardMember,
     BobarCard,
     BobarColumn,
     BobarLabel,
@@ -179,6 +184,73 @@ class BobarCardUpdateIn(BaseModel):
 class BobarCardMoveIn(BaseModel):
     column_id: int
     position: int = Field(default=0, ge=0)
+
+
+class BobarBoardMemberOut(BaseModel):
+    user_id: int
+    email: str
+    full_name: Optional[str] = None
+    role: str
+    is_owner: bool = False
+    joined_at: str
+
+
+class BobarBoardInviteOut(BaseModel):
+    token: str
+    is_active: bool
+    created_at: str
+    revoked_at: Optional[str] = None
+
+
+class BobarBoardActivityOut(BaseModel):
+    id: int
+    board_id: int
+    actor_user_id: Optional[int] = None
+    actor_name: Optional[str] = None
+    actor_email: Optional[str] = None
+    event_type: str
+    message: str
+    created_at: str
+
+
+class BobarBoardChatMessageOut(BaseModel):
+    id: int
+    board_id: int
+    user_id: int
+    user_name: Optional[str] = None
+    user_email: str
+    message: str
+    created_at: str
+
+
+class BobarBoardCollaborationOut(BaseModel):
+    board_id: int
+    can_manage_access: bool = False
+    members: list[BobarBoardMemberOut] = Field(default_factory=list)
+    invite: Optional[BobarBoardInviteOut] = None
+    activities: list[BobarBoardActivityOut] = Field(default_factory=list)
+    chat_messages: list[BobarBoardChatMessageOut] = Field(default_factory=list)
+
+
+class BobarBoardSharePreviewOut(BaseModel):
+    token: str
+    board_id: int
+    board_title: str
+    owner_name: Optional[str] = None
+    owner_email: str
+    already_has_access: bool = False
+    can_accept: bool = False
+    is_active: bool = False
+    total_members: int = 0
+
+
+class BobarBoardShareAcceptOut(BaseModel):
+    board_id: int
+
+
+class BobarBoardChatMessageIn(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+
 
 def _clean_text(value: Optional[str]) -> str:
     return str(value or "").strip()
@@ -738,6 +810,295 @@ def _touch_board(board: BobarBoard) -> None:
     board.updated_at = utcnow()
 
 
+def _display_user_name(user: User | None) -> str:
+    if not user:
+        return "Usuário"
+    return _clean_text(user.full_name) or _clean_text(user.email).split("@")[0] or "Usuário"
+
+
+def _get_board_owner_user(session: Session, board: BobarBoard) -> User:
+    owner = session.get(User, board.user_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail="Dono do quadro não encontrado.")
+    return owner
+
+
+def _get_board_membership(
+    session: Session,
+    board_id: int,
+    user_id: int,
+) -> BobarBoardMember | None:
+    return session.exec(
+        select(BobarBoardMember)
+        .where(BobarBoardMember.board_id == board_id, BobarBoardMember.user_id == user_id)
+        .order_by(BobarBoardMember.id.desc())
+    ).first()
+
+
+def _require_board_owner(board: BobarBoard, current_user: User) -> None:
+    if board.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Somente o dono do quadro pode gerenciar este acesso.")
+
+
+def _list_accessible_boards(session: Session, current_user: User) -> list[BobarBoard]:
+    own_boards = _list_boards(session, current_user)
+    own_ids = {board.id or 0 for board in own_boards}
+
+    shared_board_ids = session.exec(
+        select(BobarBoardMember.board_id)
+        .where(BobarBoardMember.user_id == current_user.id)
+        .order_by(BobarBoardMember.accepted_at.desc(), BobarBoardMember.id.desc())
+    ).all()
+    shared_ids = [board_id for board_id in shared_board_ids if board_id and board_id not in own_ids]
+
+    shared_boards: list[BobarBoard] = []
+    if shared_ids:
+        shared_boards = session.exec(
+            select(BobarBoard)
+            .where(BobarBoard.id.in_(shared_ids))
+            .order_by(BobarBoard.updated_at.desc(), BobarBoard.id.desc())
+        ).all()
+
+    return [*own_boards, *shared_boards]
+
+
+def _get_accessible_board_or_default(
+    session: Session,
+    current_user: User,
+    board_id: Optional[int] = None,
+) -> BobarBoard:
+    boards = _list_accessible_boards(session, current_user)
+    if not boards:
+        raise HTTPException(status_code=404, detail="Quadro do Bobar não encontrado.")
+
+    if board_id is None:
+        return boards[0]
+
+    board = session.get(BobarBoard, board_id)
+    if not board:
+        raise HTTPException(status_code=404, detail="Quadro do Bobar não encontrado.")
+
+    if board.user_id == current_user.id:
+        return board
+
+    membership = _get_board_membership(session, board_id, current_user.id)
+    if membership:
+        return board
+
+    raise HTTPException(status_code=404, detail="Quadro do Bobar não encontrado.")
+
+
+def _get_accessible_column_or_404(session: Session, current_user: User, column_id: int) -> BobarColumn:
+    column = session.get(BobarColumn, column_id)
+    if not column:
+        raise HTTPException(status_code=404, detail="Coluna do Bobar não encontrada.")
+    _get_accessible_board_or_default(session, current_user, column.board_id)
+    return column
+
+
+def _get_accessible_card_or_404(session: Session, current_user: User, card_id: int) -> BobarCard:
+    card = session.get(BobarCard, card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="Card do Bobar não encontrado.")
+    _get_accessible_board_or_default(session, current_user, card.board_id)
+    if not card.label_ids_json:
+        card.label_ids_json = "[]"
+    return card
+
+
+def _get_accessible_label_or_404(session: Session, current_user: User, label_id: int) -> BobarLabel:
+    label = session.get(BobarLabel, label_id)
+    if not label:
+        raise HTTPException(status_code=404, detail="Etiqueta do Bobar não encontrada.")
+    _get_accessible_board_or_default(session, current_user, label.board_id)
+    return label
+
+
+def _get_accessible_attachment_or_404(
+    session: Session,
+    current_user: User,
+    attachment_id: int,
+) -> BobarAttachment:
+    attachment = session.get(BobarAttachment, attachment_id)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Anexo do Bobar não encontrado.")
+    _get_accessible_board_or_default(session, current_user, attachment.board_id)
+    return attachment
+
+
+def _get_active_board_invite(session: Session, board_id: int) -> BobarBoardInvite | None:
+    return session.exec(
+        select(BobarBoardInvite)
+        .where(BobarBoardInvite.board_id == board_id, BobarBoardInvite.is_active == True)
+        .order_by(BobarBoardInvite.created_at.desc(), BobarBoardInvite.id.desc())
+    ).first()
+
+
+def _record_board_activity(
+    session: Session,
+    board: BobarBoard,
+    *,
+    actor: User | None,
+    event_type: str,
+    message: str,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[int] = None,
+    metadata: Optional[dict[str, Any]] = None,
+) -> None:
+    session.add(
+        BobarBoardActivity(
+            board_id=board.id or 0,
+            actor_user_id=actor.id if actor else None,
+            event_type=_clip(_clean_text(event_type) or "info", 60),
+            message=_clip(_clean_text(message), 500),
+            entity_type=_clean_text(entity_type) or None,
+            entity_id=entity_id,
+            metadata_json=_json_dumps(metadata or {}),
+            created_at=utcnow(),
+        )
+    )
+
+
+def _build_collaboration_payload(
+    session: Session,
+    board: BobarBoard,
+    current_user: User,
+    *,
+    activity_limit: int = 50,
+    chat_limit: int = 80,
+) -> BobarBoardCollaborationOut:
+    owner = _get_board_owner_user(session, board)
+
+    memberships = session.exec(
+        select(BobarBoardMember)
+        .where(BobarBoardMember.board_id == (board.id or 0))
+        .order_by(BobarBoardMember.accepted_at.asc(), BobarBoardMember.created_at.asc(), BobarBoardMember.id.asc())
+    ).all()
+
+    member_user_ids = [membership.user_id for membership in memberships if membership.user_id != owner.id]
+    users_by_id: dict[int, User] = {owner.id or 0: owner}
+    if member_user_ids:
+        for user in session.exec(select(User).where(User.id.in_(member_user_ids))).all():
+            users_by_id[user.id or 0] = user
+
+    members: list[BobarBoardMemberOut] = [
+        BobarBoardMemberOut(
+            user_id=owner.id or 0,
+            email=owner.email,
+            full_name=owner.full_name,
+            role="owner",
+            is_owner=True,
+            joined_at=board.created_at.isoformat(),
+        )
+    ]
+
+    added_user_ids = {owner.id or 0}
+    for membership in memberships:
+        user = users_by_id.get(membership.user_id)
+        if not user:
+            continue
+        if (user.id or 0) in added_user_ids:
+            continue
+        added_user_ids.add(user.id or 0)
+        members.append(
+            BobarBoardMemberOut(
+                user_id=user.id or 0,
+                email=user.email,
+                full_name=user.full_name,
+                role=membership.role or "editor",
+                is_owner=False,
+                joined_at=(membership.accepted_at or membership.created_at).isoformat(),
+            )
+        )
+
+    invite = _get_active_board_invite(session, board.id or 0)
+    invite_out = None
+    if current_user.id == board.user_id and invite:
+        invite_out = BobarBoardInviteOut(
+            token=invite.token,
+            is_active=invite.is_active,
+            created_at=invite.created_at.isoformat(),
+            revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
+        )
+
+    activities_rows = session.exec(
+        select(BobarBoardActivity)
+        .where(BobarBoardActivity.board_id == (board.id or 0))
+        .order_by(BobarBoardActivity.created_at.desc(), BobarBoardActivity.id.desc())
+    ).all()[: max(1, activity_limit)]
+
+    activity_actor_ids = [row.actor_user_id for row in activities_rows if row.actor_user_id]
+    if activity_actor_ids:
+        for user in session.exec(select(User).where(User.id.in_(activity_actor_ids))).all():
+            users_by_id[user.id or 0] = user
+
+    activities = [
+        BobarBoardActivityOut(
+            id=row.id or 0,
+            board_id=row.board_id,
+            actor_user_id=row.actor_user_id,
+            actor_name=_display_user_name(users_by_id.get(row.actor_user_id or 0)) if row.actor_user_id else None,
+            actor_email=users_by_id.get(row.actor_user_id or 0).email if row.actor_user_id and users_by_id.get(row.actor_user_id or 0) else None,
+            event_type=row.event_type,
+            message=row.message,
+            created_at=row.created_at.isoformat(),
+        )
+        for row in activities_rows
+    ]
+
+    chat_rows = session.exec(
+        select(BobarBoardChatMessage)
+        .where(BobarBoardChatMessage.board_id == (board.id or 0))
+        .order_by(BobarBoardChatMessage.created_at.desc(), BobarBoardChatMessage.id.desc())
+    ).all()[: max(1, chat_limit)]
+
+    chat_user_ids = [row.user_id for row in chat_rows if row.user_id]
+    if chat_user_ids:
+        for user in session.exec(select(User).where(User.id.in_(chat_user_ids))).all():
+            users_by_id[user.id or 0] = user
+
+    chat_messages = [
+        BobarBoardChatMessageOut(
+            id=row.id or 0,
+            board_id=row.board_id,
+            user_id=row.user_id,
+            user_name=_display_user_name(users_by_id.get(row.user_id)),
+            user_email=users_by_id.get(row.user_id).email if users_by_id.get(row.user_id) else "",
+            message=row.message,
+            created_at=row.created_at.isoformat(),
+        )
+        for row in reversed(chat_rows)
+    ]
+
+    return BobarBoardCollaborationOut(
+        board_id=board.id or 0,
+        can_manage_access=current_user.id == board.user_id,
+        members=members,
+        invite=invite_out,
+        activities=activities,
+        chat_messages=chat_messages,
+    )
+
+
+def _build_accessible_board_list(session: Session, current_user: User) -> BobarBoardListOut:
+    boards = _list_accessible_boards(session, current_user)
+    if not boards:
+        return BobarBoardListOut(boards=[])
+
+    board_ids = [board.id or 0 for board in boards if board.id]
+    totals: dict[int, int] = {board_id: 0 for board_id in board_ids}
+    if board_ids:
+        rows = session.exec(select(BobarCard.board_id).where(BobarCard.board_id.in_(board_ids))).all()
+        for board_id in rows:
+            if board_id is None:
+                continue
+            totals[board_id] = totals.get(board_id, 0) + 1
+
+    return BobarBoardListOut(
+        boards=[_board_summary_out(board, totals.get(board.id or 0, 0)) for board in boards]
+    )
+
+
 def _board_summary_out(board: BobarBoard, total_cards: int) -> BobarBoardSummaryOut:
     return BobarBoardSummaryOut(
         id=board.id or 0,
@@ -1295,12 +1656,13 @@ def _cleanup_duplicate_workspace_for_import(
     return _build_board(session, current_user, board)
 
 
+
 @router.get("/boards", response_model=BobarBoardListOut)
 def bobar_list_boards(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    return _build_board_list(session, current_user)
+    return _build_accessible_board_list(session, current_user)
 
 
 @router.post("/boards", response_model=BobarBoardListOut)
@@ -1325,7 +1687,17 @@ def bobar_create_board(
     session.commit()
     session.refresh(board)
     _ensure_default_columns(session, current_user, board)
-    return _build_board_list(session, current_user)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="board_created",
+        message=f"{_display_user_name(current_user)} criou o quadro {board.title}.",
+        entity_type="board",
+        entity_id=board.id or 0,
+    )
+    session.commit()
+    return _build_accessible_board_list(session, current_user)
 
 
 @router.patch("/boards/{board_id}", response_model=BobarBoardListOut)
@@ -1336,15 +1708,29 @@ def bobar_rename_board(
     current_user: User = Depends(get_current_user),
 ):
     board = _get_board_or_default(session, current_user, board_id)
+    _require_board_owner(board, current_user)
+
+    previous_title = board.title
     if payload.title is not None:
         title = _clean_text(payload.title)
         if not title:
             raise HTTPException(status_code=400, detail="O nome do quadro não pode ficar vazio.")
         board.title = _clip(title, 120)
+
     _touch_board(board)
     session.add(board)
+    if board.title != previous_title:
+        _record_board_activity(
+            session,
+            board,
+            actor=current_user,
+            event_type="board_renamed",
+            message=f"{_display_user_name(current_user)} renomeou o quadro de {previous_title} para {board.title}.",
+            entity_type="board",
+            entity_id=board.id or 0,
+        )
     session.commit()
-    return _build_board_list(session, current_user)
+    return _build_accessible_board_list(session, current_user)
 
 
 @router.delete("/boards/{board_id}", response_model=BobarBoardListOut)
@@ -1358,10 +1744,13 @@ def bobar_delete_board(
         raise HTTPException(status_code=400, detail="Você precisa manter ao menos um quadro.")
 
     board = _get_board_or_default(session, current_user, board_id)
+    _require_board_owner(board, current_user)
+
+    owner_user = _get_board_owner_user(session, board)
 
     attachments = session.exec(
         select(BobarAttachment)
-        .where(BobarAttachment.user_id == current_user.id, BobarAttachment.board_id == (board.id or 0))
+        .where(BobarAttachment.user_id == owner_user.id, BobarAttachment.board_id == (board.id or 0))
     ).all()
     for attachment in attachments:
         _delete_attachment_file(attachment)
@@ -1369,29 +1758,49 @@ def bobar_delete_board(
 
     cards = session.exec(
         select(BobarCard)
-        .where(BobarCard.user_id == current_user.id, BobarCard.board_id == (board.id or 0))
+        .where(BobarCard.user_id == owner_user.id, BobarCard.board_id == (board.id or 0))
     ).all()
     for card in cards:
         session.delete(card)
 
     columns = session.exec(
         select(BobarColumn)
-        .where(BobarColumn.user_id == current_user.id, BobarColumn.board_id == (board.id or 0))
+        .where(BobarColumn.user_id == owner_user.id, BobarColumn.board_id == (board.id or 0))
     ).all()
     for column in columns:
         session.delete(column)
 
     labels = session.exec(
         select(BobarLabel)
-        .where(BobarLabel.user_id == current_user.id, BobarLabel.board_id == (board.id or 0))
+        .where(BobarLabel.user_id == owner_user.id, BobarLabel.board_id == (board.id or 0))
     ).all()
     for label in labels:
         session.delete(label)
 
+    for membership in session.exec(
+        select(BobarBoardMember).where(BobarBoardMember.board_id == (board.id or 0))
+    ).all():
+        session.delete(membership)
+
+    for invite in session.exec(
+        select(BobarBoardInvite).where(BobarBoardInvite.board_id == (board.id or 0))
+    ).all():
+        session.delete(invite)
+
+    for activity in session.exec(
+        select(BobarBoardActivity).where(BobarBoardActivity.board_id == (board.id or 0))
+    ).all():
+        session.delete(activity)
+
+    for message in session.exec(
+        select(BobarBoardChatMessage).where(BobarBoardChatMessage.board_id == (board.id or 0))
+    ).all():
+        session.delete(message)
+
     session.delete(board)
     session.commit()
     _reindex_boards(session, current_user)
-    return _build_board_list(session, current_user)
+    return _build_accessible_board_list(session, current_user)
 
 
 @router.get("", response_model=BobarBoardOut)
@@ -1400,8 +1809,9 @@ def bobar_board(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    board = _get_board_or_default(session, current_user, board_id)
-    return _build_board(session, current_user, board)
+    board = _get_accessible_board_or_default(session, current_user, board_id)
+    owner_user = _get_board_owner_user(session, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.post("/labels", response_model=BobarBoardOut)
@@ -1411,10 +1821,12 @@ def bobar_create_label(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    board = _get_board_or_default(session, current_user, board_id)
+    board = _get_accessible_board_or_default(session, current_user, board_id)
+    owner_user = _get_board_owner_user(session, board)
+
     labels = session.exec(
         select(BobarLabel)
-        .where(BobarLabel.user_id == current_user.id, BobarLabel.board_id == (board.id or 0))
+        .where(BobarLabel.user_id == owner_user.id, BobarLabel.board_id == (board.id or 0))
         .order_by(BobarLabel.position.asc(), BobarLabel.id.asc())
     ).all()
 
@@ -1423,7 +1835,7 @@ def bobar_create_label(
         raise HTTPException(status_code=400, detail="Informe um nome para a etiqueta.")
 
     label = BobarLabel(
-        user_id=current_user.id,
+        user_id=owner_user.id,
         board_id=board.id or 0,
         name=_clip(name, 60),
         color=_normalize_label_color(payload.color),
@@ -1433,9 +1845,19 @@ def bobar_create_label(
     )
     _touch_board(board)
     session.add(label)
+    session.flush()
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="label_created",
+        message=f"{_display_user_name(current_user)} criou a etiqueta {label.name}.",
+        entity_type="label",
+        entity_id=label.id or 0,
+    )
     session.add(board)
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.patch("/labels/{label_id}", response_model=BobarBoardOut)
@@ -1445,8 +1867,12 @@ def bobar_update_label(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    label = _get_label_or_404(session, current_user, label_id)
-    board = _get_board_or_default(session, current_user, label.board_id)
+    label = _get_accessible_label_or_404(session, current_user, label_id)
+    board = _get_accessible_board_or_default(session, current_user, label.board_id)
+    owner_user = _get_board_owner_user(session, board)
+
+    previous_name = label.name
+    previous_color = label.color
 
     if payload.name is not None:
         name = _clean_text(payload.name)
@@ -1461,8 +1887,18 @@ def bobar_update_label(
     _touch_board(board)
     session.add(label)
     session.add(board)
+    if label.name != previous_name or label.color != previous_color:
+        _record_board_activity(
+            session,
+            board,
+            actor=current_user,
+            event_type="label_updated",
+            message=f"{_display_user_name(current_user)} atualizou a etiqueta {label.name}.",
+            entity_type="label",
+            entity_id=label.id or 0,
+        )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.delete("/labels/{label_id}", response_model=BobarBoardOut)
@@ -1471,13 +1907,15 @@ def bobar_delete_label(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    label = _get_label_or_404(session, current_user, label_id)
-    board = _get_board_or_default(session, current_user, label.board_id)
+    label = _get_accessible_label_or_404(session, current_user, label_id)
+    board = _get_accessible_board_or_default(session, current_user, label.board_id)
+    owner_user = _get_board_owner_user(session, board)
     removed_label_id = label.id or 0
+    removed_label_name = label.name
 
     cards = session.exec(
         select(BobarCard)
-        .where(BobarCard.user_id == current_user.id, BobarCard.board_id == (board.id or 0))
+        .where(BobarCard.user_id == owner_user.id, BobarCard.board_id == (board.id or 0))
     ).all()
     now = utcnow()
     for card in cards:
@@ -1491,8 +1929,17 @@ def bobar_delete_label(
     session.delete(label)
     _touch_board(board)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="label_deleted",
+        message=f"{_display_user_name(current_user)} removeu a etiqueta {removed_label_name}.",
+        entity_type="label",
+        entity_id=removed_label_id,
+    )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.post("/columns", response_model=BobarBoardOut)
@@ -1502,26 +1949,36 @@ def bobar_create_column(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    board = _get_board_or_default(session, current_user, board_id)
-    columns = _ensure_default_columns(session, current_user, board)
+    board = _get_accessible_board_or_default(session, current_user, board_id)
+    owner_user = _get_board_owner_user(session, board)
+    columns = _ensure_default_columns(session, owner_user, board)
     name = _clean_text(payload.name)
     if not name:
         raise HTTPException(status_code=400, detail="Informe um nome para a coluna.")
 
-    session.add(
-        BobarColumn(
-            user_id=current_user.id,
-            board_id=board.id or 0,
-            name=_clip(name, 80),
-            position=len(columns),
-            created_at=utcnow(),
-            updated_at=utcnow(),
-        )
+    column = BobarColumn(
+        user_id=owner_user.id,
+        board_id=board.id or 0,
+        name=_clip(name, 80),
+        position=len(columns),
+        created_at=utcnow(),
+        updated_at=utcnow(),
     )
+    session.add(column)
+    session.flush()
     _touch_board(board)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="column_created",
+        message=f"{_display_user_name(current_user)} criou a coluna {column.name}.",
+        entity_type="column",
+        entity_id=column.id or 0,
+    )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.patch("/columns/{column_id}", response_model=BobarBoardOut)
@@ -1531,9 +1988,11 @@ def bobar_update_column(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    column = _get_column_or_404(session, current_user, column_id)
-    board = _get_board_or_default(session, current_user, column.board_id)
+    column = _get_accessible_column_or_404(session, current_user, column_id)
+    board = _get_accessible_board_or_default(session, current_user, column.board_id)
+    owner_user = _get_board_owner_user(session, board)
 
+    previous_name = column.name
     if payload.name is not None:
         name = _clean_text(payload.name)
         if not name:
@@ -1544,8 +2003,18 @@ def bobar_update_column(
     _touch_board(board)
     session.add(column)
     session.add(board)
+    if column.name != previous_name:
+        _record_board_activity(
+            session,
+            board,
+            actor=current_user,
+            event_type="column_updated",
+            message=f"{_display_user_name(current_user)} renomeou a coluna de {previous_name} para {column.name}.",
+            entity_type="column",
+            entity_id=column.id or 0,
+        )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.delete("/columns/{column_id}", response_model=BobarBoardOut)
@@ -1554,9 +2023,10 @@ def bobar_delete_column(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    target = _get_column_or_404(session, current_user, column_id)
-    board = _get_board_or_default(session, current_user, target.board_id)
-    columns = _ensure_default_columns(session, current_user, board)
+    target = _get_accessible_column_or_404(session, current_user, column_id)
+    board = _get_accessible_board_or_default(session, current_user, target.board_id)
+    owner_user = _get_board_owner_user(session, board)
+    columns = _ensure_default_columns(session, owner_user, board)
 
     if len(columns) <= 1:
         raise HTTPException(status_code=400, detail="Você precisa manter ao menos uma coluna no quadro.")
@@ -1567,16 +2037,20 @@ def bobar_delete_column(
 
     destination_cards = session.exec(
         select(BobarCard)
-        .where(BobarCard.user_id == current_user.id, BobarCard.column_id == destination.id)
+        .where(BobarCard.user_id == owner_user.id, BobarCard.column_id == destination.id)
         .order_by(BobarCard.position.asc(), BobarCard.id.asc())
     ).all()
     next_position = len(destination_cards)
 
     target_cards = session.exec(
         select(BobarCard)
-        .where(BobarCard.user_id == current_user.id, BobarCard.column_id == target.id)
+        .where(BobarCard.user_id == owner_user.id, BobarCard.column_id == target.id)
         .order_by(BobarCard.position.asc(), BobarCard.id.asc())
     ).all()
+
+    moved_cards_count = len(target_cards)
+    removed_column_name = target.name
+    destination_name = destination.name
 
     now = utcnow()
     for card in target_cards:
@@ -1590,10 +2064,19 @@ def bobar_delete_column(
     session.delete(target)
     _touch_board(board)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="column_deleted",
+        message=f"{_display_user_name(current_user)} excluiu a coluna {removed_column_name} e realocou {moved_cards_count} card(s) para {destination_name}.",
+        entity_type="column",
+        entity_id=column_id,
+    )
     session.commit()
-    _reindex_columns(session, current_user, board.id or 0)
-    _reindex_cards_for_column(session, current_user, destination.id or 0)
-    return _build_board(session, current_user, board)
+    _reindex_columns(session, owner_user, board.id or 0)
+    _reindex_cards_for_column(session, owner_user, destination.id or 0)
+    return _build_board(session, owner_user, board)
 
 
 @router.post("/cards", response_model=BobarBoardOut)
@@ -1603,15 +2086,16 @@ def bobar_create_card(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    board = _get_board_or_default(session, current_user, board_id)
-    columns = _ensure_default_columns(session, current_user, board)
-    column = _get_column_or_404(session, current_user, payload.column_id) if payload.column_id else columns[0]
+    board = _get_accessible_board_or_default(session, current_user, board_id)
+    owner_user = _get_board_owner_user(session, board)
+    columns = _ensure_default_columns(session, owner_user, board)
+    column = _get_accessible_column_or_404(session, current_user, payload.column_id) if payload.column_id else columns[0]
     if (column.board_id or 0) != (board.id or 0):
         raise HTTPException(status_code=400, detail="A coluna selecionada pertence a outro quadro.")
 
     existing_cards = session.exec(
         select(BobarCard)
-        .where(BobarCard.user_id == current_user.id, BobarCard.column_id == column.id)
+        .where(BobarCard.user_id == owner_user.id, BobarCard.column_id == column.id)
         .order_by(BobarCard.position.asc(), BobarCard.id.asc())
     ).all()
 
@@ -1620,31 +2104,40 @@ def bobar_create_card(
     title = _derive_card_title(payload.title, payload.source_label, content_text or note)
     card_type = _derive_card_type(payload.card_type, content_text)
     structure_json = _resolve_structure_json(card_type, payload.structure_json, title, content_text)
-    label_ids = _normalize_card_label_ids(session, current_user, board.id or 0, payload.label_ids)
+    label_ids = _normalize_card_label_ids(session, owner_user, board.id or 0, payload.label_ids)
 
-    session.add(
-        BobarCard(
-            user_id=current_user.id,
-            board_id=board.id or 0,
-            column_id=column.id or 0,
-            title=title,
-            card_type=card_type,
-            source_kind=_clean_text(payload.source_kind) or None,
-            source_label=_clean_text(payload.source_label) or None,
-            content_text=content_text,
-            note=note,
-            position=len(existing_cards),
-            structure_json=structure_json,
-            due_at=_parse_due_at(payload.due_at),
-            label_ids_json=_json_dumps(label_ids),
-            created_at=utcnow(),
-            updated_at=utcnow(),
-        )
+    card = BobarCard(
+        user_id=owner_user.id,
+        board_id=board.id or 0,
+        column_id=column.id or 0,
+        title=title,
+        card_type=card_type,
+        source_kind=_clean_text(payload.source_kind) or None,
+        source_label=_clean_text(payload.source_label) or None,
+        content_text=content_text,
+        note=note,
+        position=len(existing_cards),
+        structure_json=structure_json,
+        due_at=_parse_due_at(payload.due_at),
+        label_ids_json=_json_dumps(label_ids),
+        created_at=utcnow(),
+        updated_at=utcnow(),
     )
+    session.add(card)
+    session.flush()
     _touch_board(board)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="card_created",
+        message=f"{_display_user_name(current_user)} criou o card {card.title}.",
+        entity_type="card",
+        entity_id=card.id or 0,
+    )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.post("/cards/import", response_model=BobarBoardOut)
@@ -1664,17 +2157,19 @@ def bobar_update_card(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, current_user, card_id)
-    board = _get_board_or_default(session, current_user, card.board_id)
+    card = _get_accessible_card_or_404(session, current_user, card_id)
+    board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    owner_user = _get_board_owner_user(session, board)
     old_column_id = card.column_id
+    previous_title = card.title
 
     if payload.column_id is not None and payload.column_id != card.column_id:
-        new_column = _get_column_or_404(session, current_user, payload.column_id)
+        new_column = _get_accessible_column_or_404(session, current_user, payload.column_id)
         if (new_column.board_id or 0) != (board.id or 0):
             raise HTTPException(status_code=400, detail="A coluna selecionada pertence a outro quadro.")
         existing_cards = session.exec(
             select(BobarCard)
-            .where(BobarCard.user_id == current_user.id, BobarCard.column_id == new_column.id)
+            .where(BobarCard.user_id == owner_user.id, BobarCard.column_id == new_column.id)
             .order_by(BobarCard.position.asc(), BobarCard.id.asc())
         ).all()
         card.column_id = new_column.id or 0
@@ -1716,20 +2211,29 @@ def bobar_update_card(
 
     if payload.label_ids is not None:
         card.label_ids_json = _json_dumps(
-            _normalize_card_label_ids(session, current_user, board.id or 0, payload.label_ids)
+            _normalize_card_label_ids(session, owner_user, board.id or 0, payload.label_ids)
         )
 
     card.updated_at = utcnow()
     _touch_board(board)
     session.add(card)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="card_updated",
+        message=f"{_display_user_name(current_user)} editou o card {card.title or previous_title}.",
+        entity_type="card",
+        entity_id=card.id or 0,
+    )
     session.commit()
 
     if old_column_id != card.column_id:
-        _reindex_cards_for_column(session, current_user, old_column_id)
-        _reindex_cards_for_column(session, current_user, card.column_id)
+        _reindex_cards_for_column(session, owner_user, old_column_id)
+        _reindex_cards_for_column(session, owner_user, card.column_id)
 
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.post("/cards/{card_id}/attachments", response_model=BobarBoardOut)
@@ -1739,8 +2243,9 @@ async def bobar_upload_attachment(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, current_user, card_id)
-    board = _get_board_or_default(session, current_user, card.board_id)
+    card = _get_accessible_card_or_404(session, current_user, card_id)
+    board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    owner_user = _get_board_owner_user(session, board)
 
     filename = _safe_filename(file.filename)
     content = await file.read()
@@ -1752,11 +2257,11 @@ async def bobar_upload_attachment(
     mime_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     extension = _guess_extension(filename, mime_type)
     storage_name = f"{uuid.uuid4().hex}{extension}"
-    storage_path = _attachment_storage_dir(current_user.id, board.id or 0, card.id or 0) / storage_name
+    storage_path = _attachment_storage_dir(owner_user.id, board.id or 0, card.id or 0) / storage_name
     storage_path.write_bytes(content)
 
     attachment = BobarAttachment(
-        user_id=current_user.id,
+        user_id=owner_user.id,
         board_id=board.id or 0,
         card_id=card.id or 0,
         filename=filename,
@@ -1768,10 +2273,20 @@ async def bobar_upload_attachment(
     card.updated_at = utcnow()
     _touch_board(board)
     session.add(attachment)
+    session.flush()
     session.add(card)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="attachment_created",
+        message=f"{_display_user_name(current_user)} anexou {filename} ao card {card.title}.",
+        entity_type="attachment",
+        entity_id=attachment.id or 0,
+    )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.delete("/attachments/{attachment_id}", response_model=BobarBoardOut)
@@ -1780,18 +2295,29 @@ def bobar_delete_attachment(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    attachment = _get_attachment_or_404(session, current_user, attachment_id)
-    card = _get_card_or_404(session, current_user, attachment.card_id)
-    board = _get_board_or_default(session, current_user, attachment.board_id)
+    attachment = _get_accessible_attachment_or_404(session, current_user, attachment_id)
+    card = _get_accessible_card_or_404(session, current_user, attachment.card_id)
+    board = _get_accessible_board_or_default(session, current_user, attachment.board_id)
+    owner_user = _get_board_owner_user(session, board)
 
+    attachment_name = attachment.filename
     _delete_attachment_file(attachment)
     session.delete(attachment)
     card.updated_at = utcnow()
     _touch_board(board)
     session.add(card)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="attachment_deleted",
+        message=f"{_display_user_name(current_user)} removeu o anexo {attachment_name} do card {card.title}.",
+        entity_type="attachment",
+        entity_id=attachment_id,
+    )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.get("/attachments/{attachment_id}/content")
@@ -1800,7 +2326,7 @@ def bobar_attachment_content(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    attachment = _get_attachment_or_404(session, current_user, attachment_id)
+    attachment = _get_accessible_attachment_or_404(session, current_user, attachment_id)
     path = Path(attachment.storage_path or "")
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Arquivo anexado não encontrado.")
@@ -1813,11 +2339,23 @@ def bobar_cleanup_import_duplicates(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    import_card = _get_card_or_404(session, current_user, import_card_id)
+    import_card = _get_accessible_card_or_404(session, current_user, import_card_id)
     if not _is_authority_import_source_kind(import_card.source_kind):
         raise HTTPException(status_code=400, detail="Esse card não é um roteiro importado.")
-    board = _get_board_or_default(session, current_user, import_card.board_id)
-    return _cleanup_duplicate_workspace_for_import(session, current_user, import_card, board)
+    board = _get_accessible_board_or_default(session, current_user, import_card.board_id)
+    owner_user = _get_board_owner_user(session, board)
+    result = _cleanup_duplicate_workspace_for_import(session, owner_user, import_card, board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="workspace_cleanup",
+        message=f"{_display_user_name(current_user)} limpou colunas duplicadas do roteiro importado {import_card.title}.",
+        entity_type="card",
+        entity_id=import_card.id or 0,
+    )
+    session.commit()
+    return result
 
 
 @router.post("/cards/{card_id}/move", response_model=BobarBoardOut)
@@ -1827,19 +2365,21 @@ def bobar_move_card(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, current_user, card_id)
-    board = _get_board_or_default(session, current_user, card.board_id)
-    target_column = _get_column_or_404(session, current_user, payload.column_id)
+    card = _get_accessible_card_or_404(session, current_user, card_id)
+    board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    owner_user = _get_board_owner_user(session, board)
+    target_column = _get_accessible_column_or_404(session, current_user, payload.column_id)
     if (target_column.board_id or 0) != (board.id or 0):
         raise HTTPException(status_code=400, detail="A coluna de destino pertence a outro quadro.")
 
     source_column_id = card.column_id
     destination_column_id = target_column.id or 0
+    destination_column_name = target_column.name
     now = utcnow()
 
     source_cards = session.exec(
         select(BobarCard)
-        .where(BobarCard.user_id == current_user.id, BobarCard.column_id == source_column_id)
+        .where(BobarCard.user_id == owner_user.id, BobarCard.column_id == source_column_id)
         .order_by(BobarCard.position.asc(), BobarCard.id.asc())
     ).all()
 
@@ -1857,7 +2397,7 @@ def bobar_move_card(
         source_remaining = [item for item in source_cards if item.id != card.id]
         destination_cards = session.exec(
             select(BobarCard)
-            .where(BobarCard.user_id == current_user.id, BobarCard.column_id == destination_column_id)
+            .where(BobarCard.user_id == owner_user.id, BobarCard.column_id == destination_column_id)
             .order_by(BobarCard.position.asc(), BobarCard.id.asc())
         ).all()
 
@@ -1878,8 +2418,17 @@ def bobar_move_card(
 
     _touch_board(board)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="card_moved",
+        message=f"{_display_user_name(current_user)} moveu o card {card.title} para a coluna {destination_column_name}.",
+        entity_type="card",
+        entity_id=card.id or 0,
+    )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.post("/cards/{card_id}/transform-to-flowchart", response_model=BobarBoardOut)
@@ -1888,16 +2437,27 @@ def bobar_transform_to_flowchart(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, current_user, card_id)
-    board = _get_board_or_default(session, current_user, card.board_id)
+    card = _get_accessible_card_or_404(session, current_user, card_id)
+    board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    owner_user = _get_board_owner_user(session, board)
+
     card.card_type = "fluxograma"
     card.structure_json = _resolve_structure_json("fluxograma", card.structure_json, card.title, card.content_text)
     card.updated_at = utcnow()
     _touch_board(board)
     session.add(card)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="card_flowchart",
+        message=f"{_display_user_name(current_user)} transformou o card {card.title} em fluxograma.",
+        entity_type="card",
+        entity_id=card.id or 0,
+    )
     session.commit()
-    return _build_board(session, current_user, board)
+    return _build_board(session, owner_user, board)
 
 
 @router.delete("/cards/{card_id}", response_model=BobarBoardOut)
@@ -1906,13 +2466,279 @@ def bobar_delete_card(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, current_user, card_id)
-    board = _get_board_or_default(session, current_user, card.board_id)
+    card = _get_accessible_card_or_404(session, current_user, card_id)
+    board = _get_accessible_board_or_default(session, current_user, card.board_id)
+    owner_user = _get_board_owner_user(session, board)
+
     column_id = card.column_id
-    _delete_card_attachments(session, current_user, card)
+    card_title = card.title
+    _delete_card_attachments(session, owner_user, card)
     session.delete(card)
     _touch_board(board)
     session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="card_deleted",
+        message=f"{_display_user_name(current_user)} excluiu o card {card_title}.",
+        entity_type="card",
+        entity_id=card_id,
+    )
     session.commit()
-    _reindex_cards_for_column(session, current_user, column_id)
-    return _build_board(session, current_user, board)
+    _reindex_cards_for_column(session, owner_user, column_id)
+    return _build_board(session, owner_user, board)
+
+
+@router.get("/boards/{board_id}/collaboration", response_model=BobarBoardCollaborationOut)
+def bobar_board_collaboration(
+    board_id: int,
+    activity_limit: int = Query(default=50, ge=10, le=200),
+    chat_limit: int = Query(default=80, ge=10, le=200),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    board = _get_accessible_board_or_default(session, current_user, board_id)
+    return _build_collaboration_payload(
+        session,
+        board,
+        current_user,
+        activity_limit=activity_limit,
+        chat_limit=chat_limit,
+    )
+
+
+@router.post("/boards/{board_id}/share-link", response_model=BobarBoardInviteOut)
+def bobar_create_share_link(
+    board_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    board = _get_board_or_default(session, current_user, board_id)
+    _require_board_owner(board, current_user)
+
+    invite = _get_active_board_invite(session, board.id or 0)
+    if invite:
+        return BobarBoardInviteOut(
+            token=invite.token,
+            is_active=invite.is_active,
+            created_at=invite.created_at.isoformat(),
+            revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
+        )
+
+    invite = BobarBoardInvite(
+        board_id=board.id or 0,
+        created_by_user_id=current_user.id,
+        token=secrets.token_urlsafe(24),
+        is_active=True,
+        created_at=utcnow(),
+        revoked_at=None,
+    )
+    _touch_board(board)
+    session.add(invite)
+    session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="share_link_created",
+        message=f"{_display_user_name(current_user)} gerou um novo link de acesso.",
+        entity_type="board",
+        entity_id=board.id or 0,
+    )
+    session.commit()
+    return BobarBoardInviteOut(
+        token=invite.token,
+        is_active=invite.is_active,
+        created_at=invite.created_at.isoformat(),
+        revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
+    )
+
+
+@router.post("/boards/{board_id}/share-link/revoke", response_model=BobarBoardInviteOut)
+def bobar_revoke_share_link(
+    board_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    board = _get_board_or_default(session, current_user, board_id)
+    _require_board_owner(board, current_user)
+
+    invite = _get_active_board_invite(session, board.id or 0)
+    if not invite:
+        raise HTTPException(status_code=404, detail="Não existe link ativo para esse quadro.")
+
+    invite.is_active = False
+    invite.revoked_at = utcnow()
+    _touch_board(board)
+    session.add(invite)
+    session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="share_link_revoked",
+        message=f"{_display_user_name(current_user)} revogou o link de acesso do quadro.",
+        entity_type="board",
+        entity_id=board.id or 0,
+    )
+    session.commit()
+    return BobarBoardInviteOut(
+        token=invite.token,
+        is_active=invite.is_active,
+        created_at=invite.created_at.isoformat(),
+        revoked_at=invite.revoked_at.isoformat() if invite.revoked_at else None,
+    )
+
+
+@router.get("/share/{token}", response_model=BobarBoardSharePreviewOut)
+def bobar_share_preview(
+    token: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    invite = session.exec(
+        select(BobarBoardInvite).where(BobarBoardInvite.token == token)
+    ).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Link de compartilhamento não encontrado.")
+
+    board = session.get(BobarBoard, invite.board_id)
+    if not board:
+        raise HTTPException(status_code=404, detail="Quadro compartilhado não encontrado.")
+
+    owner = _get_board_owner_user(session, board)
+    members_count = 1 + len(
+        session.exec(
+            select(BobarBoardMember).where(BobarBoardMember.board_id == (board.id or 0))
+        ).all()
+    )
+    already_has_access = board.user_id == current_user.id or _get_board_membership(session, board.id or 0, current_user.id) is not None
+
+    return BobarBoardSharePreviewOut(
+        token=invite.token,
+        board_id=board.id or 0,
+        board_title=board.title,
+        owner_name=owner.full_name,
+        owner_email=owner.email,
+        already_has_access=already_has_access,
+        can_accept=invite.is_active and not already_has_access,
+        is_active=invite.is_active,
+        total_members=members_count,
+    )
+
+
+@router.post("/share/{token}/accept", response_model=BobarBoardShareAcceptOut)
+def bobar_accept_share(
+    token: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    invite = session.exec(
+        select(BobarBoardInvite).where(BobarBoardInvite.token == token)
+    ).first()
+    if not invite or not invite.is_active:
+        raise HTTPException(status_code=404, detail="Esse link de compartilhamento não está mais disponível.")
+
+    board = session.get(BobarBoard, invite.board_id)
+    if not board:
+        raise HTTPException(status_code=404, detail="Quadro compartilhado não encontrado.")
+
+    if board.user_id == current_user.id:
+        return BobarBoardShareAcceptOut(board_id=board.id or 0)
+
+    membership = _get_board_membership(session, board.id or 0, current_user.id)
+    if membership:
+        return BobarBoardShareAcceptOut(board_id=board.id or 0)
+
+    membership = BobarBoardMember(
+        board_id=board.id or 0,
+        user_id=current_user.id,
+        role="editor",
+        created_at=utcnow(),
+        updated_at=utcnow(),
+        accepted_at=utcnow(),
+    )
+    _touch_board(board)
+    session.add(membership)
+    session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="member_joined",
+        message=f"{_display_user_name(current_user)} entrou no quadro compartilhado.",
+        entity_type="member",
+        entity_id=current_user.id,
+    )
+    session.commit()
+    return BobarBoardShareAcceptOut(board_id=board.id or 0)
+
+
+@router.delete("/boards/{board_id}/members/{member_user_id}", response_model=BobarBoardCollaborationOut)
+def bobar_remove_member(
+    board_id: int,
+    member_user_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    board = _get_board_or_default(session, current_user, board_id)
+    _require_board_owner(board, current_user)
+
+    if member_user_id == board.user_id:
+        raise HTTPException(status_code=400, detail="O dono do quadro não pode ser removido.")
+
+    membership = _get_board_membership(session, board.id or 0, member_user_id)
+    if not membership:
+        raise HTTPException(status_code=404, detail="Esse usuário não tem acesso a esse quadro.")
+
+    removed_user = session.get(User, member_user_id)
+    session.delete(membership)
+    _touch_board(board)
+    session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="member_removed",
+        message=f"{_display_user_name(current_user)} removeu o acesso de {_display_user_name(removed_user)}.",
+        entity_type="member",
+        entity_id=member_user_id,
+    )
+    session.commit()
+    return _build_collaboration_payload(session, board, current_user)
+
+
+@router.post("/boards/{board_id}/chat-messages", response_model=BobarBoardCollaborationOut)
+def bobar_send_chat_message(
+    board_id: int,
+    payload: BobarBoardChatMessageIn,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    board = _get_accessible_board_or_default(session, current_user, board_id)
+    message_text = _clean_text(payload.message)
+    if not message_text:
+        raise HTTPException(status_code=400, detail="A mensagem não pode ficar vazia.")
+
+    chat_message = BobarBoardChatMessage(
+        board_id=board.id or 0,
+        user_id=current_user.id,
+        message=_clip(message_text, 2000),
+        created_at=utcnow(),
+    )
+    _touch_board(board)
+    session.add(chat_message)
+    session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="chat_message",
+        message=f"{_display_user_name(current_user)} enviou uma mensagem no chat do projeto.",
+        entity_type="chat_message",
+        entity_id=chat_message.id or 0,
+    )
+    session.commit()
+    return _build_collaboration_payload(session, board, current_user)
+

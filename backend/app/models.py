@@ -311,3 +311,56 @@ class BobarCard(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=utcnow, index=True)
     updated_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class BobarBoardMember(SQLModel, table=True):
+    __tablename__ = "bobar_board_member"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    board_id: int = Field(foreign_key="bobar_board.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    role: str = Field(default="editor", index=True)
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow, index=True)
+    accepted_at: Optional[datetime] = Field(default=None, index=True)
+
+
+class BobarBoardInvite(SQLModel, table=True):
+    __tablename__ = "bobar_board_invite"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    board_id: int = Field(foreign_key="bobar_board.id", index=True)
+    created_by_user_id: int = Field(foreign_key="user.id", index=True)
+    token: str = Field(index=True, unique=True)
+    is_active: bool = Field(default=True, index=True)
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    revoked_at: Optional[datetime] = Field(default=None, index=True)
+
+
+class BobarBoardActivity(SQLModel, table=True):
+    __tablename__ = "bobar_board_activity"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    board_id: int = Field(foreign_key="bobar_board.id", index=True)
+    actor_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+
+    event_type: str = Field(default="info", index=True)
+    message: str = Field(default="")
+    entity_type: Optional[str] = Field(default=None, index=True)
+    entity_id: Optional[int] = Field(default=None, index=True)
+    metadata_json: str = Field(default="{}")
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class BobarBoardChatMessage(SQLModel, table=True):
+    __tablename__ = "bobar_board_chat_message"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    board_id: int = Field(foreign_key="bobar_board.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+
+    message: str = Field(default="")
+    created_at: datetime = Field(default_factory=utcnow, index=True)
