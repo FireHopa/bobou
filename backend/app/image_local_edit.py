@@ -756,8 +756,9 @@ def should_use_local_text_render(
     instruction_info: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """
-    O render local só é seguro em casos MUITO restritos.
-    Para títulos, headlines, cidades, datas e textos livres, preferimos mask + OpenAI edit.
+    Render local determinístico é preferível sempre que o pedido for
+    troca EXATA de texto e a região estiver localizada com confiança suficiente.
+    Isso evita lettering aleatório da IA e garante que o texto final seja o pedido.
     """
     if not analysis:
         return False
@@ -767,58 +768,60 @@ def should_use_local_text_render(
         return False
 
     confidence = float(analysis.get("confidence", 0.0) or 0.0)
-    operation = (analysis.get("operation") or "").lower()
+    operation = (analysis.get("operation") or "text_replace").lower()
     text_bbox_norm = analysis.get("text_bbox") or analysis.get("bbox")
     container_bbox_norm = analysis.get("container_bbox")
     replacement_text = (analysis.get("replacement_text") or "").strip()
     target_text = (analysis.get("target_text") or "").strip()
     style = analysis.get("style") or {}
 
-    if operation != "button_text_replace":
-        logger.debug("Local render desativado: operação não é button_text_replace.")
+    if not replacement_text:
+        logger.debug("Local render desativado: replacement_text vazio.")
         return False
 
-    if not text_bbox_norm or not container_bbox_norm:
-        logger.debug("Local render desativado: faltam caixas text_bbox/container_bbox.")
+    if not (text_bbox_norm or container_bbox_norm):
+        logger.debug("Local render desativado: nenhuma caixa útil encontrada.")
         return False
 
-    if confidence < 0.82:
-        logger.debug("Local render desativado: confiança %.3f abaixo do mínimo seguro.", confidence)
+    minimum_confidence = 0.72 if operation == "button_text_replace" else 0.76
+    if confidence < minimum_confidence:
+        logger.debug("Local render desativado: confiança %.3f abaixo do mínimo %.3f.", confidence, minimum_confidence)
         return False
 
     try:
-        box_w = float(text_bbox_norm.get("w", 0.0) or 0.0)
-        box_h = float(text_bbox_norm.get("h", 0.0) or 0.0)
+        box = text_bbox_norm or container_bbox_norm or {}
+        box_w = float(box.get("w", 0.0) or 0.0)
+        box_h = float(box.get("h", 0.0) or 0.0)
         aspect = box_w / max(box_h, 1e-6)
     except Exception:
         logger.debug("Local render desativado: caixa inválida.")
         return False
 
-    if aspect < 2.8:
-        logger.debug("Local render desativado: caixa de texto estreita demais (aspect=%.3f).", aspect)
+    if box_w <= 0.0 or box_h <= 0.0:
+        logger.debug("Local render desativado: caixa sem área.")
         return False
 
-    if len(replacement_text) > 26:
+    if len(replacement_text) > 48:
         logger.debug("Local render desativado: replacement_text longo demais (%s chars).", len(replacement_text))
-        return False
-
-    if "\n" in replacement_text:
-        logger.debug("Local render desativado: replacement_text multilinha.")
         return False
 
     if target_text:
         old_len = max(1, len(target_text))
         new_len = len(replacement_text)
         ratio = new_len / float(old_len)
-        if ratio < 0.60 or ratio > 1.35:
+        if ratio < 0.45 or ratio > 2.25:
             logger.debug("Local render desativado: delta de comprimento inseguro (ratio=%.3f).", ratio)
             return False
 
-    if style.get("glow"):
-        logger.debug("Local render desativado: texto com glow detectado.")
+    if operation == "button_text_replace" and aspect < 1.5:
+        logger.debug("Local render desativado: botão/chip estreito demais (aspect=%.3f).", aspect)
         return False
 
-    logger.debug("Local render ativado com critérios estritos.")
+    if style.get("glow") and operation != "button_text_replace":
+        logger.debug("Local render desativado: glow em texto livre aumenta risco de artefato.")
+        return False
+
+    logger.debug("Local render ativado para troca textual determinística.")
     return True
 
 
@@ -1039,19 +1042,28 @@ def render_local_text_fallback(
                 image = _inpaint_rgba(image, _inflate_rect(bbox, 4, 4, width, height), radius=3)
 
             if operation == "button_text_replace" and container_rect:
-                text_box = container_rect
+                pad_x = max(8, int((container_rect[2] - container_rect[0]) * 0.10))
+                pad_y = max(6, int((container_rect[3] - container_rect[1]) * 0.18))
+                text_box = (
+                    container_rect[0] + pad_x,
+                    container_rect[1] + pad_y,
+                    container_rect[2] - pad_x,
+                    container_rect[3] - pad_y,
+                )
             else:
                 text_box = text_rect or bbox or container_rect
-                
+
             if not text_box:
                 return None
 
-            multiline = len(text) > 14 or (text_box[2] - text_box[0]) / max(1, text_box[3] - text_box[1]) < 3.6
+            box_w = max(1, text_box[2] - text_box[0])
+            box_h = max(1, text_box[3] - text_box[1])
+            multiline = "\n" in text or len(text) > 18 or (box_w / max(1, box_h)) < 4.2
             overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-            
-            logger.debug(f"A desenhar o texto: '{text}', multiline: {multiline}")
+
+            logger.debug(f"A desenhar o texto: '{text}', multiline: {multiline}, box={text_box}")
             _draw_text_with_effects(overlay, text, text_box, style, multiline=multiline)
-            
+
             image.alpha_composite(overlay)
 
             out = io.BytesIO()

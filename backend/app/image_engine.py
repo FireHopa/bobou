@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-from PIL import Image, ImageOps, ImageChops, UnidentifiedImageError
+from PIL import Image, ImageOps, ImageChops, ImageDraw, ImageFilter, UnidentifiedImageError
 
 from .image_local_edit import (
     analyze_all_regions_with_openai,
@@ -35,7 +35,7 @@ from .credits import (
 )
 from .db import get_session
 from .deps import get_current_user
-from .models import ImageEngineProject, User
+from .models import ImageEngineHistoryEntry, ImageEngineProject, User
 
 
 router = APIRouter()
@@ -69,6 +69,24 @@ class ImageEditRequest(BaseModel):
     instrucoes_edicao: str = ""
     width: Optional[int] = Field(default=None, description="Largura final customizada em pixels")
     height: Optional[int] = Field(default=None, description="Altura final customizada em pixels")
+    preserve_original_frame: bool = Field(default=False, description="Preserva o enquadramento visível da base durante o resize final")
+    allow_resize_crop: bool = Field(default=False, description="Aplica width/height customizados no arquivo final")
+
+class ImageHistoryItemPayload(BaseModel):
+    type: str = Field(default="edited")
+    url: str
+    thumbnailUrl: Optional[str] = None
+    motor: str = ""
+    engine_id: str = ""
+    format: str = ""
+    quality: str = ""
+    width: Optional[int] = None
+    height: Optional[int] = None
+    prompt: Optional[str] = None
+    improvedPrompt: Optional[str] = None
+
+class ImageHistoryPayload(BaseModel):
+    items: List[ImageHistoryItemPayload] = Field(default_factory=list)
 
 
 
@@ -113,6 +131,24 @@ def _serialize_image_project(project: ImageEngineProject) -> ImageEngineProjectO
         snapshot=_load_snapshot_json(project.snapshot_json),
         updated_at=project.updated_at.isoformat() if project.updated_at else _utcnow().isoformat(),
     )
+
+
+def _serialize_image_history_item(entry: ImageEngineHistoryEntry) -> Dict[str, Any]:
+    return {
+        "id": entry.public_id,
+        "type": entry.type,
+        "url": entry.url,
+        "thumbnailUrl": entry.thumbnail_url,
+        "motor": entry.motor,
+        "engine_id": entry.engine_id,
+        "format": entry.format,
+        "quality": entry.quality,
+        "createdAt": entry.created_at.isoformat() if entry.created_at else _utcnow().isoformat(),
+        "width": entry.width,
+        "height": entry.height,
+        "prompt": entry.prompt,
+        "improvedPrompt": entry.improved_prompt,
+    }
 
 
 def _get_user_image_project_or_404(
@@ -175,6 +211,67 @@ def create_image_engine_project(
     session.commit()
     session.refresh(project)
     return {"project": _serialize_image_project(project).model_dump()}
+
+
+@router.get("/api/image-engine/history")
+def read_image_engine_history(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    entries = session.exec(
+        select(ImageEngineHistoryEntry)
+        .where(ImageEngineHistoryEntry.user_id == current_user.id)
+        .order_by(ImageEngineHistoryEntry.created_at.desc(), ImageEngineHistoryEntry.id.desc())
+    ).all()
+    return {"items": [_serialize_image_history_item(entry) for entry in entries]}
+
+
+@router.post("/api/image-engine/history")
+def write_image_engine_history(
+    payload: ImageHistoryPayload,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    created_entries: List[ImageEngineHistoryEntry] = []
+    for item in payload.items:
+        entry = ImageEngineHistoryEntry(
+            user_id=current_user.id,
+            public_id=f"image-history-{os.urandom(8).hex()}",
+            type=(item.type or "edited").strip() or "edited",
+            url=item.url,
+            thumbnail_url=item.thumbnailUrl,
+            motor=item.motor,
+            engine_id=item.engine_id,
+            format=item.format,
+            quality=item.quality,
+            width=item.width,
+            height=item.height,
+            prompt=item.prompt,
+            improved_prompt=item.improvedPrompt,
+            created_at=_utcnow(),
+        )
+        session.add(entry)
+        created_entries.append(entry)
+
+    session.commit()
+    for entry in created_entries:
+        session.refresh(entry)
+
+    return {"items": [_serialize_image_history_item(entry) for entry in created_entries]}
+
+
+@router.delete("/api/image-engine/history")
+def clear_image_engine_history(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    entries = session.exec(
+        select(ImageEngineHistoryEntry).where(ImageEngineHistoryEntry.user_id == current_user.id)
+    ).all()
+    for entry in entries:
+        session.delete(entry)
+    session.commit()
+    return {"ok": True}
 
 
 @router.put("/api/image-engine/projects/{public_id}")
@@ -272,6 +369,7 @@ def _choose_best_supported_base_size(target_width: int, target_height: int) -> T
     return best_size or (1024, 1024)
 
 
+
 def _image_bytes_from_result_url(url: str) -> Tuple[bytes, str]:
     if url.startswith("data:"):
         header, b64_data = url.split(",", 1)
@@ -284,6 +382,12 @@ def _result_url_from_image_bytes(image_bytes: bytes, mime: str = "image/png") ->
     return _data_uri_from_b64(base64.b64encode(image_bytes).decode("utf-8"), mime)
 
 
+def _read_image_dimensions(image_bytes: bytes) -> Tuple[int, int]:
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            return image.size
+    except UnidentifiedImageError as exc:
+        raise ValueError(f"Não foi possível ler as dimensões da imagem enviada: {exc}")
 
 
 def _trim_uniform_borders(image: Image.Image) -> Image.Image:
@@ -328,20 +432,228 @@ def _trim_uniform_borders(image: Image.Image) -> Image.Image:
 
     return rgba.crop(bbox)
 
-def _resize_and_crop_image_bytes(image_bytes: bytes, target_width: int, target_height: int) -> bytes:
+
+
+def _encode_png_bytes(image: Image.Image) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+def _resize_to_cover(image: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    return ImageOps.fit(
+        image,
+        (target_width, target_height),
+        method=Image.Resampling.LANCZOS,
+        centering=(0.5, 0.5),
+    )
+
+
+def _resize_to_contain(image: Image.Image, target_width: int, target_height: int) -> Tuple[Image.Image, Tuple[int, int, int, int]]:
+    prepared = image.convert("RGBA")
+    src_width, src_height = prepared.size
+    if src_width <= 0 or src_height <= 0:
+        raise ValueError("Imagem inválida para contain.")
+
+    scale = min(target_width / max(1, src_width), target_height / max(1, src_height))
+    fitted_width = max(1, int(round(src_width * scale)))
+    fitted_height = max(1, int(round(src_height * scale)))
+    fitted = prepared.resize((fitted_width, fitted_height), Image.Resampling.LANCZOS)
+    x = max(0, (target_width - fitted_width) // 2)
+    y = max(0, (target_height - fitted_height) // 2)
+    return fitted, (x, y, x + fitted_width, y + fitted_height)
+
+
+def _edge_extend_fill(image: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    prepared = image.convert("RGBA")
+    src_width, src_height = prepared.size
+    if src_width <= 0 or src_height <= 0:
+        raise ValueError("Imagem inválida para expansão de borda.")
+
+    src_ratio = src_width / max(1, src_height)
+    target_ratio = target_width / max(1, target_height)
+
+    if abs(src_ratio - target_ratio) <= 0.012:
+        return prepared.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+    fitted, placement = _resize_to_contain(prepared, target_width, target_height)
+    x1, y1, x2, y2 = placement
+    canvas = Image.new("RGBA", (target_width, target_height), (0, 0, 0, 255))
+    canvas.paste(fitted, (x1, y1))
+
+    if x1 > 0:
+        strip_width = min(fitted.width, max(18, fitted.width // 12))
+        left_source = fitted.crop((0, 0, strip_width, fitted.height))
+        right_source = fitted.crop((fitted.width - strip_width, 0, fitted.width, fitted.height))
+        left_fill = ImageOps.mirror(left_source).resize((x1, fitted.height), Image.Resampling.LANCZOS)
+        right_fill = ImageOps.mirror(right_source).resize((target_width - x2, fitted.height), Image.Resampling.LANCZOS)
+        blur_radius = max(2, min(10, x1 // 18))
+        left_fill = left_fill.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        right_fill = right_fill.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        canvas.paste(left_fill, (0, y1))
+        canvas.paste(right_fill, (x2, y1))
+
+    if y1 > 0:
+        strip_height = min(fitted.height, max(18, fitted.height // 12))
+        top_source = fitted.crop((0, 0, fitted.width, strip_height))
+        bottom_source = fitted.crop((0, fitted.height - strip_height, fitted.width, fitted.height))
+        top_fill = ImageOps.flip(top_source).resize((fitted.width, y1), Image.Resampling.LANCZOS)
+        bottom_fill = ImageOps.flip(bottom_source).resize((fitted.width, target_height - y2), Image.Resampling.LANCZOS)
+        blur_radius = max(2, min(10, y1 // 18))
+        top_fill = top_fill.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        bottom_fill = bottom_fill.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        canvas.paste(top_fill, (x1, 0))
+        canvas.paste(bottom_fill, (x1, y2))
+
+    # resolve corners when both axes expand
+    if x1 > 0 and y1 > 0:
+        corners = [
+            ((0, 0, x1, y1), fitted.getpixel((0, 0))),
+            ((x2, 0, target_width, y1), fitted.getpixel((fitted.width - 1, 0))),
+            ((0, y2, x1, target_height), fitted.getpixel((0, fitted.height - 1))),
+            ((x2, y2, target_width, target_height), fitted.getpixel((fitted.width - 1, fitted.height - 1))),
+        ]
+        draw = ImageDraw.Draw(canvas)
+        for rect, color in corners:
+            draw.rectangle(rect, fill=color)
+
+    return canvas
+
+
+def _needs_preserve_frame_expand(
+    source_width: int,
+    source_height: int,
+    target_width: int,
+    target_height: int,
+) -> bool:
+    if source_width <= 0 or source_height <= 0 or target_width <= 0 or target_height <= 0:
+        return False
+    source_ratio = source_width / max(1, source_height)
+    target_ratio = target_width / max(1, target_height)
+    return abs(source_ratio - target_ratio) > 0.012
+
+
+def _build_preserve_frame_canvas(
+    image_bytes: bytes,
+    target_width: int,
+    target_height: int,
+) -> Tuple[bytes, bytes, Dict[str, int]]:
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        source = im.convert("RGBA")
+        fitted, placement = _resize_to_contain(source, target_width, target_height)
+        x1, y1, x2, y2 = placement
+
+        canvas = Image.new("RGBA", (target_width, target_height), (0, 0, 0, 0))
+        canvas.alpha_composite(fitted, (x1, y1))
+
+        mask = Image.new("RGBA", (target_width, target_height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle((x1, y1, x2, y2), fill=(255, 255, 255, 255))
+
+        canvas_bytes = _encode_png_bytes(canvas)
+        mask_bytes = _encode_png_bytes(mask)
+        return canvas_bytes, mask_bytes, {
+            "x": x1,
+            "y": y1,
+            "width": x2 - x1,
+            "height": y2 - y1,
+            "target_width": target_width,
+            "target_height": target_height,
+        }
+
+
+def _overlay_preserved_region(
+    expanded_bytes: bytes,
+    original_bytes: bytes,
+    placement: Dict[str, int],
+) -> bytes:
+    with Image.open(io.BytesIO(expanded_bytes)) as expanded_im, Image.open(io.BytesIO(original_bytes)) as original_im:
+        expanded = expanded_im.convert("RGBA")
+        fitted_original, _ = _resize_to_contain(
+            original_im.convert("RGBA"),
+            placement["target_width"],
+            placement["target_height"],
+        )
+        # guarantee exact central region from original edited image
+        expanded.alpha_composite(fitted_original, (placement["x"], placement["y"]))
+        return _encode_png_bytes(expanded)
+
+
+def _build_preserve_frame_expand_prompt(
+    requested_width: int,
+    requested_height: int,
+) -> str:
+    return (
+        "Expanda a arte para preencher o novo canvas sem alterar o conteúdo já existente. "
+        "Preserve exatamente o design já visível na região central preservada. "
+        "Não mova, não recorte, não redimensione, não reescreva, não traduza, não recolora e não redesenhe "
+        "textos, datas, CTA, logos, botões, selos, labels, ícones ou qualquer elemento já presente na área preservada. "
+        "Preencha somente as áreas externas transparentes/máscara. "
+        "Continue gradientes, glows, formas abstratas, trilhas de luz, fundos, molduras e elementos decorativos "
+        "de modo consistente com a peça original, fazendo parecer que ela já nasceu neste formato. "
+        "Não crie textos novos. Não duplique botões. Não invente lettering. "
+        f"Entregue a composição final pronta para {requested_width}x{requested_height}."
+    )
+
+
+async def _expand_image_to_supported_canvas(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    openai_key: str,
+    openai_quality: str,
+    requested_width: int,
+    requested_height: int,
+) -> Dict[str, Any]:
+    expand_width, expand_height = _choose_best_supported_base_size(requested_width, requested_height)
+    canvas_bytes, mask_bytes, placement = _build_preserve_frame_canvas(image_bytes, expand_width, expand_height)
+
+    result = await _edit_openai_image(
+        client=client,
+        image_bytes=canvas_bytes,
+        filename="preserve-frame-expand.png",
+        content_type="image/png",
+        final_prompt=_build_preserve_frame_expand_prompt(requested_width, requested_height),
+        aspect_ratio=_base_size_to_aspect_ratio(expand_width, expand_height),
+        quality=openai_quality,
+        openai_key=openai_key,
+        openai_size=f"{expand_width}x{expand_height}",
+        mask_bytes=mask_bytes,
+        input_fidelity="high",
+    )
+
+    expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
+    merged_bytes = _overlay_preserved_region(expanded_bytes, image_bytes, placement)
+    next_result = dict(result)
+    next_result["url"] = _result_url_from_image_bytes(merged_bytes, "image/png")
+    next_result["expanded_canvas"] = {
+        "width": expand_width,
+        "height": expand_height,
+        "placement": placement,
+    }
+    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Expand sem crop"
+    return next_result
+
+
+def _resize_image_bytes_exact(
+    image_bytes: bytes,
+    target_width: int,
+    target_height: int,
+    preserve_original_frame: bool,
+) -> bytes:
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
             prepared = img.convert("RGBA") if img.mode not in {"RGB", "RGBA"} else img.copy()
             prepared = _trim_uniform_borders(prepared)
-            fitted = ImageOps.fit(
-                prepared,
-                (target_width, target_height),
-                method=Image.Resampling.LANCZOS,
-                centering=(0.5, 0.5),
-            )
-            buffer = io.BytesIO()
-            fitted.save(buffer, format="PNG", optimize=True)
-            return buffer.getvalue()
+            if preserve_original_frame:
+                src_ratio = prepared.width / max(1, prepared.height)
+                target_ratio = target_width / max(1, target_height)
+                if abs(src_ratio - target_ratio) <= 0.012:
+                    result = prepared.resize((target_width, target_height), Image.Resampling.LANCZOS)
+                else:
+                    result = _edge_extend_fill(prepared, target_width, target_height)
+            else:
+                result = _resize_to_cover(prepared, target_width, target_height)
+            return _encode_png_bytes(result)
     except UnidentifiedImageError as exc:
         raise ValueError(f"Não foi possível interpretar a imagem retornada para pós-processamento: {exc}")
 
@@ -350,6 +662,7 @@ async def _apply_postprocess_if_needed(
     client: httpx.AsyncClient,
     result: Dict[str, Any],
     target_dimensions: Optional[Tuple[int, int]],
+    preserve_original_frame: bool = False,
 ) -> Dict[str, Any]:
     if not target_dimensions:
         return result
@@ -366,12 +679,20 @@ async def _apply_postprocess_if_needed(
         response.raise_for_status()
         source_bytes = response.content
 
-    processed_bytes = _resize_and_crop_image_bytes(source_bytes, target_width, target_height)
+    processed_bytes = _resize_image_bytes_exact(
+        source_bytes,
+        target_width,
+        target_height,
+        preserve_original_frame=preserve_original_frame,
+    )
     next_result = dict(result)
     next_result["url"] = _result_url_from_image_bytes(processed_bytes, "image/png")
     next_result["postprocessed"] = True
     next_result["target_dimensions"] = {"width": target_width, "height": target_height}
-    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Resize exato"
+    next_result["motor"] = (
+        f"{result.get('motor', 'Imagem')} + "
+        f"{'Resize exato sem corte' if preserve_original_frame else 'Resize exato com crop'}"
+    )
     return next_result
 
 
@@ -541,9 +862,11 @@ def _build_user_edit_brief(payload: ImageEditRequest) -> str:
     parts = [
         f"Formato: {payload.formato}",
         f"Qualidade desejada: {payload.qualidade}",
+        f"Preservar enquadramento original: {'sim' if payload.preserve_original_frame else 'não'}",
+        f"Aplicar resize exato: {'sim' if payload.allow_resize_crop else 'não'}",
     ]
 
-    if payload.width and payload.height:
+    if payload.allow_resize_crop and payload.width and payload.height:
         parts.append(f"Tamanho final customizado: {payload.width}x{payload.height}")
 
     if payload.instrucoes_edicao.strip():
@@ -851,7 +1174,8 @@ Contexto estruturado da peça:
 - nível de qualidade solicitado: {_quality_label(_normalize_quality(payload.qualidade))}
 - paleta de cores: {payload.paleta_cores}
 - descrição visual solicitada: {description or 'seguir uma direção comercial premium coerente com o briefing'}
-- tamanho final desejado: {_size_label(payload.width, payload.height) if payload.width and payload.height else 'usar o canvas padrão do formato selecionado'}
+- tamanho final desejado: {_size_label(payload.width, payload.height) if payload.allow_resize_crop and payload.width and payload.height else 'manter o tamanho original da base'}
+- preservar enquadramento original: {'sim' if payload.preserve_original_frame else 'não'}
 
 Objetivo do preset:
 {preset['goal']}
@@ -1264,7 +1588,8 @@ Contexto estruturado da edição:
 - proporção final: {aspect_ratio}
 - nível de qualidade solicitado: {_quality_label(_normalize_quality(payload.qualidade))}
 - instruções de edição: {instructions or 'seguir a imagem de referência e editar somente o necessário'}
-- tamanho final desejado: {_size_label(payload.width, payload.height) if payload.width and payload.height else 'usar o canvas padrão do formato selecionado'}
+- tamanho final desejado: {_size_label(payload.width, payload.height) if payload.allow_resize_crop and payload.width and payload.height else 'manter o tamanho original da base'}
+- preservar enquadramento original: {'sim' if payload.preserve_original_frame else 'não'}
 
 Direção criativa:
 {improved['creative_direction']}
@@ -1582,7 +1907,12 @@ async def image_engine_stream(
                 for coro in asyncio.as_completed(tasks):
                     try:
                         result = await coro
-                        result = await _apply_postprocess_if_needed(client, result, requested_dimensions)
+                        result = await _apply_postprocess_if_needed(
+                    client,
+                    result,
+                    requested_dimensions,
+                    preserve_original_frame=body.preserve_original_frame,
+                )
                         completed_results.append(result)
                         done_count += 1
 
@@ -1665,6 +1995,8 @@ async def image_engine_edit_stream(
     instrucoes_edicao: str = Form(...),
     width: Optional[int] = Form(None),
     height: Optional[int] = Form(None),
+    preserve_original_frame: bool = Form(False),
+    allow_resize_crop: bool = Form(False),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -1682,19 +2014,37 @@ async def image_engine_edit_stream(
         instrucoes_edicao=instrucoes_edicao,
         width=width,
         height=height,
+        preserve_original_frame=preserve_original_frame,
+        allow_resize_crop=allow_resize_crop,
     )
 
     try:
         _validate_reference_image(image_bytes, image_content_type)
         if not body.instrucoes_edicao.strip():
             raise ValueError("As instruções de edição são obrigatórias.")
-        requested_dimensions = _resolve_target_dimensions(body.width, body.height)
+        source_width, source_height = _read_image_dimensions(image_bytes)
+        requested_dimensions = _resolve_target_dimensions(body.width, body.height) if body.allow_resize_crop else None
         aspect_ratio = _normalize_aspect_ratio(body.formato)
         openai_quality = _normalize_quality(body.qualidade)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    if requested_dimensions:
+    preserve_expand_needed = bool(
+        requested_dimensions
+        and body.preserve_original_frame
+        and _needs_preserve_frame_expand(
+            source_width,
+            source_height,
+            requested_dimensions[0],
+            requested_dimensions[1],
+        )
+    )
+
+    if requested_dimensions and body.preserve_original_frame:
+        base_width, base_height = _choose_best_supported_base_size(source_width, source_height)
+        engine_aspect_ratio = _base_size_to_aspect_ratio(base_width, base_height)
+        openai_size = f"{base_width}x{base_height}"
+    elif requested_dimensions:
         base_width, base_height = _choose_best_supported_base_size(*requested_dimensions)
         engine_aspect_ratio = _base_size_to_aspect_ratio(base_width, base_height)
         openai_size = f"{base_width}x{base_height}"
@@ -1716,6 +2066,9 @@ async def image_engine_edit_stream(
                         "quality": openai_quality,
                         "reference_filename": image_filename,
                         "openai_size": openai_size,
+                        "preserve_original_frame": body.preserve_original_frame,
+                        "allow_resize_crop": body.allow_resize_crop,
+                        "preserve_expand_needed": preserve_expand_needed,
                         "target_dimensions": {"width": requested_dimensions[0], "height": requested_dimensions[1]} if requested_dimensions else None,
                     },
                 })
@@ -1748,6 +2101,8 @@ async def image_engine_edit_stream(
                     "aspect_ratio": engine_aspect_ratio,
                     "quality": openai_quality,
                     "openai_size": openai_size,
+                    "preserve_original_frame": body.preserve_original_frame,
+                    "allow_resize_crop": body.allow_resize_crop,
                     "target_dimensions": {"width": requested_dimensions[0], "height": requested_dimensions[1]} if requested_dimensions else None,
                 })
 
@@ -1893,7 +2248,62 @@ async def image_engine_edit_stream(
                         else:
                             raise
 
-                result = await _apply_postprocess_if_needed(client, result, requested_dimensions)
+                if preserve_expand_needed and requested_dimensions:
+                    yield _sse({
+                        "status": "Edição aplicada. Expandindo o canvas final sem crop para preencher o formato solicitado.",
+                        "progress": 76,
+                        "localized_mode": localized_mode,
+                        "localized_analysis": localized_analysis,
+                        "attempt_plan": attempt_plan,
+                    })
+
+                    result_url = result.get("url")
+                    if not result_url:
+                        raise ValueError("A edição não retornou URL válida para expandir o canvas.")
+
+                    if result_url.startswith("data:"):
+                        edited_bytes, _ = _image_bytes_from_result_url(result_url)
+                    else:
+                        fetched = await client.get(result_url)
+                        fetched.raise_for_status()
+                        edited_bytes = fetched.content
+
+                    try:
+                        result = await _expand_image_to_supported_canvas(
+                            client=client,
+                            image_bytes=edited_bytes,
+                            openai_key=openai_key,
+                            openai_quality=openai_quality,
+                            requested_width=requested_dimensions[0],
+                            requested_height=requested_dimensions[1],
+                        )
+                    except Exception as expand_exc:
+                        fallback_bytes = _resize_image_bytes_exact(
+                            edited_bytes,
+                            requested_dimensions[0],
+                            requested_dimensions[1],
+                            preserve_original_frame=True,
+                        )
+                        result = dict(result)
+                        result["url"] = _result_url_from_image_bytes(fallback_bytes, "image/png")
+                        result["motor"] = f"{result.get('motor', 'Imagem')} + Fallback sem crop"
+                        localized_warning = (
+                            f"{localized_warning} | " if localized_warning else ""
+                        ) + f"Expand por IA falhou e entrou fallback determinístico: {str(expand_exc)}"
+
+                    result = await _apply_postprocess_if_needed(
+                        client,
+                        result,
+                        requested_dimensions,
+                        preserve_original_frame=True,
+                    )
+                else:
+                    result = await _apply_postprocess_if_needed(
+                        client,
+                        result,
+                        requested_dimensions,
+                        preserve_original_frame=body.preserve_original_frame,
+                    )
 
                 yield _sse({
                     "status": f"Edição concluída com sucesso em {result['motor']}.",
@@ -1906,6 +2316,8 @@ async def image_engine_edit_stream(
                     "localized_mode": localized_mode,
                     "localized_analysis": localized_analysis,
                     "attempt_plan": attempt_plan,
+                    "warning": localized_warning,
+                    "preserve_expand_needed": preserve_expand_needed,
                 })
 
                 yield _sse({

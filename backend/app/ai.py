@@ -1563,6 +1563,66 @@ def _build_nucleus_digest(nucleus: Dict[str, Any]) -> Dict[str, Any]:
 def _infer_task_profile(agent_key: str, requested_task: str, is_script_task: bool) -> Dict[str, str]:
     task = (requested_task or "").lower()
 
+
+    if agent_key == "linkedin":
+        if any(term in task for term in [
+            "post de insight",
+            "tese executiva",
+            "opinião técnica",
+            "opiniao tecnica",
+            "post educacional",
+            "insight executivo",
+        ]):
+            return {
+                "family": "linkedin_insight_post",
+                "objective": "transformar tema ou opinião em posicionamento profissional útil e maduro",
+                "deliverable": "post de LinkedIn com tese clara, leitura de contexto e aplicação",
+                "emphasis": "densidade com legibilidade, visão de mercado e utilidade prática",
+            }
+
+        if any(term in task for term in [
+            "case / aprendizado aplicado",
+            "aprendizado aplicado b2b",
+            "estudo de caso",
+            "resultado b2b",
+            "case b2b",
+        ]):
+            return {
+                "family": "linkedin_case",
+                "objective": "estruturar resultado, processo ou aprendizado aplicado sem autopromoção vazia",
+                "deliverable": "case de LinkedIn com contexto, processo, mudança e lição útil",
+                "emphasis": "credibilidade, clareza causal e maturidade profissional",
+            }
+
+        if any(term in task for term in [
+            "perfil pessoal",
+            "headline + sobre",
+            "headline e sobre",
+            "otimização de perfil pessoal",
+            "otimizacao de perfil pessoal",
+        ]):
+            return {
+                "family": "linkedin_profile",
+                "objective": "organizar headline e sobre com clareza de especialidade e posicionamento",
+                "deliverable": "headline, sobre e sinais de perfil prontos para uso",
+                "emphasis": "clareza profissional, diferenciação real e coerência executiva",
+            }
+
+        if any(term in task for term in [
+            "linkedin page",
+            "linkedin page da empresa",
+            "perfil da empresa",
+            "page da empresa",
+            "otimização de linkedin page",
+            "otimizacao de linkedin page",
+        ]):
+            return {
+                "family": "linkedin_company_page",
+                "objective": "estruturar a presença institucional da empresa no LinkedIn com clareza B2B",
+                "deliverable": "blocos prontos para descrição da página e pilares editoriais",
+                "emphasis": "leitura institucional, proposta de valor e coerência de entidade",
+            }
+
     if agent_key == "google_business_profile":
         if any(term in task for term in [
             "seo local para serviços",
@@ -1611,6 +1671,63 @@ def _infer_task_profile(agent_key: str, requested_task: str, is_script_task: boo
                 "objective": "criar respostas naturais e relevantes para avaliações positivas",
                 "deliverable": "respostas prontas para publicar no Perfil de Empresa no Google",
                 "emphasis": "naturalidade, contexto e relevância semântica",
+            }
+
+
+    if agent_key == "external_mentions":
+        if any(term in task for term in [
+            "kit de menção",
+            "kit de mencao",
+            "textos oficiais da empresa",
+            "menção institucional",
+            "mencao institucional",
+        ]):
+            return {
+                "family": "official_kit",
+                "objective": "organizar descrições oficiais e citáveis da empresa para uso por terceiros",
+                "deliverable": "kit institucional com versões prontas para copiar",
+                "emphasis": "sobriedade, clareza e reaproveitamento editorial",
+            }
+
+        if any(term in task for term in [
+            "modelo de mini apresentação",
+            "modelo de mini apresentacao",
+            "pitch institucional",
+            "mini apresentação",
+            "mini apresentacao",
+        ]):
+            return {
+                "family": "institutional_pitch",
+                "objective": "criar apresentações institucionais curtas para contextos editoriais e relacionais",
+                "deliverable": "versões prontas de pitch institucional",
+                "emphasis": "clareza, precisão e consistência de entidade",
+            }
+
+        if any(term in task for term in [
+            "release / nota institucional",
+            "release para imprensa",
+            "artigo / release",
+            "nota institucional",
+            "imprensa ou parceiros",
+        ]):
+            return {
+                "family": "press_release",
+                "objective": "estruturar material editorial reaproveitável por imprensa, parceiros e diretórios",
+                "deliverable": "release institucional com lead, ângulos e sinais oficiais",
+                "emphasis": "tom editorial, factualidade e citabilidade",
+            }
+
+        if any(term in task for term in [
+            "faq institucional",
+            "jornalistas, eventos e parceiros",
+            "jornalistas",
+            "eventos e parceiros",
+        ]):
+            return {
+                "family": "institutional_faq",
+                "objective": "responder dúvidas institucionais com linguagem copiável por terceiros",
+                "deliverable": "faq institucional claro, citável e pronto para reaproveitamento",
+                "emphasis": "clareza, consistência e legitimidade",
             }
 
     family = "conteudo_estruturado"
@@ -1728,6 +1845,39 @@ def _authority_custom_task_guidance(agent_key: str, requested_task: str, selecte
                 "- O texto precisa parecer página institucional utilizável e não manifesto vazio.",
                 "- Inclua diferenciais reais, forma de trabalhar e próximos passos quando fizer sentido.",
             ])
+        return lines
+
+    if agent_key == "external_mentions":
+        if "kit de menção" in task_lower or "kit de mencao" in task_lower:
+            lines.extend([
+                "- Entregue descrições oficiais em versões curtas, médias e editoriais, prontas para copiar.",
+                "- O texto precisa servir para portal, parceiro, diretório, evento ou press kit sem parecer anúncio.",
+                "- Priorize fatos, especialidade, contexto e clareza de entidade acima de adjetivos.",
+                "- Inclua apenas variações úteis, não reescritas superficiais da mesma frase.",
+            ])
+        elif "modelo de mini apresentação" in task_lower or "modelo de mini apresentacao" in task_lower or "pitch institucional" in task_lower:
+            lines.extend([
+                "- Monte apresentações curtas para reunião, evento, podcast, parceria e abertura editorial.",
+                "- Cada versão precisa preservar a mesma identidade institucional com diferentes níveis de síntese.",
+                "- Não use linguagem vendedora, promessa inflada ou jargão de palco.",
+                "- O texto deve ser fácil de falar e fácil de citar.",
+            ])
+        elif "release / nota institucional" in task_lower or "artigo / release" in task_lower or "nota institucional" in task_lower:
+            lines.extend([
+                "- Organize como material editorial reaproveitável: contexto, lead, ângulos de apoio e sinais institucionais.",
+                "- Não confunda release com anúncio comercial ou página de vendas.",
+                "- Deixe explícito o que aconteceu, por que isso importa e em que contexto a empresa atua.",
+                "- O texto precisa parecer copiável por imprensa, parceiros e diretórios com mínima adaptação.",
+            ])
+        elif "faq institucional" in task_lower:
+            lines.extend([
+                "- Responda perguntas institucionais reais sobre quem é a empresa, o que faz, para quem faz e em que contexto atua.",
+                "- As respostas devem ser sóbrias, citáveis e úteis para terceiros que precisam entender rápido a entidade.",
+                "- Evite perguntas cosméticas ou respostas cheias de autoelogio.",
+                "- Priorize clareza semântica, consistência e reaproveitamento.",
+            ])
+        if theme:
+            lines.append(f"- Contexto adicional a considerar: {theme}")
         return lines
 
     if agent_key != "google_business_profile":
@@ -4231,6 +4381,96 @@ def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
     if agent_key == "tiktok" and _is_tiktok_bio_task(requested_task_lower):
         return _json_dumps(_run_tiktok_bio_task(nucleus, requested_task, selected_theme))
 
+
+    if agent_key == "linkedin" and (
+        "post de insight" in requested_task_lower
+        or "tese executiva" in requested_task_lower
+        or "opinião técnica" in requested_task_lower
+        or "opiniao tecnica" in requested_task_lower
+        or "post educacional" in requested_task_lower
+    ):
+        return _json_dumps(_run_linkedin_insight_task(nucleus, requested_task, selected_theme))
+    if agent_key == "linkedin" and (
+        "case / aprendizado aplicado" in requested_task_lower
+        or "aprendizado aplicado b2b" in requested_task_lower
+        or "estudo de caso" in requested_task_lower
+        or "resultado b2b" in requested_task_lower
+    ):
+        return _json_dumps(_run_linkedin_case_task(nucleus, requested_task, selected_theme))
+    if agent_key == "linkedin" and (
+        "perfil pessoal" in requested_task_lower
+        or "headline + sobre" in requested_task_lower
+        or "headline e sobre" in requested_task_lower
+        or "otimização de perfil pessoal" in requested_task_lower
+        or "otimizacao de perfil pessoal" in requested_task_lower
+    ):
+        return _json_dumps(_run_linkedin_profile_task(nucleus, requested_task))
+    if agent_key == "linkedin" and (
+        "linkedin page" in requested_task_lower
+        or "page da empresa" in requested_task_lower
+        or "perfil da empresa" in requested_task_lower
+    ):
+        return _json_dumps(_run_linkedin_company_page_task(nucleus, requested_task))
+
+    if agent_key == "youtube" and (
+        "roteiro estratégico para youtube" in requested_task_lower
+        or requested_task_lower.startswith("roteiro")
+    ):
+        return _json_dumps(_run_youtube_script_task(nucleus, requested_task, selected_theme))
+    if agent_key == "youtube" and (
+        "títulos + descrições otimizadas" in requested_task_lower
+        or "titulos + descricoes otimizadas" in requested_task_lower
+        or "títulos e descrições otimizadas" in requested_task_lower
+        or "titulos e descricoes otimizadas" in requested_task_lower
+    ):
+        return _json_dumps(_run_youtube_metadata_task(nucleus, requested_task, selected_theme))
+    if agent_key == "youtube" and (
+        "estrutura de série" in requested_task_lower
+        or "estrutura de serie" in requested_task_lower
+        or "playlist de autoridade" in requested_task_lower
+    ):
+        return _json_dumps(_run_youtube_series_task(nucleus, requested_task, selected_theme))
+    if agent_key == "youtube" and (
+        "descrição do canal" in requested_task_lower
+        or "descricao do canal" in requested_task_lower
+        or "posicionamento" in requested_task_lower
+        or "sobre a empresa" in requested_task_lower
+    ):
+        return _json_dumps(_run_youtube_channel_positioning_task(nucleus, requested_task))
+
+    if agent_key == "google_business_profile" and (
+        "descrição principal do perfil" in requested_task_lower
+        or "descricao principal do perfil" in requested_task_lower
+        or "otimização de serviços e descrição" in requested_task_lower
+        or "otimizacao de servicos e descricao" in requested_task_lower
+    ):
+        return _json_dumps(_run_google_business_profile_task(nucleus, requested_task))
+    if agent_key == "google_business_profile" and (
+        "serviços + descrições" in requested_task_lower
+        or "servicos + descricoes" in requested_task_lower
+    ):
+        return _json_dumps(_run_google_business_service_catalog_task(nucleus, requested_task))
+    if agent_key == "google_business_profile" and (
+        "seo local para serviços" in requested_task_lower
+        or "seo local para servicos" in requested_task_lower
+    ):
+        return _json_dumps(_run_google_business_keyword_task(nucleus, requested_task))
+    if agent_key == "google_business_profile" and (
+        "perguntas e respostas do perfil" in requested_task_lower
+        or "responder dúvidas frequentes" in requested_task_lower
+        or "responder duvidas frequentes" in requested_task_lower
+    ):
+        return _json_dumps(_run_google_business_faq_task(nucleus, requested_task, selected_theme))
+    if agent_key == "google_business_profile" and (
+        "postagem de atualização / oferta" in requested_task_lower
+        or "postagem de atualizacao / oferta" in requested_task_lower
+    ):
+        return _json_dumps(_run_google_business_post_task(nucleus, requested_task, selected_theme))
+    if agent_key == "google_business_profile" and (
+        "responder avaliação" in requested_task_lower
+        or "responder avaliacao" in requested_task_lower
+    ):
+        return _json_dumps(_run_google_business_review_response_task(nucleus, requested_task, selected_theme))
     if agent_key == "social_proof" and "perguntas para coletar depoimentos fortes" in requested_task_lower:
         return _json_dumps(_run_social_proof_collection_questions_task(nucleus, requested_task, selected_theme))
     if agent_key == "social_proof" and "transformar feedback bruto em prova social" in requested_task_lower:
@@ -4239,6 +4479,50 @@ def run_authority_agent(agent_key: str, nucleus: Dict[str, Any]) -> str:
         return _json_dumps(_run_social_proof_case_task(nucleus, requested_task, selected_theme))
     if agent_key == "social_proof" and "biblioteca de prova social por etapa da decisão" in requested_task_lower:
         return _json_dumps(_run_social_proof_decision_library_task(nucleus, requested_task))
+    if agent_key == "cross_platform_consistency" and (
+        "auditoria de consistência entre canais" in requested_task_lower
+        or "auditoria de consistencia entre canais" in requested_task_lower
+    ):
+        return _json_dumps(_run_cross_platform_consistency_audit_task(nucleus, requested_task))
+    if agent_key == "cross_platform_consistency" and (
+        "núcleo fixo da marca" in requested_task_lower
+        or "nucleo fixo da marca" in requested_task_lower
+        or "mensagem-mestre" in requested_task_lower
+        or "mensagem mestre" in requested_task_lower
+    ):
+        return _json_dumps(_run_cross_platform_consistency_master_message_task(nucleus, requested_task))
+    if agent_key == "cross_platform_consistency" and (
+        "ajustes por canal sem perder identidade" in requested_task_lower
+        or "ajustes por canal" in requested_task_lower
+    ):
+        return _json_dumps(_run_cross_platform_consistency_channel_adaptation_task(nucleus, requested_task))
+    if agent_key == "cross_platform_consistency" and (
+        "checklist editorial de consistência e governança" in requested_task_lower
+        or "checklist editorial de consistencia e governanca" in requested_task_lower
+        or "governança" in requested_task_lower
+        or "governanca" in requested_task_lower
+    ):
+        return _json_dumps(_run_cross_platform_consistency_governance_task(nucleus, requested_task))
+    if agent_key == "external_mentions" and (
+        "kit de menção" in requested_task_lower
+        or "kit de mencao" in requested_task_lower
+        or "textos oficiais da empresa" in requested_task_lower
+    ):
+        return _json_dumps(_run_external_mentions_official_kit_task(nucleus, requested_task))
+    if agent_key == "external_mentions" and (
+        "modelo de mini apresentação" in requested_task_lower
+        or "modelo de mini apresentacao" in requested_task_lower
+        or "pitch institucional" in requested_task_lower
+    ):
+        return _json_dumps(_run_external_mentions_pitch_task(nucleus, requested_task))
+    if agent_key == "external_mentions" and (
+        "release / nota institucional" in requested_task_lower
+        or "artigo / release" in requested_task_lower
+        or "nota institucional" in requested_task_lower
+    ):
+        return _json_dumps(_run_external_mentions_release_task(nucleus, requested_task, selected_theme))
+    if agent_key == "external_mentions" and "faq institucional" in requested_task_lower:
+        return _json_dumps(_run_external_mentions_faq_task(nucleus, requested_task, selected_theme))
 
     if agent_key == "decision_content" and "faq focado em quebra de obje" in requested_task_lower:
         return _json_dumps(_run_decision_content_faq_task(nucleus, requested_task, selected_theme))
@@ -4396,6 +4680,19 @@ TIKTOK_CONTENT_GOAL_LABELS = {
     "gerar_autoridade": "gerar autoridade",
     "gerar_conversao": "gerar conversão",
     "gerar_interacao": "gerar interação",
+}
+
+YOUTUBE_VIDEO_TYPE_LABELS = {
+    "conteudo_pilar": "Conteúdo pilar / vídeo longo",
+    "shorts": "Shorts / vídeo curto",
+    "institucional": "Institucional / sobre a empresa",
+}
+
+YOUTUBE_GOAL_LABELS = {
+    "gerar_descoberta": "gerar descoberta",
+    "gerar_autoridade": "gerar autoridade",
+    "gerar_consideracao": "gerar consideração",
+    "gerar_conversao": "gerar conversão",
 }
 
 DECISION_FAQ_FOCUS_LABELS = {
@@ -4643,6 +4940,767 @@ def _authority_has_block_type(data: Dict[str, Any], block_type: str) -> bool:
 
 def _google_business_location_label(nucleus: Dict[str, Any]) -> str:
     return _trim_text(nucleus.get("service_area") or nucleus.get("city_state"), max_chars=80)
+
+
+def _google_business_context_map(nucleus: Dict[str, Any]) -> Dict[str, str]:
+    company = _trim_text(nucleus.get("company_name")) or "sua empresa"
+    audience = _trim_text(nucleus.get("main_audience"), max_chars=90) or "o público certo"
+    area = _google_business_location_label(nucleus) or "sua região"
+    category = _trim_text(
+        nucleus.get("primary_category")
+        or nucleus.get("main_category")
+        or nucleus.get("category"),
+        max_chars=90,
+    ) or "categoria principal não informada"
+
+    services = _split_nucleus_items(nucleus.get("services_products"), max_items=6)
+    differentials = _split_nucleus_items(nucleus.get("real_differentials"), max_items=4)
+
+    service_focus = services[0] if services else "serviço principal"
+    secondary_service = services[1] if len(services) > 1 else service_focus
+    differential = differentials[0] if differentials else "atendimento claro e confiável"
+
+    service_mode = _trim_text(
+        nucleus.get("service_mode")
+        or nucleus.get("delivery_mode")
+        or nucleus.get("attendance_mode")
+        or nucleus.get("attendance_format"),
+        max_chars=80,
+    )
+
+    if not service_mode:
+        site = _trim_text(nucleus.get("site"))
+        whatsapp = _trim_text(nucleus.get("whatsapp") or nucleus.get("phone"))
+        if site and whatsapp:
+            service_mode = "atendimento com contato digital e próximo passo claro"
+        elif whatsapp:
+            service_mode = "atendimento com contato rápido"
+        elif area and area.lower() != "sua região":
+            service_mode = f"atendimento em {area}"
+        else:
+            service_mode = "modalidade de atendimento não informada"
+
+    return {
+        "company": company,
+        "audience": audience,
+        "area": area,
+        "category": category,
+        "service_focus": service_focus,
+        "secondary_service": secondary_service,
+        "differential": differential,
+        "service_mode": service_mode,
+    }
+
+
+def _build_google_business_profile_description_text(nucleus: Dict[str, Any]) -> str:
+    ctx = _google_business_context_map(nucleus)
+    company = ctx["company"]
+    audience = ctx["audience"]
+    area = ctx["area"]
+    service_focus = ctx["service_focus"]
+    secondary_service = ctx["secondary_service"]
+    differential = ctx["differential"]
+    service_mode = ctx["service_mode"]
+
+    sentence_one = (
+        f"{company} atua com {service_focus} para {audience}"
+        if audience != "o público certo"
+        else f"{company} atua com {service_focus}"
+    )
+    if area and area.lower() != "sua região":
+        sentence_one += f" em {area}"
+
+    sentence_two = f"O foco é entregar {secondary_service} com {differential}."
+    sentence_three = f"Modalidade de atendimento: {service_mode}."
+
+    return _compact_inline_text(" ".join([sentence_one + ".", sentence_two, sentence_three]), max_chars=720)
+
+
+def _is_valid_google_business_profile_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_highlight = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "highlight" and _trim_text(conteudo.get("texto")):
+            has_highlight = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keywords = True
+
+    return has_highlight and has_keywords
+
+
+def _build_google_business_profile_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _google_business_context_map(nucleus)
+    company = ctx["company"]
+    audience = ctx["audience"]
+    area = ctx["area"]
+    category = ctx["category"]
+    service_focus = ctx["service_focus"]
+    secondary_service = ctx["secondary_service"]
+    differential = ctx["differential"]
+    service_mode = ctx["service_mode"]
+    description = _build_google_business_profile_description_text(nucleus)
+
+    keyword_items = [
+        category,
+        service_focus,
+        secondary_service,
+        differential,
+        audience,
+        area,
+        service_mode,
+        company,
+    ]
+
+    deduped_keywords: List[str] = []
+    seen_keywords: set[str] = set()
+    for item in keyword_items:
+        clean = _trim_text(item, max_chars=100)
+        if not clean:
+            continue
+        key = clean.lower()
+        if key in seen_keywords:
+            continue
+        seen_keywords.add(key)
+        deduped_keywords.append(clean)
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Descrição principal do perfil — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura estratégica\n"
+                        f"O Perfil de Empresa de **{company}** precisa explicar com rapidez a **categoria**, o **serviço principal**, a **modalidade de atendimento** e o **contexto geográfico**. "
+                        "Sem isso, o perfil até pode existir, mas continua fraco para busca local, IA e decisão."
+                    )
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Descrição principal sugerida",
+                    "texto": description,
+                    "icone": "star",
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Pilares semânticos do perfil",
+                    "items": [
+                        {
+                            "nome": "Categoria principal",
+                            "descricao": f"Deixe a categoria puxando o serviço central de forma inequívoca: {category}.",
+                            "palavras_chave": [category, service_focus],
+                        },
+                        {
+                            "nome": "Serviço central",
+                            "descricao": f"O serviço que precisa aparecer cedo no perfil é {service_focus}, apoiado por {secondary_service}.",
+                            "palavras_chave": [service_focus, secondary_service],
+                        },
+                        {
+                            "nome": "Contexto local",
+                            "descricao": f"O perfil precisa deixar visível onde a empresa atende e em que contexto isso faz sentido: {area}.",
+                            "palavras_chave": [area, service_mode],
+                        },
+                        {
+                            "nome": "Diferencial real",
+                            "descricao": f"Use um diferencial crível e verificável para fugir do genérico: {differential}.",
+                            "palavras_chave": [differential, company],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais que precisam aparecer no perfil",
+                    "limite_por_item": "curtos, claros e pesquisáveis",
+                    "items": deduped_keywords[:8],
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "perguntas": [
+                        {
+                            "pergunta": "A descrição deixa claro o que a empresa faz já nas primeiras linhas?",
+                            "resposta": "O ideal é que o serviço central apareça cedo, antes de qualquer frase institucional ou adjetivo genérico.",
+                        },
+                        {
+                            "pergunta": "O recorte geográfico está visível?",
+                            "resposta": "Quem pesquisa localmente precisa entender rápido a área atendida e a modalidade do atendimento.",
+                        },
+                        {
+                            "pergunta": "Existe um diferencial concreto ou só elogio genérico?",
+                            "resposta": "Prefira diferencial baseado em processo, especialidade, contexto ou forma de atendimento.",
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "No Perfil de Empresa do Google, clareza vence criatividade. Se a descrição parecer bonita mas não explicar categoria, serviço, local e atendimento, ela ainda está fraca.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_google_business_profile_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é estruturar a descrição principal do Perfil de Empresa no Google.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, highlight, service_cards, keyword_list, faq.
+
+Estruture em:
+1. leitura estratégica do perfil
+2. descrição principal pronta para cadastro
+3. pilares semânticos do perfil
+4. sinais locais e de serviço que precisam aparecer
+5. checagens rápidas antes de publicar
+6. recomendação final
+
+Regras:
+- não invente categoria, serviço, cidade, promessa ou prova
+- priorize categoria principal, serviço central, especialidade, modalidade de atendimento e área de atuação
+- a descrição principal deve soar humana, clara e profissional
+- evite frase genérica de marketing
+""".strip()
+
+    user = {
+        "task": requested_task or "Descrição principal do perfil (SEO Local)",
+        "profile_description_limit": "até 720 caracteres",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.3, max_tokens=2600)
+        )
+        if _is_valid_google_business_profile_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_google_business_profile_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_google_business_post_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_variations = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_variations = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keywords = True
+
+    return has_variations and has_keywords
+
+
+def _build_google_business_post_fallback(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    ctx = _google_business_context_map(nucleus)
+    company = ctx["company"]
+    area = ctx["area"]
+    service_focus = ctx["service_focus"]
+    differential = ctx["differential"]
+    audience = ctx["audience"]
+    theme = _trim_text(selected_theme, max_chars=140) or service_focus
+
+    variations = [
+        (
+            f"**Versão 1 — Atualização direta**\n"
+            f"{company} está com foco em **{theme}** para quem busca {service_focus} em {area}. "
+            f"O destaque aqui é {differential}. Se esse tema faz sentido para o seu cenário, fale com a equipe e entenda o próximo passo."
+        ),
+        (
+            f"**Versão 2 — Dor + contexto local**\n"
+            f"Muita gente em {area} procura {service_focus} só quando o problema já apertou. "
+            f"Se você quer resolver **{theme}** com mais clareza e previsibilidade, este é um bom momento para conversar com {company}."
+        ),
+        (
+            f"**Versão 3 — Serviço em foco**\n"
+            f"Atendimento voltado para {audience} com foco em **{theme}**. "
+            f"{company} trabalha {service_focus} com {differential}, preservando linguagem clara e próximo passo objetivo."
+        ),
+        (
+            f"**Versão 4 — Oferta sóbria**\n"
+            f"Se você está avaliando {theme} em {area}, vale entender como funciona {service_focus} antes de decidir. "
+            f"A proposta da {company} é orientar com clareza, contexto e atendimento coerente com a realidade local."
+        ),
+    ]
+
+    keywords = [theme, service_focus, area, differential, audience, company]
+    deduped_keywords: List[str] = []
+    seen_keywords: set[str] = set()
+    for item in keywords:
+        clean = _trim_text(item, max_chars=90)
+        if not clean:
+            continue
+        key = clean.lower()
+        if key in seen_keywords:
+            continue
+        seen_keywords.add(key)
+        deduped_keywords.append(clean)
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Postagem para Perfil de Empresa — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura estratégica\n"
+                        f"O post do Perfil de Empresa precisa funcionar como extensão da busca local. Em vez de soar como anúncio genérico, ele deve conectar **{theme}** a **{service_focus}**, contexto local e próximo passo claro."
+                    )
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Variações prontas de postagem",
+                    "items": variations,
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Peças que fortalecem o post",
+                    "items": [
+                        {
+                            "nome": "Abertura",
+                            "descricao": "Abra pelo tema ou dor local mais reconhecível, sem enrolação institucional.",
+                            "palavras_chave": [theme, area],
+                        },
+                        {
+                            "nome": "Serviço",
+                            "descricao": f"Conecte o assunto diretamente a {service_focus} para o post não parecer vago.",
+                            "palavras_chave": [service_focus, company],
+                        },
+                        {
+                            "nome": "Diferencial",
+                            "descricao": f"Use um diferencial plausível e verificável: {differential}.",
+                            "palavras_chave": [differential],
+                        },
+                        {
+                            "nome": "Próximo passo",
+                            "descricao": "Feche com uma ação simples, coerente com quem ainda está comparando ou entendendo o cenário.",
+                            "palavras_chave": ["entender como funciona", "falar com a equipe"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais locais para manter no texto",
+                    "limite_por_item": "curtos e naturais",
+                    "items": deduped_keywords[:8],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Se o post servir para qualquer empresa de qualquer cidade, ele ainda está genérico. O ideal é que o texto pareça inevitavelmente ligado ao seu contexto local e ao seu serviço.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_google_business_post_task(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    system = """
+Sua missão é criar postagens fortes para Perfil de Empresa no Google.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, keyword_list, highlight.
+
+Estruture em:
+1. leitura estratégica do tema
+2. 3 a 5 postagens prontas
+3. peças que fortalecem o texto
+4. sinais locais e semânticos que devem aparecer
+5. recomendação final
+
+Regras:
+- os textos devem soar como post de Perfil de Empresa, não como anúncio inflado
+- conecte serviço, contexto local, intenção da busca e próximo passo
+- evite frase vazia de promoção
+- não invente localidade, oferta, desconto ou prova
+""".strip()
+
+    user = {
+        "task": requested_task or "Postagem de Atualização / Oferta",
+        "theme": _trim_text(selected_theme) or "não informado",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2600)
+        )
+        if _is_valid_google_business_post_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_google_business_post_fallback(nucleus or {}, requested_task, selected_theme)
+
+
+def _is_valid_google_business_faq_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 3:
+        return False
+
+    has_faq = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "faq":
+            perguntas = conteudo.get("perguntas")
+            if isinstance(perguntas, list) and len(perguntas) >= 5:
+                has_faq = True
+
+    return has_faq
+
+
+def _build_google_business_faq_fallback(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    ctx = _google_business_context_map(nucleus)
+    company = ctx["company"]
+    service_focus = ctx["service_focus"]
+    area = ctx["area"]
+    service_mode = ctx["service_mode"]
+    audience = ctx["audience"]
+    theme = _trim_text(selected_theme, max_chars=140) or service_focus
+
+    questions = [
+        {
+            "pergunta": f"Como funciona {theme} com a {company}?",
+            "resposta": f"O primeiro passo é entender o cenário, confirmar se {service_focus} faz sentido e orientar o próximo movimento de forma clara, sem promessa genérica.",
+        },
+        {
+            "pergunta": f"A empresa atende em {area}?",
+            "resposta": f"Sim, o perfil precisa deixar explícito o contexto local e a área atendida para reduzir dúvida já na fase de busca.",
+        },
+        {
+            "pergunta": "O atendimento é presencial, online ou sob agendamento?",
+            "resposta": f"A modalidade principal hoje é: {service_mode}. Esse ponto deve aparecer com clareza para evitar atrito antes do contato.",
+        },
+        {
+            "pergunta": f"Para quem {service_focus} costuma fazer mais sentido?",
+            "resposta": f"Em geral, para {audience}, especialmente quando existe uma dor concreta e a pessoa precisa de orientação clara para decidir.",
+        },
+        {
+            "pergunta": "Preciso entrar em contato antes de decidir?",
+            "resposta": "Sim. O FAQ ajuda a reduzir dúvida, mas o contato ainda serve para validar adequação do serviço, cenário e próximo passo.",
+        },
+        {
+            "pergunta": "O que diferencia a empresa de respostas genéricas de mercado?",
+            "resposta": "O ideal é mostrar especialidade, processo e contexto local com linguagem sóbria, sem transformar o FAQ em propaganda.",
+        },
+    ]
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"FAQ local para Perfil de Empresa — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura estratégica\n"
+                        f"O FAQ do Perfil de Empresa precisa responder o que a busca local normalmente carrega de dúvida: adequação, área atendida, modalidade, processo e próximo passo. "
+                        f"Neste caso, o eixo principal é **{theme}**."
+                    )
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "titulo": "Perguntas e respostas prontas para o perfil",
+                    "perguntas": questions,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais que vale repetir com naturalidade",
+                    "limite_por_item": "curtos e semânticos",
+                    "items": [service_focus, theme, area, service_mode, audience, company],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "No GBP, FAQ bom não é o que parece completo demais. É o que tira a dúvida certa rápido, com leitura local e linguagem que qualquer pessoa entende.",
+                    "icone": "lightbulb",
+                },
+            },
+        ],
+    }
+
+
+def _run_google_business_faq_task(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    system = """
+Sua missão é criar um FAQ local para Perfil de Empresa no Google.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, faq, keyword_list, highlight.
+
+Estruture em:
+1. leitura estratégica
+2. 5 a 8 perguntas e respostas prontas
+3. sinais semânticos que devem aparecer
+4. recomendação final
+
+Regras:
+- responda dúvida real de busca local
+- não transforme FAQ em propaganda
+- explique área atendida, modalidade, adequação, processo e próximo passo quando fizer sentido
+- não invente localidade, prazo, preço, garantia ou prova
+""".strip()
+
+    user = {
+        "task": requested_task or "Perguntas e Respostas do Perfil (FAQ Local)",
+        "focus": _trim_text(selected_theme) or "não informado",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.3, max_tokens=2400)
+        )
+        if _is_valid_google_business_faq_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_google_business_faq_fallback(nucleus or {}, requested_task, selected_theme)
+
+
+def _is_valid_google_business_keyword_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    for block in data.get("blocos", []):
+        if not isinstance(block, dict):
+            continue
+        if _trim_text(block.get("tipo")).lower() != "keyword_list":
+            continue
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        items = conteudo.get("items")
+        if isinstance(items, list) and len(items) >= 8:
+            return True
+    return False
+
+
+def _run_google_business_keyword_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é montar um mapa de SEO local para serviços do Perfil de Empresa no Google.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: keyword_list.
+
+Regras:
+- entregue somente um bloco keyword_list
+- cada item precisa ser curto, pesquisável e pronto para copiar
+- inclua serviço, intenção local, especialidade, modalidade de atendimento e problema resolvido quando fizer sentido
+- não invente localidade, serviço ou promessa
+""".strip()
+
+    user = {
+        "task": requested_task or "SEO Local para Serviços",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.2, max_tokens=1800)
+        )
+        if _is_valid_google_business_keyword_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_google_business_keyword_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_google_business_service_catalog_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    for block in data.get("blocos", []):
+        if not isinstance(block, dict):
+            continue
+        if _trim_text(block.get("tipo")).lower() != "service_cards":
+            continue
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        items = conteudo.get("items")
+        if isinstance(items, list) and len(items) >= 3:
+            return True
+    return False
+
+
+def _run_google_business_service_catalog_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é organizar serviços e descrições para cadastro no Perfil de Empresa no Google.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: service_cards.
+
+Regras:
+- entregue somente um bloco service_cards
+- cada card precisa ter nome curto, descrição clara e palavras-chave relacionadas
+- linguagem humana, profissional e pronta para cadastro
+- não invente serviço, localidade ou promessa
+""".strip()
+
+    user = {
+        "task": requested_task or "Serviços + Descrições",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.25, max_tokens=2200)
+        )
+        if _is_valid_google_business_service_catalog_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_google_business_service_catalog_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_google_business_review_response_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    for block in data.get("blocos", []):
+        if not isinstance(block, dict):
+            continue
+        if _trim_text(block.get("tipo")).lower() != "response_variations":
+            continue
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        items = conteudo.get("items")
+        if isinstance(items, list) and len(items) >= 3:
+            return True
+    return False
+
+
+def _run_google_business_review_response_task(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    review = _trim_text(selected_theme or nucleus.get("review_to_reply"), max_chars=800)
+
+    system = """
+Sua missão é criar respostas de avaliação para Perfil de Empresa no Google.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: response_variations, highlight.
+
+Estruture em:
+1. 3 a 5 respostas prontas
+2. recomendação final
+
+Regras:
+- agradeça de forma humana e natural
+- contextualize o ponto citado na avaliação
+- inclua serviço, especialidade ou contexto local quando isso couber organicamente
+- não invente informação que não esteja no núcleo ou na avaliação
+- as respostas devem parecer publicáveis imediatamente
+""".strip()
+
+    user = {
+        "task": requested_task or "Responder Avaliação",
+        "review": review or "não informado",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.3, max_tokens=2200)
+        )
+        if _is_valid_google_business_review_response_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_google_business_review_response_fallback(nucleus or {}, requested_task, selected_theme)
+
 
 
 def _build_google_business_keyword_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
@@ -6310,6 +7368,1343 @@ Regras:
     return _build_tiktok_trends_fallback(nucleus or {}, web_results)
 
 
+
+
+
+def _youtube_video_type_label(value: str) -> str:
+    clean = _trim_text(value)
+    return YOUTUBE_VIDEO_TYPE_LABELS.get(clean, clean or "não informado")
+
+
+def _youtube_goal_label(value: str) -> str:
+    clean = _trim_text(value)
+    return YOUTUBE_GOAL_LABELS.get(clean, clean or "não informado")
+
+
+def _youtube_context_map(nucleus: Dict[str, Any]) -> Dict[str, str]:
+    digest = _build_nucleus_digest(nucleus or {})
+    company = _trim_text(digest.get("empresa_marca"), max_chars=120) or "a empresa"
+    specialty = _trim_text(digest.get("especialidade"), max_chars=180) or "especialidade não informada"
+    offer = _trim_text(digest.get("oferta_principal"), max_chars=180) or "oferta principal não informada"
+    audience = _trim_text(digest.get("publico_alvo"), max_chars=180) or "público não informado"
+    region = _trim_text(digest.get("regiao_contexto"), max_chars=120) or "contexto geográfico não informado"
+    differential = _trim_text(digest.get("diferenciais"), max_chars=220) or "diferencial real não informado"
+    proof = _trim_text(digest.get("provas"), max_chars=320) or "prova real não informada"
+    return {
+        "company": company,
+        "specialty": specialty,
+        "offer": offer,
+        "audience": audience,
+        "region": region,
+        "differential": differential,
+        "proof": proof,
+    }
+
+
+def _build_youtube_script_fallback(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    ctx = _youtube_context_map(nucleus)
+    theme = _trim_text(selected_theme, max_chars=140) or ctx["offer"]
+    video_type = _youtube_video_type_label(_trim_text(nucleus.get("youtube_video_type")) or "conteudo_pilar")
+    goal = _youtube_goal_label(_trim_text(nucleus.get("youtube_goal")) or "gerar_autoridade")
+
+    intro = f"{ctx['company']} precisa usar YouTube para explicar {theme.lower()} com clareza, retenção e leitura de autoridade."
+    if video_type.lower().startswith("shorts"):
+        intro = f"{ctx['company']} precisa condensar {theme.lower()} em um vídeo curto que entregue contexto rápido e gere continuação."
+    elif "institucional" in video_type.lower():
+        intro = f"{ctx['company']} precisa transformar {theme.lower()} em um vídeo institucional claro, útil e sem cara de propaganda."
+
+    timeline = [
+        {"tempo": "0s-15s", "acao": "Abrir com promessa específica", "fala": f"Se você quer entender {theme.lower()} sem enrolação, aqui está o ponto central que quase ninguém explica direito."},
+        {"tempo": "15s-45s", "acao": "Contextualizar o problema", "fala": f"O erro mais comum é falar de {theme.lower()} de forma genérica. No nosso contexto, isso afasta {ctx['audience'].lower()} e enfraquece a percepção de valor."},
+        {"tempo": "45s-120s", "acao": "Explicar a lógica principal", "fala": f"O que funciona melhor é organizar o assunto por causa, impacto e aplicação prática. É assim que {ctx['company']} conecta {ctx['specialty'].lower()} com {ctx['offer'].lower()}."},
+        {"tempo": "120s-210s", "acao": "Mostrar aplicação ou exemplo", "fala": f"Na prática, isso significa deixar claro para {ctx['audience'].lower()} o que muda, onde está o diferencial e por que {ctx['differential'].lower()} importa nesse cenário."},
+        {"tempo": "210s-260s", "acao": "Fechar com continuidade", "fala": f"Se esse tema faz sentido para você, o próximo passo é aprofundar como isso se aplica ao seu caso e continuar a conversa a partir daqui."},
+    ]
+    if video_type.lower().startswith("shorts"):
+        timeline = [
+            {"tempo": "0s-3s", "acao": "Gancho imediato", "fala": f"Você está olhando para {theme.lower()} do jeito errado."},
+            {"tempo": "3s-10s", "acao": "Virada", "fala": f"O ponto não é parecer mais produzido. É explicar rápido o que realmente muda para {ctx['audience'].lower()}."},
+            {"tempo": "10s-22s", "acao": "Entrega", "fala": f"Quando {ctx['company']} fala de {theme.lower()}, o foco precisa ser contexto, clareza e impacto percebido — não frase bonita."},
+            {"tempo": "22s-35s", "acao": "Fechamento", "fala": f"Se quiser, eu posso aprofundar isso em um vídeo maior mostrando o processo completo."},
+        ]
+    elif "institucional" in video_type.lower():
+        timeline = [
+            {"tempo": "0s-8s", "acao": "Abrir pela entidade", "fala": f"{ctx['company']} atua com {ctx['offer'].lower()} para {ctx['audience'].lower()}."},
+            {"tempo": "8s-25s", "acao": "Contexto", "fala": f"O canal existe para explicar com clareza como esse trabalho acontece, em que cenário ele faz sentido e por que {ctx['specialty'].lower()} importa."},
+            {"tempo": "25s-50s", "acao": "Diferencial real", "fala": f"Em vez de prometer demais, a proposta é mostrar processo, critério e o que torna {ctx['differential'].lower()} um diferencial real."},
+            {"tempo": "50s-75s", "acao": "Convite final", "fala": f"Se esse contexto conversa com o seu momento, vale acompanhar os próximos vídeos e entender onde esse trabalho se encaixa no seu caso."},
+        ]
+
+    hooks = [
+        f"O que quase ninguém te mostra sobre {theme.lower()}",
+        f"Por que {theme.lower()} parece simples, mas costuma ser mal explicado",
+        f"Antes de investir em {theme.lower()}, entenda isso",
+        f"Como falar de {theme.lower()} sem soar genérico nem superficial",
+    ]
+    if video_type.lower().startswith("shorts"):
+        hooks = [
+            f"O erro mais comum sobre {theme.lower()}",
+            f"Você não precisa de mais conteúdo sobre {theme.lower()} — precisa disso",
+            f"Se {theme.lower()} ainda parece confuso, esse é o motivo",
+            f"{theme}: o ponto que quase ninguém entrega em 30 segundos",
+        ]
+    elif "institucional" in video_type.lower():
+        hooks = [
+            f"Quem é {ctx['company']} e por que este canal existe",
+            f"O que a {ctx['company']} realmente faz",
+            f"Como a {ctx['company']} quer ser entendida no YouTube",
+            f"Antes de acompanhar o canal, entenda esse contexto",
+        ]
+
+    text_on_screen = [
+        video_type,
+        goal,
+        ctx["company"],
+        theme,
+        ctx["differential"],
+    ]
+
+    variations = [
+        f"Versão 1: abrir pelo erro mais comum sobre {theme.lower()}",
+        f"Versão 2: abrir pela pergunta que {ctx['audience'].lower()} normalmente faria",
+        f"Versão 3: abrir por contraste entre conteúdo genérico e explicação útil",
+    ]
+
+    legend = (
+        f"{theme} não precisa ser explicado de forma genérica. "
+        f"Neste vídeo, a ideia é organizar o assunto com clareza para {ctx['audience'].lower()} "
+        f"e mostrar como {ctx['company']} enxerga esse contexto com foco em {goal.lower()}."
+    )
+
+    return {
+        "titulo_da_tela": requested_task or f"Roteiro estratégico para YouTube — {theme}",
+        "analise_do_tema": intro,
+        "estrategia_do_video": f"Tipo de vídeo: {video_type}. Objetivo principal: {goal}. A estrutura precisa responder cedo, aprofundar sem enrolação e fechar com próxima continuidade coerente.",
+        "video_format_selected": video_type,
+        "video_format_recommended": video_type,
+        "video_format_rationale": "No YouTube, o tipo de vídeo muda ritmo, profundidade e expectativa de retenção. O roteiro já foi organizado com isso em mente.",
+        "hooks": hooks,
+        "roteiro_segundo_a_segundo": timeline,
+        "texto_na_tela": text_on_screen,
+        "variacoes": variations,
+        "legenda": legend,
+        "youtube_video_type": video_type,
+        "youtube_goal": goal,
+    }
+
+
+def _run_youtube_script_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    video_type = _youtube_video_type_label(_trim_text(nucleus.get("youtube_video_type")) or "conteudo_pilar")
+    goal = _youtube_goal_label(_trim_text(nucleus.get("youtube_goal")) or "gerar_autoridade")
+
+    system = """
+Você cria roteiros de YouTube graváveis, estratégicos e específicos.
+Responda SOMENTE em JSON com as chaves:
+- titulo_da_tela
+- analise_do_tema
+- estrategia_do_video
+- hooks (array com 4 itens)
+- roteiro_segundo_a_segundo (array de objetos com tempo, acao, fala)
+- texto_na_tela (array)
+- variacoes (array com 3 itens)
+- legenda
+
+Regras:
+- pt-BR
+- trate o tipo de vídeo como restrição real de estrutura
+- responda cedo a promessa central
+- use oralidade natural, gravável e com densidade útil
+- evite introdução longa, frases genéricas e cara de guru
+- se for Shorts, comprima ao máximo sem perder sentido
+- se for institucional, não escreva como propaganda
+- legenda deve complementar o vídeo, não repetir tudo
+""".strip()
+
+    user = {
+        "task": requested_task or "Roteiro estratégico para YouTube",
+        "theme": selected_theme,
+        "youtube_video_type": video_type,
+        "youtube_goal": goal,
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.42, max_tokens=2800)
+        )
+        if isinstance(normalized, dict):
+            normalized["video_format_selected"] = video_type
+            normalized["video_format_recommended"] = video_type
+            normalized["video_format_rationale"] = "A arquitetura do roteiro foi ajustada para o tipo de vídeo escolhido no YouTube."
+            normalized["youtube_video_type"] = video_type
+            normalized["youtube_goal"] = goal
+            if _trim_text(normalized.get("analise_do_tema")) and isinstance(normalized.get("hooks"), list) and normalized.get("roteiro_segundo_a_segundo"):
+                return normalized
+    except Exception:
+        pass
+
+    return _build_youtube_script_fallback(nucleus or {}, requested_task, selected_theme)
+
+
+def _is_valid_youtube_metadata_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_variations = False
+    has_services = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "response_variations" and isinstance(conteudo.get("items"), list) and len(conteudo.get("items")) >= 4:
+            has_variations = True
+        elif tipo == "service_cards" and isinstance(conteudo.get("items"), list) and len(conteudo.get("items")) >= 3:
+            has_services = True
+        elif tipo == "keyword_list" and isinstance(conteudo.get("items"), list) and len(conteudo.get("items")) >= 4:
+            has_keywords = True
+
+    return has_variations and has_services and has_keywords
+
+
+def _build_youtube_metadata_fallback(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    ctx = _youtube_context_map(nucleus)
+    theme = _trim_text(selected_theme, max_chars=140) or ctx["offer"]
+    titles = [
+        f"{theme}: o que realmente importa para {ctx['audience'].lower()}",
+        f"Como entender {theme.lower()} sem cair no genérico",
+        f"{theme}: guia claro para quem quer {ctx['differential'].lower()}",
+        f"O ponto mais ignorado sobre {theme.lower()}",
+        f"{theme}: quando faz sentido e como avaliar",
+    ]
+    descriptions = [
+        {
+            "nome": "Versão equilibrada",
+            "descricao": f"Vídeo sobre {theme.lower()} com foco em contexto, aplicação prática e critérios para {ctx['audience'].lower()}.",
+            "palavras_chave": [theme, ctx["company"], ctx["specialty"]],
+        },
+        {
+            "nome": "Versão descoberta",
+            "descricao": f"Entenda {theme.lower()} de forma objetiva, sem hype, com leitura aplicável ao cenário de {ctx['audience'].lower()}.",
+            "palavras_chave": [theme, ctx["offer"], ctx["differential"]],
+        },
+        {
+            "nome": "Versão consideração",
+            "descricao": f"Explicação clara de {theme.lower()} com foco em decisão, processo e sinais que realmente importam.",
+            "palavras_chave": [theme, ctx["audience"], ctx["region"]],
+        },
+    ]
+    keywords = [theme, ctx["company"], ctx["specialty"], ctx["offer"], ctx["audience"], ctx["region"]]
+
+    return {
+        "titulo_da_tela": requested_task or f"Títulos + descrições para YouTube — {theme}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "titulo": "Leitura SEO/AEO do vídeo",
+                    "texto": (
+                        f"Para YouTube, o empacotamento precisa equilibrar **promessa**, **clareza semântica** e **adesão ao contexto real**. "
+                        f"No caso de **{theme}**, o ideal é deixar explícito o problema, a utilidade do vídeo e o tipo de entendimento que {ctx['audience'].lower()} vai ganhar."
+                    ),
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Títulos prontos",
+                    "items": titles,
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Descrições base prontas",
+                    "items": descriptions,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais semânticos para reforçar",
+                    "items": keywords,
+                    "limite_por_item": "curto e natural",
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Direção final",
+                    "texto": "Evite título chamativo que não conversa com a entrega real do vídeo. No YouTube, prometer certo ajuda mais do que prometer demais.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_youtube_metadata_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    system = """
+Sua missão é empacotar um vídeo de YouTube com títulos, descrições e sinais semânticos fortes.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, keyword_list, highlight.
+
+Estruture em:
+1. leitura SEO/AEO do vídeo
+2. 5 a 8 títulos prontos
+3. 3 a 5 descrições base prontas
+4. sinais semânticos para reforçar
+5. recomendação final
+
+Regras:
+- não invente promessa, prova ou tema
+- títulos precisam ser específicos e distintos entre si
+- descrições devem ser naturais, úteis e copiáveis
+- palavras-chave precisam parecer humanas, não lista robótica
+""".strip()
+
+    user = {
+        "task": requested_task or "Títulos + descrições otimizadas (SEO/AEO)",
+        "theme": selected_theme,
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.34, max_tokens=2600)
+        )
+        if _is_valid_youtube_metadata_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_youtube_metadata_fallback(nucleus or {}, requested_task, selected_theme)
+
+
+def _is_valid_youtube_series_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_cards = False
+    has_timeline = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "service_cards" and isinstance(conteudo.get("items"), list) and len(conteudo.get("items")) >= 3:
+            has_cards = True
+        elif tipo == "timeline" and isinstance(conteudo.get("passos"), list) and len(conteudo.get("passos")) >= 3:
+            has_timeline = True
+        elif tipo == "keyword_list" and isinstance(conteudo.get("items"), list) and len(conteudo.get("items")) >= 3:
+            has_keywords = True
+
+    return has_cards and has_timeline and has_keywords
+
+
+def _build_youtube_series_fallback(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    ctx = _youtube_context_map(nucleus)
+    theme = _trim_text(selected_theme, max_chars=140) or ctx["offer"]
+    episodes = [
+        {
+            "nome": "Episódio 1 — contexto",
+            "descricao": f"Abertura da série explicando por que {theme.lower()} importa, para quem faz sentido e o erro de leitura mais comum.",
+            "palavras_chave": [theme, ctx["audience"]],
+        },
+        {
+            "nome": "Episódio 2 — processo",
+            "descricao": f"Mostrar como {ctx['company']} enxerga {theme.lower()} em termos de critério, execução e decisão prática.",
+            "palavras_chave": [ctx["company"], ctx["specialty"]],
+        },
+        {
+            "nome": "Episódio 3 — aplicação",
+            "descricao": f"Trazer exemplo, bastidor, comparação ou caso plausível para tornar {theme.lower()} mais concreto.",
+            "palavras_chave": [ctx["offer"], ctx["differential"]],
+        },
+        {
+            "nome": "Episódio 4 — objeções",
+            "descricao": f"Responder as dúvidas que normalmente travam a compreensão e a decisão sobre {theme.lower()}.",
+            "palavras_chave": [ctx["proof"], ctx["region"]],
+        },
+    ]
+    steps = [
+        "Abrir a série pelo problema e não pelo currículo da empresa.",
+        "Avançar da explicação geral para processo e aplicação.",
+        "Criar um gancho de continuidade entre episódios.",
+        "Fechar cada vídeo apontando o próximo passo da playlist.",
+    ]
+
+    return {
+        "titulo_da_tela": requested_task or f"Série / playlist de autoridade — {theme}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "titulo": "Leitura editorial da série",
+                    "texto": (
+                        f"Uma boa série de YouTube organiza o tema por **camadas de entendimento**, não por repetição de assunto. "
+                        f"No caso de **{theme}**, a sequência precisa ajudar {ctx['audience'].lower()} a sair da visão superficial para uma leitura mais madura."
+                    ),
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Estrutura sugerida da playlist",
+                    "items": episodes,
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "titulo": "Ritmo recomendado da sequência",
+                    "passos": steps,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Eixos que devem se repetir",
+                    "items": [theme, ctx["company"], ctx["specialty"], ctx["offer"], ctx["audience"]],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Direção final",
+                    "texto": "A playlist precisa parecer uma progressão de entendimento, não uma coleção solta de vídeos sobre o mesmo assunto.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_youtube_series_task(nucleus: Dict[str, Any], requested_task: str, selected_theme: str) -> Dict[str, Any]:
+    system = """
+Sua missão é estruturar uma série ou playlist de autoridade para YouTube.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, service_cards, timeline, keyword_list, highlight.
+
+Estruture em:
+1. leitura editorial da série
+2. episódios ou pilares da playlist
+3. ordem recomendada da sequência
+4. eixos que devem se repetir
+5. recomendação final
+
+Regras:
+- não repetir o mesmo vídeo com títulos diferentes
+- diferencie contexto, processo, aplicação, objeção e aprofundamento
+- trate a série como progressão de entendimento
+- preserve clareza, autoridade e continuidade
+""".strip()
+
+    user = {
+        "task": requested_task or "Estrutura de série / playlist de autoridade",
+        "theme": selected_theme,
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.32, max_tokens=2600)
+        )
+        if _is_valid_youtube_series_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_youtube_series_fallback(nucleus or {}, requested_task, selected_theme)
+
+
+def _is_valid_youtube_channel_positioning_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_highlight = False
+    has_variations = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "highlight" and _trim_text(conteudo.get("texto")):
+            has_highlight = True
+        elif tipo == "response_variations" and isinstance(conteudo.get("items"), list) and len(conteudo.get("items")) >= 3:
+            has_variations = True
+        elif tipo == "keyword_list" and isinstance(conteudo.get("items"), list) and len(conteudo.get("items")) >= 4:
+            has_keywords = True
+
+    return has_highlight and has_variations and has_keywords
+
+
+def _build_youtube_channel_positioning_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _youtube_context_map(nucleus)
+    about_variations = [
+        f"{ctx['company']} é um canal para quem quer entender {ctx['offer'].lower()} com mais clareza, contexto e critério.",
+        f"Aqui, {ctx['company']} organiza conteúdos sobre {ctx['specialty'].lower()} para ajudar {ctx['audience'].lower()} a tomar decisões melhores.",
+        f"O canal existe para explicar {ctx['offer'].lower()} sem hype, com foco em aplicação prática, leitura estratégica e continuidade editorial.",
+        f"Este canal reúne análises, explicações e conteúdos de aprofundamento para quem quer entender {ctx['specialty'].lower()} de forma menos genérica.",
+    ]
+
+    return {
+        "titulo_da_tela": requested_task or "Descrição do canal + posicionamento",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "titulo": "Leitura de posicionamento",
+                    "texto": (
+                        f"No YouTube, a seção **Sobre** precisa explicar a entidade, o recorte editorial e a utilidade do canal sem parecer bio promocional. "
+                        f"O foco aqui é deixar claro quem é **{ctx['company']}**, o que o canal ensina e por que esse conteúdo merece atenção."
+                    ),
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Núcleo editorial do canal",
+                    "texto": f"{ctx['company']} usa o canal para traduzir {ctx['specialty'].lower()} em conteúdos que ajudam {ctx['audience'].lower()} a entender melhor {ctx['offer'].lower()}.",
+                    "icone": "star",
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Descrições prontas para a seção Sobre",
+                    "items": about_variations,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais que devem aparecer",
+                    "items": [ctx["company"], ctx["specialty"], ctx["offer"], ctx["audience"], ctx["differential"], ctx["region"]],
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "titulo": "Checagens rápidas do canal",
+                    "perguntas": [
+                        {"pergunta": "O canal deixa claro para quem ele existe?", "resposta": f"Hoje, o texto precisa falar explicitamente com {ctx['audience'].lower()}."},
+                        {"pergunta": "A promessa editorial está clara?", "resposta": f"A promessa central deve girar em torno de {ctx['offer'].lower()} com linguagem natural."},
+                        {"pergunta": "O texto parece propaganda?", "resposta": "Se parecer pitch comercial, perdeu força editorial. O ideal é clareza, não hype."},
+                    ],
+                },
+            },
+        ],
+    }
+
+
+def _run_youtube_channel_positioning_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é estruturar a descrição do canal e o posicionamento editorial do YouTube.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, highlight, response_variations, keyword_list, faq.
+
+Estruture em:
+1. leitura de posicionamento
+2. núcleo editorial do canal
+3. 4 a 6 descrições prontas para a seção Sobre
+4. sinais que devem aparecer
+5. checagens rápidas antes de publicar
+
+Regras:
+- não escrever como propaganda
+- explicar entidade, recorte editorial, público e utilidade
+- não inventar provas, números ou superlativos
+- o texto precisa ficar copiável para cadastro
+""".strip()
+
+    user = {
+        "task": requested_task or "Descrição do canal + posicionamento",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.3, max_tokens=2400)
+        )
+        if _is_valid_youtube_channel_positioning_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_youtube_channel_positioning_fallback(nucleus or {}, requested_task)
+
+
+
+
+def _linkedin_context_map(nucleus: Dict[str, Any]) -> Dict[str, Any]:
+    digest = _build_nucleus_digest(nucleus or {})
+    company = _trim_text(digest.get("empresa_marca"), max_chars=120) or "a empresa"
+    specialty = _trim_text(digest.get("especialidade"), max_chars=180) or "especialidade não informada"
+    offer = _trim_text(digest.get("oferta_principal"), max_chars=180) or specialty
+    audience = _trim_text(digest.get("publico_alvo"), max_chars=160) or "público não informado"
+    differential = _trim_text(digest.get("diferenciais"), max_chars=220) or "diferencial real não informado"
+    proof = _trim_text(digest.get("provas"), max_chars=320) or "não informado"
+    region = _trim_text(digest.get("regiao_contexto"), max_chars=120) or "contexto não informado"
+    person = _trim_text(
+        nucleus.get("authority_name")
+        or nucleus.get("expert_name")
+        or nucleus.get("person_name")
+        or nucleus.get("spokesperson_name")
+        or company,
+        max_chars=90,
+    ) or company
+
+    services = _split_nucleus_items(nucleus.get("services_products") or offer, max_items=6)
+    differentials = _split_nucleus_items(nucleus.get("real_differentials") or differential, max_items=4)
+
+    return {
+        "company": company,
+        "person": person,
+        "specialty": specialty,
+        "offer": offer,
+        "audience": audience,
+        "differential": differential,
+        "proof": proof,
+        "region": region,
+        "services": services,
+        "differentials": differentials,
+    }
+
+
+def _linkedin_positioning_statement(ctx: Dict[str, Any], *, max_chars: int = 220) -> str:
+    company = ctx.get("company") or "a empresa"
+    offer = ctx.get("offer") or "atuação não informada"
+    audience = ctx.get("audience") or "público não informado"
+    differential = ctx.get("differential") or "diferencial real não informado"
+
+    parts = [f"{company} atua com {offer}"]
+    if audience != "público não informado":
+        parts.append(f"para {audience}")
+    if differential != "diferencial real não informado":
+        parts.append(f"com foco em {differential}")
+    return _compact_inline_text(" ".join(parts) + ".", max_chars=max_chars) or f"{company} atua com {offer}."
+
+
+def _linkedin_signal_items(ctx: Dict[str, Any], extra_items: Optional[List[str]] = None) -> List[str]:
+    items: List[str] = []
+    seen: set[str] = set()
+
+    def add_item(value: str) -> None:
+        clean = _trim_text(value, max_chars=90)
+        if not clean or clean == "não informado":
+            return
+        key = clean.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        items.append(clean)
+
+    add_item(ctx.get("specialty", ""))
+    add_item(ctx.get("offer", ""))
+    add_item(ctx.get("audience", ""))
+    add_item(ctx.get("differential", ""))
+
+    for service in ctx.get("services") or []:
+        add_item(service)
+
+    for item in extra_items or []:
+        add_item(item)
+
+    return items[:10]
+
+
+def _is_valid_linkedin_insight_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_variations = False
+    has_cards = False
+    has_timeline = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_variations = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_cards = True
+        elif tipo == "timeline":
+            passos = conteudo.get("passos")
+            if isinstance(passos, list) and len(passos) >= 3:
+                has_timeline = True
+
+    return has_variations and has_cards and has_timeline
+
+
+def _build_linkedin_insight_fallback(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    ctx = _linkedin_context_map(nucleus)
+    company = ctx["company"]
+    theme = _trim_text(selected_theme, max_chars=180) or "um tema estratégico do mercado"
+    thesis = _compact_inline_text(
+        f"No LinkedIn, {company} deve tratar {theme} como tese aplicada ao contexto de {ctx['offer']}, mostrando leitura de mercado, implicação prática e ponto de vista próprio.",
+        max_chars=320,
+    )
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Post de insight — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "titulo": "Leitura executiva",
+                    "texto": (
+                        f"### Tese central\n{thesis}\n\n"
+                        "### Regra de posicionamento\n"
+                        "Um bom post de LinkedIn não tenta parecer profundo; ele deixa claro como a marca interpreta o cenário, o que isso muda na prática e por que esse raciocínio merece atenção."
+                    ),
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Versões prontas de post",
+                    "items": [
+                        f"**Versão 1 — tese direta:** {theme} não deveria ser tratado como tendência solta. Para {ctx['audience']}, o ponto central é entender como isso altera decisões, processo e resultado em {ctx['offer']}.",
+                        f"**Versão 2 — leitura de mercado:** Muita gente fala de {theme} de forma genérica. O recorte que importa é este: quando o tema aparece no contexto de {ctx['specialty']}, ele exige critério, método e consequência prática.",
+                        f"**Versão 3 — bastidor aplicado:** Na prática, sempre que {company} discute {theme}, a conversa não é sobre opinião bonita. É sobre como isso reorganiza prioridade, execução e percepção de valor para {ctx['audience']}.",
+                        f"**Versão 4 — fechamento maduro:** O ponto não é publicar mais sobre {theme}. O ponto é mostrar uma leitura que ajude o mercado a pensar melhor, com mais clareza de processo, risco e decisão.",
+                    ],
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Ângulos para sustentar o raciocínio",
+                    "items": [
+                        {
+                            "nome": "Contexto",
+                            "descricao": f"Abra o post situando onde {theme} entra na rotina de quem lida com {ctx['offer']}.",
+                            "palavras_chave": [theme, ctx["offer"]],
+                        },
+                        {
+                            "nome": "Tese",
+                            "descricao": "Mostre a ideia principal em uma frase forte, mas explicável.",
+                            "palavras_chave": ["clareza", "ponto de vista"],
+                        },
+                        {
+                            "nome": "Implicação prática",
+                            "descricao": f"Explique o que muda em decisão, processo ou percepção para {ctx['audience']}.",
+                            "palavras_chave": [ctx["audience"], "aplicação"],
+                        },
+                        {
+                            "nome": "Fechamento",
+                            "descricao": "Feche com reflexão madura, sem CTA genérico e sem parecer aula motivacional.",
+                            "palavras_chave": ["sobriedade", "autoridade"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "titulo": "Ordem recomendada do post",
+                    "passos": [
+                        "1. Abra com uma tese ou contradição que mereça leitura profissional.",
+                        "2. Contextualize o problema sem alongar demais a introdução.",
+                        "3. Mostre a implicação prática para mercado, processo ou decisão.",
+                        "4. Feche com uma leitura útil que sustente autoridade sem parecer palestra.",
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Leitura que precisa aparecer",
+                    "texto": thesis,
+                    "icone": "spark",
+                },
+            },
+        ],
+    }
+
+
+def _run_linkedin_insight_task(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    system = """
+Sua missão é criar um material de LinkedIn que soe executivo, útil e maduro.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, timeline, highlight.
+
+Estruture em:
+1. leitura executiva
+2. 3 a 5 versões prontas do post
+3. ângulos que sustentam o raciocínio
+4. ordem recomendada do post
+5. tese final
+
+Regras:
+- tom profissional, claro e aplicável
+- nada de motivacional corporativo
+- evite frase de guru, autoelogio e abstração vazia
+- não invente clientes, números, credenciais ou fatos
+""".strip()
+
+    user = {
+        "task": requested_task or "Post de Insight / Tese Executiva",
+        "selected_theme": _trim_text(selected_theme, max_chars=240),
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.35, max_tokens=2400)
+        )
+        if _is_valid_linkedin_insight_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_linkedin_insight_fallback(nucleus or {}, requested_task, selected_theme)
+
+
+def _is_valid_linkedin_case_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_markdown = False
+    has_cards = False
+    has_variations = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "markdown" and _trim_text(conteudo.get("texto")):
+            has_markdown = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_cards = True
+        elif tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_variations = True
+
+    return has_markdown and has_cards and has_variations
+
+
+def _build_linkedin_case_fallback(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    ctx = _linkedin_context_map(nucleus)
+    company = ctx["company"]
+    theme = _trim_text(selected_theme, max_chars=180) or "um caso de aprendizado aplicado"
+    opening = _compact_inline_text(
+        f"Em LinkedIn, {company} deve apresentar {theme} como uma leitura de processo: contexto, decisão, execução, mudança percebida e aprendizado útil para o mercado.",
+        max_chars=320,
+    )
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Case / aprendizado aplicado — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "titulo": "Enquadramento do case",
+                    "texto": (
+                        f"### Como contar o caso\n{opening}\n\n"
+                        "### Regra de credibilidade\n"
+                        "O valor do case está menos em parecer grandioso e mais em mostrar lógica, critério e lição prática. Sem inflar resultado, sem esconder contexto e sem posar de herói."
+                    ),
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Blocos do case",
+                    "items": [
+                        {
+                            "nome": "Contexto inicial",
+                            "descricao": f"Explique onde o cenário travava em relação a {ctx['offer']} ou {theme}.",
+                            "palavras_chave": ["antes", "contexto"],
+                        },
+                        {
+                            "nome": "Decisão tomada",
+                            "descricao": f"Mostre qual caminho foi seguido e por que ele fez sentido para {ctx['audience']}.",
+                            "palavras_chave": ["critério", "decisão"],
+                        },
+                        {
+                            "nome": "Execução",
+                            "descricao": "Descreva o que foi feito sem inflar bastidor, jargão ou complexidade artificial.",
+                            "palavras_chave": ["processo", "aplicação"],
+                        },
+                        {
+                            "nome": "Mudança percebida",
+                            "descricao": f"Mostre a mudança em clareza, processo, percepção ou resultado ligada a {ctx['differential']}.",
+                            "palavras_chave": ["mudança", "resultado"],
+                        },
+                        {
+                            "nome": "Aprendizado para o mercado",
+                            "descricao": "Feche com uma lição útil para quem vive problema parecido.",
+                            "palavras_chave": ["lição", "mercado"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Aberturas e fechamentos possíveis",
+                    "items": [
+                        f"**Abertura 1:** Um case bom não começa pelo resultado. Ele começa pela decisão que precisou ser tomada quando {theme} ainda era um problema real.",
+                        f"**Abertura 2:** O ponto mais útil deste caso não é o que aconteceu no fim; é como o processo foi redesenhado para lidar com {theme} com mais critério.",
+                        f"**Fechamento 1:** O aprendizado aqui é simples: autoridade no LinkedIn cresce quando a empresa mostra raciocínio aplicado, não quando tenta parecer maior do que é.",
+                        f"**Fechamento 2:** Para quem atua em {ctx['specialty']}, o valor do case está em entender por que a escolha funcionou naquele contexto e o que pode ser reaproveitado.",
+                    ],
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "titulo": "Sequência narrativa recomendada",
+                    "passos": [
+                        "1. Situe o cenário inicial com um problema reconhecível.",
+                        "2. Mostre qual decisão precisava ser tomada e por quê.",
+                        "3. Resuma a execução sem transformar tudo em detalhe operacional.",
+                        "4. Traga a mudança percebida e feche com aprendizado aplicado.",
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Regra de ouro",
+                    "texto": "Case em LinkedIn precisa parecer experiência aplicada compartilhada com o mercado, não peça de autopromoção disfarçada.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_linkedin_case_task(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    system = """
+Sua missão é estruturar um case ou aprendizado aplicado para LinkedIn.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, timeline, highlight.
+
+Estruture em:
+1. enquadramento do case
+2. blocos do case
+3. aberturas e fechamentos possíveis
+4. sequência narrativa
+5. regra final
+
+Regras:
+- tom executivo, B2B e útil
+- não invente clientes, números, nomes ou resultados
+- trate o caso como aprendizado aplicado, não como anúncio
+- preserve contexto, causalidade e maturidade
+""".strip()
+
+    user = {
+        "task": requested_task or "Case / Aprendizado Aplicado B2B",
+        "selected_theme": _trim_text(selected_theme, max_chars=240),
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.32, max_tokens=2400)
+        )
+        if _is_valid_linkedin_case_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_linkedin_case_fallback(nucleus or {}, requested_task, selected_theme)
+
+
+def _is_valid_linkedin_profile_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_variations = False
+    has_keywords = False
+    has_cards = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_variations = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keywords = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_cards = True
+
+    return has_variations and has_keywords and has_cards
+
+
+def _build_linkedin_profile_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _linkedin_context_map(nucleus)
+    person = ctx["person"]
+    company = ctx["company"]
+    specialty = ctx["specialty"]
+    audience = ctx["audience"]
+    offer = ctx["offer"]
+    differential = ctx["differential"]
+    base_about = _compact_inline_text(
+        f"{person} atua à frente de {company} com foco em {offer}. Seu trabalho conversa com {audience} e busca transformar especialidade em leitura prática, processo e decisão bem conduzida. O diferencial real está em {differential}.",
+        max_chars=520,
+    )
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Perfil pessoal — {person}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "titulo": "Leitura de posicionamento",
+                    "texto": (
+                        f"### O que o perfil precisa comunicar\n"
+                        f"O perfil pessoal de **{person}** precisa deixar explícito o eixo de atuação em **{specialty}**, a oferta central em **{offer}** e o recorte de público em **{audience}**, sem soar genérico nem inflado.\n\n"
+                        "### Regra\n"
+                        "Headline e Sobre precisam funcionar como leitura de especialidade, não como lista de adjetivos."
+                    ),
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Headline + Sobre prontos",
+                    "items": [
+                        f"**Headline 1:** {specialty} | {offer} para {audience}\n\n**Sobre:** {base_about}",
+                        f"**Headline 2:** {person} | {offer} com foco em {differential}\n\n**Sobre:** {base_about}",
+                        f"**Headline 3:** {person} na {company} | {specialty} e leitura prática para {audience}\n\n**Sobre:** {base_about}",
+                        f"**Headline 4:** {offer} | Especialidade em {specialty} | {company}\n\n**Sobre:** {base_about}",
+                    ],
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Partes do perfil que precisam sustentar a leitura",
+                    "items": [
+                        {
+                            "nome": "Headline",
+                            "descricao": "Deixe claro o que faz, para quem e com qual recorte de especialidade.",
+                            "palavras_chave": ["clareza", "especialidade"],
+                        },
+                        {
+                            "nome": "Sobre",
+                            "descricao": "Explique contexto, modo de atuação, diferencial real e tipo de problema que resolve.",
+                            "palavras_chave": ["contexto", "diferencial"],
+                        },
+                        {
+                            "nome": "Experiência / destaque",
+                            "descricao": "Os blocos de experiência precisam repetir o mesmo posicionamento sem contradizer a headline.",
+                            "palavras_chave": ["coerência", "prova"],
+                        },
+                        {
+                            "nome": "Tom geral",
+                            "descricao": "Profissional, seguro e útil; sem parecer currículo inflado nem guru de palco.",
+                            "palavras_chave": ["maturidade", "credibilidade"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais que devem aparecer no perfil",
+                    "items": _linkedin_signal_items(ctx, [person, company]),
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Posicionamento central",
+                    "texto": base_about,
+                    "icone": "spark",
+                },
+            },
+        ],
+    }
+
+
+def _run_linkedin_profile_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é otimizar um perfil pessoal no LinkedIn com leitura profissional e posicionamento claro.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, keyword_list, highlight.
+
+Estruture em:
+1. leitura de posicionamento
+2. 4 a 6 opções de headline + sobre
+3. partes do perfil que sustentam a leitura
+4. sinais que precisam aparecer
+5. posicionamento central
+
+Regras:
+- tom profissional e maduro
+- nada de headline vaga, genérica ou motivacional
+- não invente cargo, credencial, prêmio ou resultado
+- deixe claro especialidade, oferta, público e diferencial real
+""".strip()
+
+    user = {
+        "task": requested_task or "Perfil Pessoal (Headline + Sobre)",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.28, max_tokens=2400)
+        )
+        if _is_valid_linkedin_profile_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_linkedin_profile_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_linkedin_company_page_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_variations = False
+    has_cards = False
+    has_faq = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_variations = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_cards = True
+        elif tipo == "faq":
+            perguntas = conteudo.get("perguntas")
+            if isinstance(perguntas, list) and len(perguntas) >= 3:
+                has_faq = True
+
+    return has_variations and has_cards and has_faq
+
+
+def _build_linkedin_company_page_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _linkedin_context_map(nucleus)
+    company = ctx["company"]
+    statement = _linkedin_positioning_statement(ctx, max_chars=260)
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"LinkedIn Page — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "titulo": "Leitura institucional",
+                    "texto": (
+                        f"### Base da página\n{statement}\n\n"
+                        "### Regra de maturidade\n"
+                        "A página da empresa precisa ser compreendida rápido: o que faz, para quem, em que contexto e com qual diferencial real. Sem frase corporativa oca e sem parecer panfleto."
+                    ),
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Descrições prontas para a página",
+                    "items": [
+                        statement,
+                        _compact_inline_text(f"{company} atua com {ctx['offer']} para {ctx['audience']}, com foco em {ctx['specialty']} e leitura aplicada de mercado.", max_chars=260),
+                        _compact_inline_text(f"{company} organiza sua atuação em torno de {ctx['offer']}, sustentada por {ctx['differential']} e voltada para {ctx['audience']}.", max_chars=260),
+                        _compact_inline_text(f"A presença de {company} no LinkedIn deve deixar claro seu papel em {ctx['specialty']}, a utilidade da oferta e a maturidade do posicionamento institucional.", max_chars=260),
+                    ],
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Blocos que a página precisa sustentar",
+                    "items": [
+                        {
+                            "nome": "Descrição institucional",
+                            "descricao": "Texto curto que apresenta a empresa sem jargão, sem slogan vazio e com clareza de oferta.",
+                            "palavras_chave": [ctx["offer"], "clareza"],
+                        },
+                        {
+                            "nome": "Especialidade",
+                            "descricao": f"Mostre o recorte de atuação em {ctx['specialty']} como eixo central da entidade.",
+                            "palavras_chave": [ctx["specialty"], "posicionamento"],
+                        },
+                        {
+                            "nome": "Prova / credibilidade",
+                            "descricao": "Use sinais legítimos de experiência, processo e resultado sem inflar promessas.",
+                            "palavras_chave": ["prova", "credibilidade"],
+                        },
+                        {
+                            "nome": "Pilares editoriais",
+                            "descricao": "Defina temas recorrentes para que a página publique com coerência e voz profissional.",
+                            "palavras_chave": ["constância", "tema"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "titulo": "Perguntas que a página precisa responder",
+                    "perguntas": [
+                        {
+                            "pergunta": f"O que {company} faz de forma mais clara e reconhecível?",
+                            "resposta": f"A descrição precisa responder isso já no primeiro bloco, conectando {ctx['offer']} com {ctx['audience']}.",
+                        },
+                        {
+                            "pergunta": "Por que essa empresa merece atenção no LinkedIn?",
+                            "resposta": f"A resposta está em {ctx['differential']}, traduzido em leitura profissional e utilidade real.",
+                        },
+                        {
+                            "pergunta": "Sobre o que a página deve publicar com frequência?",
+                            "resposta": f"Temas ligados a {ctx['specialty']}, bastidores de processo, leitura de mercado e provas legítimas.",
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Base aprovada da página",
+                    "texto": statement,
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_linkedin_company_page_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é estruturar a LinkedIn Page da empresa com leitura institucional clara e B2B.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, faq, highlight.
+
+Estruture em:
+1. leitura institucional
+2. 3 a 5 descrições prontas
+3. blocos da página
+4. perguntas que a página precisa responder
+5. base final
+
+Regras:
+- tom institucional, sóbrio e profissional
+- nada de slogan genérico ou marketing inflado
+- não invente números, clientes, cobertura ou credenciais
+- deixe claro oferta, especialidade, público e diferencial real
+""".strip()
+
+    user = {
+        "task": requested_task or "LinkedIn Page da Empresa",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.28, max_tokens=2400)
+        )
+        if _is_valid_linkedin_company_page_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_linkedin_company_page_fallback(nucleus or {}, requested_task)
 
 
 def _social_proof_context_map(nucleus: Dict[str, Any]) -> Dict[str, str]:
@@ -8152,3 +10547,1523 @@ Modo refine:
     result["catalog_analysis"] = resolved_catalog_analysis
     result["serialized_text"] = _skybob_study_to_text(result)
     return result
+
+
+
+
+def _cross_platform_consistency_context_map(nucleus: Dict[str, Any]) -> Dict[str, Any]:
+    digest = _build_nucleus_digest(nucleus or {})
+    company = _trim_text(digest.get("empresa_marca"), max_chars=120) or "a empresa"
+    specialty = _trim_text(digest.get("especialidade"), max_chars=180) or "especialidade não informada"
+    offer = _trim_text(digest.get("oferta_principal"), max_chars=180) or specialty
+    audience = _trim_text(digest.get("publico_alvo"), max_chars=180) or "público não informado"
+    region = _trim_text(digest.get("regiao_contexto"), max_chars=120) or "contexto regional não informado"
+    differential = _trim_text(digest.get("diferenciais"), max_chars=220) or "diferencial real não informado"
+    proof = _trim_text(digest.get("provas"), max_chars=260) or "não informado"
+
+    services = _split_nucleus_items(nucleus.get("services_products") or nucleus.get("offer") or offer, max_items=6)
+    differentials = _split_nucleus_items(nucleus.get("real_differentials") or differential, max_items=4)
+
+    raw_channels = [
+        ("Site", nucleus.get("site")),
+        ("Perfil Google", nucleus.get("google_business_profile")),
+        ("Instagram", nucleus.get("instagram")),
+        ("LinkedIn", nucleus.get("linkedin")),
+        ("YouTube", nucleus.get("youtube")),
+        ("TikTok", nucleus.get("tiktok")),
+    ]
+    channels: List[str] = []
+    for label, raw in raw_channels:
+        if _trim_text(raw, max_chars=240):
+            channels.append(label)
+
+    if not channels:
+        channels = ["Site", "Perfil Google", "Instagram", "LinkedIn"]
+
+    return {
+        "company": company,
+        "specialty": specialty,
+        "offer": offer,
+        "audience": audience,
+        "region": region,
+        "differential": differential,
+        "proof": proof,
+        "services": services,
+        "differentials": differentials,
+        "channels": channels,
+    }
+
+
+def _cross_platform_consistency_master_statement(ctx: Dict[str, Any], *, max_chars: int = 240) -> str:
+    company = ctx.get("company") or "a empresa"
+    offer = ctx.get("offer") or "atuação não informada"
+    audience = ctx.get("audience") or "público não informado"
+    region = ctx.get("region") or "contexto regional não informado"
+
+    parts = [f"{company} atua com {offer}"]
+    if audience != "público não informado":
+        parts.append(f"para {audience}")
+    if region != "contexto regional não informado":
+        parts.append(f"em {region}")
+
+    statement = " ".join(parts).strip() + "."
+    return _compact_inline_text(statement, max_chars=max_chars) or f"{company} atua com {offer}."
+
+
+def _cross_platform_consistency_signal_items(ctx: Dict[str, Any], extra_items: Optional[List[str]] = None) -> List[str]:
+    items: List[str] = []
+    seen: set[str] = set()
+
+    def add_item(value: str) -> None:
+        clean = _trim_text(value, max_chars=90)
+        if not clean or clean == "não informado":
+            return
+        key = clean.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        items.append(clean)
+
+    add_item(ctx.get("company", ""))
+    add_item(ctx.get("specialty", ""))
+    add_item(ctx.get("offer", ""))
+    add_item(ctx.get("audience", ""))
+    add_item(ctx.get("region", ""))
+    add_item(ctx.get("differential", ""))
+
+    for service in ctx.get("services") or []:
+        add_item(service)
+
+    for item in extra_items or []:
+        add_item(item)
+
+    return items[:10]
+
+
+def _cross_platform_consistency_channel_cards(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    company = ctx["company"]
+    offer = ctx["offer"]
+    audience = ctx["audience"]
+    specialty = ctx["specialty"]
+    differential = ctx["differential"]
+
+    templates = {
+        "Site": {
+            "descricao": f"Explicar cedo quem é {company}, o que entrega em {offer} e para quem essa atuação faz sentido, sem esconder o serviço principal.",
+            "palavras_chave": [offer, audience, specialty],
+        },
+        "Perfil Google": {
+            "descricao": f"Manter categoria, serviço principal, modalidade de atendimento e contexto local coerentes com {offer}.",
+            "palavras_chave": [offer, ctx["region"], "serviço principal"],
+        },
+        "Instagram": {
+            "descricao": "Condensar o núcleo em frases curtas, mas sem trocar a proposta de valor por slogan ou promessa vaga.",
+            "palavras_chave": [specialty, differential, "clareza imediata"],
+        },
+        "LinkedIn": {
+            "descricao": "Traduzir o mesmo núcleo em leitura mais madura, executiva e orientada a raciocínio, sem reposicionar a marca para outro público.",
+            "palavras_chave": [audience, specialty, "autoridade profissional"],
+        },
+        "YouTube": {
+            "descricao": "Usar títulos, descrição e abertura de vídeo para repetir o problema central, o serviço e a especialidade sem soar genérico.",
+            "palavras_chave": [offer, specialty, "promessa clara"],
+        },
+        "TikTok": {
+            "descricao": "Adaptar velocidade e formato, mas preservar o mesmo problema central, recorte de público e ganho real prometido.",
+            "palavras_chave": [audience, "ganho claro", "vídeo curto"],
+        },
+    }
+
+    cards: List[Dict[str, Any]] = []
+    for channel in ctx.get("channels") or []:
+        template = templates.get(channel)
+        if not template:
+            continue
+        cards.append(
+            {
+                "nome": channel,
+                "descricao": template["descricao"],
+                "palavras_chave": template["palavras_chave"],
+            }
+        )
+
+    if len(cards) < 4:
+        for channel, template in templates.items():
+            if any(item["nome"] == channel for item in cards):
+                continue
+            cards.append(
+                {
+                    "nome": channel,
+                    "descricao": template["descricao"],
+                    "palavras_chave": template["palavras_chave"],
+                }
+            )
+            if len(cards) >= 4:
+                break
+
+    return cards[:6]
+
+
+def _is_valid_cross_platform_consistency_audit_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_comparison = False
+    has_cards = False
+    has_timeline = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "comparison_table":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_comparison = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_cards = True
+        elif tipo == "timeline":
+            passos = conteudo.get("passos")
+            if isinstance(passos, list) and len(passos) >= 3:
+                has_timeline = True
+
+    return has_comparison and has_cards and has_timeline
+
+
+def _build_cross_platform_consistency_audit_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _cross_platform_consistency_context_map(nucleus)
+    master_statement = _cross_platform_consistency_master_statement(ctx, max_chars=200)
+
+    comparison_items = [
+        {
+            "criterio": "Nome da entidade",
+            "nossa_solucao": f"Usar {ctx['company']} com a mesma forma principal em todos os canais.",
+            "mercado": "Cada canal apresenta uma variação diferente do nome, abreviação ou subtítulo.",
+            "recomendacao": "Escolha uma forma principal e deixe subtítulos apenas como apoio, não como novo nome.",
+        },
+        {
+            "criterio": "Oferta principal",
+            "nossa_solucao": f"Repetir {ctx['offer']} como eixo central da leitura da marca.",
+            "mercado": "Cada perfil descreve um serviço diferente como se fosse a atividade principal.",
+            "recomendacao": "Defina um serviço central e deixe complementares em segundo nível sem competir pela atenção.",
+        },
+        {
+            "criterio": "Público e contexto",
+            "nossa_solucao": f"Manter o recorte de {ctx['audience']} e contexto {ctx['region']} quando isso for relevante.",
+            "mercado": "O público muda demais de um canal para outro, o que confunde interpretação humana e semântica.",
+            "recomendacao": "Permita adaptação de linguagem, mas preserve quem vocês ajudam e em que cenário atuam.",
+        },
+        {
+            "criterio": "Diferencial real",
+            "nossa_solucao": f"Ancorar o discurso em {ctx['differential']}.",
+            "mercado": "Promessas e slogans diferentes aparecem como se cada canal vendesse uma lógica própria.",
+            "recomendacao": "Converta slogans em uma explicação única e verificável do diferencial real.",
+        },
+        {
+            "criterio": "Especialidade e prova",
+            "nossa_solucao": f"Conectar {ctx['specialty']} com provas plausíveis e contexto de execução.",
+            "mercado": "O canal fala de reputação, mas não explica especialidade nem por que a marca merece confiança.",
+            "recomendacao": "Use prova como reforço do núcleo, não como substituto de posicionamento.",
+        },
+    ]
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Auditoria de consistência — {ctx['company']}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura de governança\n"
+                        f"A consistência digital de **{ctx['company']}** depende de a marca ser entendida como a mesma entidade em todos os pontos de contato. "
+                        f"Hoje, o núcleo mais seguro para alinhar essa leitura é: **{master_statement}**"
+                    )
+                },
+            },
+            {
+                "tipo": "comparison_table",
+                "conteudo": {
+                    "titulo": "Onde a marca costuma se perder entre canais",
+                    "items": comparison_items,
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Como cada canal deve obedecer ao mesmo núcleo",
+                    "items": _cross_platform_consistency_channel_cards(ctx),
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "passos": [
+                        "1. Defina a versão oficial de nome, oferta principal, público e diferencial antes de revisar qualquer canal.",
+                        "2. Corrija primeiro os canais com maior impacto de descoberta e validação: site, Perfil Google e bio principal.",
+                        "3. Ajuste LinkedIn, Instagram, YouTube e TikTok mantendo o mesmo núcleo semântico, mesmo com tom adaptado.",
+                        "4. Revise materiais institucionais, menções externas e propostas para impedir que a incoerência volte.",
+                    ]
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Prioridade de correção",
+                    "texto": "Padronize primeiro o que define a entidade: nome, oferta principal, público e diferencial. O resto é adaptação de canal.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_cross_platform_consistency_audit_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é executar uma auditoria de consistência entre canais da marca.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, comparison_table, service_cards, timeline, highlight.
+
+Estruture em:
+1. leitura de governança
+2. conflitos por critério
+3. ajustes por canal
+4. ordem de correção
+5. prioridade final
+
+Regras:
+- foco em nome, oferta, público, especialidade, diferencial, promessa e contexto geográfico
+- diferencie adaptação aceitável de ruído estratégico
+- não invente canal, serviço, região, prova ou posicionamento
+- trate consistência como clareza de entidade, não estética
+""".strip()
+
+    user = {
+        "task": requested_task or "Auditoria de consistência entre canais",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.28, max_tokens=2600)
+        )
+        if _is_valid_cross_platform_consistency_audit_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_cross_platform_consistency_audit_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_cross_platform_consistency_master_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_highlight = False
+    has_cards = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "highlight" and _trim_text(conteudo.get("texto")):
+            has_highlight = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_cards = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keywords = True
+
+    return has_highlight and has_cards and has_keywords
+
+
+def _build_cross_platform_consistency_master_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _cross_platform_consistency_context_map(nucleus)
+    master_statement = _cross_platform_consistency_master_statement(ctx, max_chars=240)
+
+    cards = [
+        {
+            "nome": "Quem é a entidade",
+            "descricao": master_statement,
+            "palavras_chave": [ctx["company"], ctx["specialty"]],
+        },
+        {
+            "nome": "Oferta central",
+            "descricao": f"A leitura principal da marca precisa girar em torno de {ctx['offer']}, evitando múltiplos serviços competindo como identidade principal.",
+            "palavras_chave": [ctx["offer"], *(ctx.get("services") or [])[:2]],
+        },
+        {
+            "nome": "Para quem faz sentido",
+            "descricao": f"O recorte-base precisa permanecer em {ctx['audience']}, mesmo quando o canal pedir linguagem mais curta ou mais madura.",
+            "palavras_chave": [ctx["audience"], "aderência de público"],
+        },
+        {
+            "nome": "Diferencial que deve se repetir",
+            "descricao": f"Em vez de slogans variáveis, repita a lógica central: {ctx['differential']}.",
+            "palavras_chave": [ctx["differential"], "explicação real"],
+        },
+        {
+            "nome": "Contexto de atuação",
+            "descricao": f"Sempre que relevante, preserve o contexto {ctx['region']} para não desalojar a marca do cenário onde ela faz sentido.",
+            "palavras_chave": [ctx["region"], "contexto estável"],
+        },
+    ]
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Núcleo fixo da marca — {ctx['company']}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura de governança\n"
+                        f"O objetivo do núcleo fixo é impedir que **{ctx['company']}** pareça uma empresa diferente em cada canal. "
+                        "A marca pode variar o tom, mas não pode trocar o que faz, para quem faz e por que isso importa."
+                    )
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Mensagem-mestre",
+                    "texto": master_statement,
+                    "icone": "check",
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Elementos fixos da entidade",
+                    "items": cards,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Termos e sinais que devem se repetir",
+                    "limite_por_item": "curtos e semanticamente estáveis",
+                    "items": _cross_platform_consistency_signal_items(ctx, ["mensagem-mestre", "entidade única"]),
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "perguntas": [
+                        {
+                            "pergunta": "Tudo precisa ser idêntico em todos os canais?",
+                            "resposta": "Não. O que precisa ser estável é o núcleo semântico: nome, oferta principal, público, especialidade e diferencial real. O tom pode adaptar.",
+                        },
+                        {
+                            "pergunta": "O que mais quebra consistência sem a equipe perceber?",
+                            "resposta": "Trocar o serviço principal, falar com um público diferente em cada canal ou usar slogans que parecem promessas novas.",
+                        },
+                        {
+                            "pergunta": "Como usar esse núcleo sem engessar a comunicação?",
+                            "resposta": "Trate o núcleo como base fixa e cada canal como tradução do mesmo entendimento, não como reinvenção de posicionamento.",
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+
+def _run_cross_platform_consistency_master_message_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é definir o núcleo fixo da marca para manter consistência entre canais.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, highlight, service_cards, keyword_list, faq.
+
+Estruture em:
+1. leitura de governança
+2. mensagem-mestre
+3. elementos fixos da entidade
+4. sinais que precisam se repetir
+5. FAQ de uso
+
+Regras:
+- o núcleo deve servir para site, Google, Instagram, LinkedIn, YouTube, TikTok e materiais institucionais
+- nada de slogan vazio como substituto de posicionamento
+- não invente diferencial, prova, canal ou escopo
+- deixe claro o que é estável e o que é apenas adaptação
+""".strip()
+
+    user = {
+        "task": requested_task or "Núcleo fixo da marca (mensagem-mestre)",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.26, max_tokens=2400)
+        )
+        if _is_valid_cross_platform_consistency_master_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_cross_platform_consistency_master_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_cross_platform_consistency_channel_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_cards = False
+    has_comparison = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_cards = True
+        elif tipo == "comparison_table":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_comparison = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keywords = True
+
+    return has_cards and has_comparison and has_keywords
+
+
+def _build_cross_platform_consistency_channel_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _cross_platform_consistency_context_map(nucleus)
+    immutable_items = _cross_platform_consistency_signal_items(ctx, ["serviço principal", "público correto", "diferencial real"])
+
+    comparison_items = [
+        {
+            "criterio": "Tom de voz",
+            "nossa_solucao": "Pode variar entre mais direto, mais executivo ou mais dinâmico.",
+            "mercado": "Quando o tom muda, a proposta de valor também muda junto.",
+            "recomendacao": "Adapte estilo, mas preserve a mesma tese central da marca.",
+        },
+        {
+            "criterio": "Abertura / bio / headline",
+            "nossa_solucao": "Resume o mesmo núcleo com profundidade diferente em cada canal.",
+            "mercado": "Cada abertura cria uma promessa diferente e sem relação com o resto da presença digital.",
+            "recomendacao": "Mantenha nome, oferta principal e público no começo da leitura sempre que possível.",
+        },
+        {
+            "criterio": "CTA",
+            "nossa_solucao": "Muda conforme o momento do canal, mas sem reposicionar a empresa.",
+            "mercado": "O CTA promete outra entrega e acaba vendendo um negócio diferente do que a marca realmente faz.",
+            "recomendacao": "A ação pode mudar; o entendimento da oferta não.",
+        },
+        {
+            "criterio": "Profundidade",
+            "nossa_solucao": "Site e LinkedIn explicam mais; Instagram e TikTok condensam mais.",
+            "mercado": "A redução de espaço vira perda de clareza e troca de especialidade.",
+            "recomendacao": "Resuma sem amputar o serviço central nem o contexto real.",
+        },
+        {
+            "criterio": "Prova e repertório",
+            "nossa_solucao": "A prova aparece em formatos diferentes, mas sempre reforça o mesmo diferencial.",
+            "mercado": "Cada canal usa uma prova diferente para defender narrativas desconectadas.",
+            "recomendacao": "Escolha uma leitura única do diferencial e deixe a prova apenas confirmar isso.",
+        },
+    ]
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Ajustes por canal — {ctx['company']}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura de governança\n"
+                        "A adaptação por canal só é saudável quando a identidade continua reconhecível. "
+                        "O papel desta entrega é mostrar como mudar formato, tom e profundidade sem reinventar a marca."
+                    )
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Tradução do mesmo núcleo por canal",
+                    "items": _cross_platform_consistency_channel_cards(ctx),
+                },
+            },
+            {
+                "tipo": "comparison_table",
+                "conteudo": {
+                    "titulo": "O que pode variar e o que não pode",
+                    "items": comparison_items,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Partes que não podem variar",
+                    "limite_por_item": "estáveis em qualquer canal",
+                    "items": immutable_items,
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "passos": [
+                        "1. Crie uma referência-mãe com nome, oferta, público, diferencial e contexto.",
+                        "2. Reescreva cada canal olhando primeiro para o que precisa ficar estável.",
+                        "3. Ajuste tom, profundidade e CTA só depois de validar que a entidade continua a mesma.",
+                        "4. Faça uma revisão cruzada mensal para impedir deriva de posicionamento.",
+                    ]
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Regra de adaptação",
+                    "texto": "Formato pode mudar. Entidade não. Se o canal exigir uma versão menor, corte floreio antes de cortar clareza de oferta.",
+                    "icone": "star",
+                },
+            },
+        ],
+    }
+
+
+def _run_cross_platform_consistency_channel_adaptation_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é traduzir a mesma identidade da marca para canais diferentes sem perder consistência.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, service_cards, comparison_table, keyword_list, timeline, highlight.
+
+Estruture em:
+1. leitura de governança
+2. tradução por canal
+3. o que pode variar e o que não pode
+4. partes imutáveis
+5. ordem de aplicação
+6. regra final
+
+Regras:
+- compare site, Perfil Google, Instagram, LinkedIn, YouTube, TikTok e materiais externos quando fizer sentido
+- não invente canal ou adaptar de forma que a oferta mude
+- preserve entidade, especialidade, público e diferencial
+- escreva de forma prática, operacional e fácil de aplicar
+""".strip()
+
+    user = {
+        "task": requested_task or "Ajustes por canal sem perder identidade",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.28, max_tokens=2600)
+        )
+        if _is_valid_cross_platform_consistency_channel_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_cross_platform_consistency_channel_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_cross_platform_consistency_governance_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_timeline = False
+    has_faq = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "timeline":
+            passos = conteudo.get("passos")
+            if isinstance(passos, list) and len(passos) >= 3:
+                has_timeline = True
+        elif tipo == "faq":
+            perguntas = conteudo.get("perguntas")
+            if isinstance(perguntas, list) and len(perguntas) >= 3:
+                has_faq = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keywords = True
+
+    return has_timeline and has_faq and has_keywords
+
+
+def _build_cross_platform_consistency_governance_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _cross_platform_consistency_context_map(nucleus)
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Checklist de consistência — {ctx['company']}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura de governança\n"
+                        "Consistência digital não é um ajuste único. É uma rotina de decisão editorial para impedir que a marca se fragmente a cada nova peça, bio ou descrição."
+                    )
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "passos": [
+                        "1. Mantenha um documento-mãe com nome oficial, oferta principal, público, diferencial e contexto de atuação.",
+                        "2. Antes de publicar, valide se o texto reforça o mesmo núcleo ou se introduz uma promessa nova.",
+                        "3. Faça revisão mensal cruzando site, Perfil Google, redes sociais e materiais institucionais.",
+                        "4. Sempre que uma nova campanha nascer, confira se ela traduz o posicionamento existente ou se está tentando substituí-lo.",
+                    ]
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Pontos de checagem da rotina editorial",
+                    "items": [
+                        {
+                            "nome": "Documento-mãe",
+                            "descricao": "Centralize a versão oficial de nome, oferta, público, diferencial, especialidade e contexto.",
+                            "palavras_chave": [ctx["company"], ctx["offer"], ctx["audience"]],
+                        },
+                        {
+                            "nome": "Revisão pré-publicação",
+                            "descricao": "Cheque se a peça reforça a mesma entidade ou se cria uma marca paralela sem perceber.",
+                            "palavras_chave": ["promessa", "serviço principal", "clareza"],
+                        },
+                        {
+                            "nome": "Revisão cruzada mensal",
+                            "descricao": "Compare os principais canais lado a lado para identificar deriva de posicionamento.",
+                            "palavras_chave": ["site", "google", "instagram", "linkedin"],
+                        },
+                        {
+                            "nome": "Aprovação final",
+                            "descricao": "Quem aprova precisa olhar coerência semântica, não só design, ortografia ou tamanho do texto.",
+                            "palavras_chave": ["governança", "entidade", "padronização"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Itens que precisam ficar estáveis",
+                    "limite_por_item": "referência obrigatória",
+                    "items": _cross_platform_consistency_signal_items(ctx, ["promessa central", "especialidade principal", "contexto correto"]),
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "perguntas": [
+                        {
+                            "pergunta": "Quando uma variação de texto vira incoerência?",
+                            "resposta": "Quando muda quem a empresa é, o que faz, para quem faz ou por que seria a escolha certa sem existir mudança real no negócio.",
+                        },
+                        {
+                            "pergunta": "Toda campanha nova precisa de uma linguagem totalmente nova?",
+                            "resposta": "Não. A campanha pode ter ângulo próprio, mas precisa continuar parecendo parte da mesma marca e da mesma proposta de valor.",
+                        },
+                        {
+                            "pergunta": "Quem deve cuidar dessa governança?",
+                            "resposta": "Quem aprova conteúdo, comercial e presença digital precisa olhar o núcleo da marca como ativo compartilhado, não como detalhe de um canal isolado.",
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Regra operacional",
+                    "texto": "Antes de publicar qualquer peça, pergunte: isso reforça a mesma entidade ou faz a empresa parecer outra? Essa resposta evita a maior parte do ruído estratégico.",
+                    "icone": "lightbulb",
+                },
+            },
+        ],
+    }
+
+
+def _run_cross_platform_consistency_governance_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é criar um checklist editorial de consistência e governança da marca.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, timeline, service_cards, keyword_list, faq, highlight.
+
+Estruture em:
+1. leitura de governança
+2. ritmo de revisão
+3. pontos de checagem
+4. itens estáveis
+5. FAQ de manutenção
+6. regra operacional final
+
+Regras:
+- a rotina precisa ser prática e aplicável por equipe de conteúdo, marketing, comercial e atendimento
+- foque em nome, oferta, público, especialidade, diferencial e contexto
+- não invente processos sofisticados demais
+- a governança deve reduzir ruído sem apagar diferenciais reais
+""".strip()
+
+    user = {
+        "task": requested_task or "Checklist editorial de consistência e governança",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.25, max_tokens=2500)
+        )
+        if _is_valid_cross_platform_consistency_governance_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_cross_platform_consistency_governance_fallback(nucleus or {}, requested_task)
+
+
+
+def _external_mentions_context_map(nucleus: Dict[str, Any]) -> Dict[str, Any]:
+    digest = _build_nucleus_digest(nucleus or {})
+    company = _trim_text(digest.get("empresa_marca"), max_chars=120) or "a empresa"
+    specialty = _trim_text(digest.get("especialidade"), max_chars=180)
+    offer = _trim_text(digest.get("oferta_principal"), max_chars=180)
+    audience = _trim_text(digest.get("publico_alvo"), max_chars=160)
+    region = _trim_text(digest.get("regiao_contexto"), max_chars=120)
+    differential = _trim_text(digest.get("diferenciais"), max_chars=220)
+    proof = _trim_text(digest.get("provas"), max_chars=320)
+    services = _split_nucleus_items(nucleus.get("services_products") or offer, max_items=6)
+    differentials = _split_nucleus_items(nucleus.get("real_differentials") or differential, max_items=4)
+
+    return {
+        "company": company,
+        "specialty": specialty or "especialidade não informada",
+        "offer": offer or specialty or "atuação não informada",
+        "audience": audience or "público não informado",
+        "region": region or "contexto regional não informado",
+        "differential": differential or "diferencial real não informado",
+        "proof": proof or "não informado",
+        "services": services,
+        "differentials": differentials,
+    }
+
+
+def _external_mentions_entity_statement(ctx: Dict[str, Any], *, max_chars: int = 240) -> str:
+    company = ctx.get("company") or "a empresa"
+    offer = ctx.get("offer") or "atuação não informada"
+    audience = ctx.get("audience") or "público não informado"
+    region = ctx.get("region") or "contexto regional não informado"
+
+    parts = [f"{company} atua com {offer}"]
+    if audience != "público não informado":
+        parts.append(f"para {audience}")
+    if region != "contexto regional não informado":
+        parts.append(f"em {region}")
+
+    return _compact_inline_text(" ".join(parts) + ".", max_chars=max_chars) or f"{company} atua com {offer}."
+
+
+def _external_mentions_signal_items(ctx: Dict[str, Any], extra_items: Optional[List[str]] = None) -> List[str]:
+    items: List[str] = []
+    seen: set[str] = set()
+
+    def add_item(value: str) -> None:
+        clean = _trim_text(value, max_chars=90)
+        if not clean or clean == "não informado":
+            return
+        key = clean.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        items.append(clean)
+
+    add_item(ctx.get("company", ""))
+    add_item(ctx.get("specialty", ""))
+    add_item(ctx.get("offer", ""))
+    add_item(ctx.get("audience", ""))
+    add_item(ctx.get("region", ""))
+    add_item(ctx.get("differential", ""))
+
+    for service in ctx.get("services") or []:
+        add_item(service)
+
+    for item in extra_items or []:
+        add_item(item)
+
+    return items[:10]
+
+
+def _is_valid_external_mentions_official_kit_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_variations = False
+    has_cards = False
+    has_keywords = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_variations = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_cards = True
+        elif tipo == "keyword_list":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_keywords = True
+
+    return has_variations and has_cards and has_keywords
+
+
+def _build_external_mentions_official_kit_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _external_mentions_context_map(nucleus)
+    company = ctx["company"]
+    entity_statement = _external_mentions_entity_statement(ctx, max_chars=170)
+    medium_statement = _compact_inline_text(
+        f"{entity_statement} O foco institucional está em {ctx['differential'].lower() if ctx['differential'] != 'diferencial real não informado' else 'clareza de atuação, consistência e execução confiável'}.",
+        max_chars=280,
+    )
+    editorial_statement = _compact_inline_text(
+        f"{entity_statement} A empresa organiza sua atuação com ênfase em {ctx['differential'] if ctx['differential'] != 'diferencial real não informado' else 'explicação clara do que faz, para quem faz e em que contexto atua'}, o que facilita leitura institucional por parceiros, diretórios e materiais editoriais.",
+        max_chars=420,
+    )
+
+    cards = [
+        {
+            "nome": "Quem é",
+            "descricao": entity_statement,
+            "palavras_chave": [company, ctx["specialty"]],
+        },
+        {
+            "nome": "O que faz",
+            "descricao": f"A atuação principal hoje está organizada em torno de {ctx['offer']}.",
+            "palavras_chave": [ctx["offer"], *(ctx.get("services") or [])[:2]],
+        },
+        {
+            "nome": "Para quem faz",
+            "descricao": f"O recorte de público mais claro é {ctx['audience']}, sempre que houver aderência ao núcleo real.",
+            "palavras_chave": [ctx["audience"], "contexto de uso"],
+        },
+        {
+            "nome": "Contexto institucional",
+            "descricao": f"O texto oficial deve preservar contexto, especialidade e escopo em {ctx['region']}.",
+            "palavras_chave": [ctx["region"], "entidade clara"],
+        },
+        {
+            "nome": "Diferencial citável",
+            "descricao": f"Em vez de autoelogio, vale repetir: {ctx['differential']}.",
+            "palavras_chave": [ctx["differential"], "sobriedade"],
+        },
+    ]
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Kit de menção institucional — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura editorial\n"
+                        f"O objetivo do kit abaixo é deixar **{company}** fácil de citar por terceiros sem virar texto publicitário. "
+                        "As versões precisam preservar entidade, contexto e coerência, para que portal, parceiro, evento ou diretório consigam copiar o material com pouca adaptação."
+                    )
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Textos oficiais por tamanho",
+                    "items": [
+                        f"**Versão 1 linha:** {entity_statement}",
+                        f"**Versão curta:** {medium_statement}",
+                        f"**Versão institucional:** {editorial_statement}",
+                        f"**Versão boilerplate:** {_compact_inline_text(editorial_statement + ' A leitura deve permanecer factual, clara e reaproveitável em contextos editoriais.', max_chars=520)}",
+                    ],
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Pontos que terceiros podem citar sem distorcer a marca",
+                    "items": cards,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais institucionais que devem se repetir",
+                    "limite_por_item": "curtos, claros e consistentes",
+                    "items": _external_mentions_signal_items(ctx, ["material citável", "tom institucional"]),
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Use sempre a mesma base factual para portais, parceiros, eventos e press kit. O ganho vem da repetição coerente de entidade, especialidade e contexto — não de adjetivos mais fortes.",
+                    "icone": "lightbulb",
+                },
+            },
+        ],
+    }
+
+
+def _run_external_mentions_official_kit_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é montar um kit de menção institucional citável por terceiros.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, keyword_list, highlight.
+
+Estruture em:
+1. leitura editorial
+2. textos oficiais por tamanho (4 a 6 versões)
+3. pontos que terceiros podem citar sem distorcer a marca
+4. sinais institucionais que devem se repetir
+5. recomendação final
+
+Regras:
+- linguagem institucional e editorial
+- nada de tom publicitário
+- não invente prêmios, números, marcos ou autoridade externa
+- preserve clareza de entidade, especialidade, público e contexto
+""".strip()
+
+    user = {
+        "task": requested_task or "Kit de Menção (Textos Oficiais da Empresa)",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.28, max_tokens=2600)
+        )
+        if _is_valid_external_mentions_official_kit_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_external_mentions_official_kit_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_external_mentions_pitch_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_variations = False
+    has_timeline = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 4:
+                has_variations = True
+        elif tipo == "timeline":
+            passos = conteudo.get("passos")
+            if isinstance(passos, list) and len(passos) >= 3:
+                has_timeline = True
+
+    return has_variations and has_timeline
+
+
+def _build_external_mentions_pitch_fallback(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    ctx = _external_mentions_context_map(nucleus)
+    company = ctx["company"]
+    entity_statement = _external_mentions_entity_statement(ctx, max_chars=170)
+    medium_statement = _compact_inline_text(
+        f"{entity_statement} A empresa se posiciona com foco em {ctx['differential'].lower() if ctx['differential'] != 'diferencial real não informado' else 'clareza de atuação e execução consistente'}.",
+        max_chars=280,
+    )
+    long_statement = _compact_inline_text(
+        f"{entity_statement} Em contextos institucionais, a apresentação deve deixar claro que a atuação acontece com foco em {ctx['differential'] if ctx['differential'] != 'diferencial real não informado' else 'explicação objetiva do serviço, do público e do contexto de uso'}, sem transformar a fala em anúncio.",
+        max_chars=420,
+    )
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Pitch institucional — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura editorial\n"
+                        "Uma mini apresentação institucional boa não tenta impressionar rápido; ela tenta ser compreendida rápido. "
+                        f"As versões abaixo preservam a mesma base de entidade para apresentar **{company}** em reunião, evento, parceria, podcast ou introdução editorial."
+                    )
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Mini apresentações prontas",
+                    "items": [
+                        f"**Versão 10 segundos:** {entity_statement}",
+                        f"**Versão 20 segundos:** {medium_statement}",
+                        f"**Versão reunião ou parceria:** {long_statement}",
+                        f"**Versão abertura de evento ou podcast:** {_compact_inline_text(entity_statement + ' O objetivo aqui é introduzir a empresa de forma clara, contextual e institucional, sem apelo comercial direto.', max_chars=360)}",
+                    ],
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Contextos de uso",
+                    "items": [
+                        {
+                            "nome": "Reunião",
+                            "descricao": "Use a versão mais curta, deixando explícito o que a empresa faz e por que está naquela conversa.",
+                            "palavras_chave": ["clareza", "abertura"],
+                        },
+                        {
+                            "nome": "Parceria",
+                            "descricao": "Mantenha o foco em complementaridade, contexto de atuação e recorte institucional.",
+                            "palavras_chave": ["contexto", "cooperação"],
+                        },
+                        {
+                            "nome": "Evento ou painel",
+                            "descricao": "A apresentação precisa ser falável, limpa e estável, mesmo quando dita por outra pessoa.",
+                            "palavras_chave": ["fala natural", "introdução pública"],
+                        },
+                        {
+                            "nome": "Podcast ou mídia",
+                            "descricao": "A prioridade é soar citável e precisa, não ensaiada ou vendedor demais.",
+                            "palavras_chave": ["citável", "sobriedade"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "timeline",
+                "conteudo": {
+                    "titulo": "Como adaptar sem descaracterizar a empresa",
+                    "passos": [
+                        "1. Comece sempre pelo que a empresa faz de forma mais clara e reconhecível.",
+                        "2. Acrescente público, contexto ou diferencial apenas quando isso ajudar a entender melhor a entidade.",
+                        "3. Corte autoelogio, superlativo e promessas amplas demais.",
+                        "4. Termine com o recorte institucional mais útil para aquela situação específica.",
+                    ],
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Tenha uma base curta e uma base média aprovadas pela empresa. Isso reduz improviso ruim e mantém consistência quando outras pessoas apresentam a marca.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_external_mentions_pitch_task(nucleus: Dict[str, Any], requested_task: str) -> Dict[str, Any]:
+    system = """
+Sua missão é criar mini apresentações institucionais citáveis por terceiros.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, timeline, highlight.
+
+Estruture em:
+1. leitura editorial
+2. 4 a 6 versões de pitch institucional
+3. contextos de uso
+4. como adaptar sem descaracterizar a empresa
+5. recomendação final
+
+Regras:
+- tom institucional, copiável e falável
+- nada de copy comercial
+- preserve a mesma entidade em todas as versões
+- não invente autoridade, prêmios, números ou cobertura
+""".strip()
+
+    user = {
+        "task": requested_task or "Modelo de Mini Apresentação (Pitch Institucional)",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.3, max_tokens=2400)
+        )
+        if _is_valid_external_mentions_pitch_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_external_mentions_pitch_fallback(nucleus or {}, requested_task)
+
+
+def _is_valid_external_mentions_release_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_markdown = False
+    has_variations = False
+    has_cards = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "markdown" and _trim_text(conteudo.get("texto")):
+            has_markdown = True
+        elif tipo == "response_variations":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_variations = True
+        elif tipo == "service_cards":
+            items = conteudo.get("items")
+            if isinstance(items, list) and len(items) >= 3:
+                has_cards = True
+
+    return has_markdown and has_variations and has_cards
+
+
+def _build_external_mentions_release_fallback(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    ctx = _external_mentions_context_map(nucleus)
+    company = ctx["company"]
+    theme = _trim_text(selected_theme, max_chars=180) or "movimento institucional da empresa"
+    lead = _compact_inline_text(
+        f"{company} apresenta {theme} com foco em {ctx['offer']}. O material precisa explicar por que esse movimento importa, para quem ele faz sentido e em que contexto a empresa atua.",
+        max_chars=360,
+    )
+    body = (
+        "### Lead editorial\n"
+        f"{lead}\n\n"
+        "### Corpo base\n"
+        f"{_external_mentions_entity_statement(ctx, max_chars=220)} "
+        f"No contexto deste release, o ponto central é **{theme}**, tratado de forma factual e reaproveitável por imprensa, parceiros e materiais institucionais. "
+        f"A leitura institucional deve continuar coerente com a especialidade da empresa em **{ctx['specialty']}** e com seu diferencial real em **{ctx['differential']}**.\n\n"
+        "### Fechamento sugerido\n"
+        "O fechamento deve reforçar contexto, utilidade pública ou relevância institucional do movimento, evitando qualquer frase com cara de propaganda."
+    )
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"Release institucional — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "titulo": "Estrutura-base do release",
+                    "texto": body,
+                },
+            },
+            {
+                "tipo": "response_variations",
+                "conteudo": {
+                    "titulo": "Títulos editoriais possíveis",
+                    "items": [
+                        f"{company} organiza {theme} com foco em {ctx['offer']}",
+                        f"{theme}: como {company} apresenta esse movimento de forma institucional",
+                        f"{company} reforça atuação em {ctx['specialty']} a partir de {theme}",
+                        f"{theme} entra na comunicação institucional de {company} com leitura mais clara de entidade",
+                    ],
+                },
+            },
+            {
+                "tipo": "service_cards",
+                "conteudo": {
+                    "titulo": "Ângulos de apoio para imprensa, parceiros e diretórios",
+                    "items": [
+                        {
+                            "nome": "O que aconteceu",
+                            "descricao": f"O release precisa nomear com clareza o movimento central: {theme}.",
+                            "palavras_chave": ["fato central", "clareza"],
+                        },
+                        {
+                            "nome": "Por que isso importa",
+                            "descricao": f"Explique a relevância institucional a partir da atuação da empresa em {ctx['offer']}.",
+                            "palavras_chave": ["relevância", ctx["offer"]],
+                        },
+                        {
+                            "nome": "Qual é o contexto",
+                            "descricao": f"Amarre o fato ao contexto real da empresa: especialidade em {ctx['specialty']} e atuação em {ctx['region']}.",
+                            "palavras_chave": [ctx["specialty"], ctx["region"]],
+                        },
+                        {
+                            "nome": "Como terceiros podem citar",
+                            "descricao": "Dê preferência a formulações factuais, explicativas e curtas, sem superlativo nem promessa.",
+                            "palavras_chave": ["citável", "editorial"],
+                        },
+                    ],
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais institucionais úteis dentro do release",
+                    "limite_por_item": "repetições que ajudam a entidade a ficar clara",
+                    "items": _external_mentions_signal_items(ctx, [theme, "release institucional", "leitura editorial"]),
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Release bom explica o movimento da empresa com base factual e contexto de atuação. O texto precisa ser útil para quem vai citar, não para quem já conhece a marca por dentro.",
+                    "icone": "lightbulb",
+                },
+            },
+        ],
+    }
+
+
+def _run_external_mentions_release_task(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    system = """
+Sua missão é criar um release ou nota institucional para imprensa, parceiros e materiais editoriais.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, response_variations, service_cards, keyword_list, highlight.
+
+Estruture em:
+1. estrutura-base do release em markdown
+2. 3 a 5 títulos editoriais possíveis
+3. ângulos de apoio para imprensa, parceiros e diretórios
+4. sinais institucionais úteis dentro do release
+5. recomendação final
+
+Regras:
+- tom factual, institucional e editorial
+- não escrever como anúncio
+- não invente reconhecimento externo, números, prêmios ou marcos
+- o release precisa ser copiável por terceiros com pouca adaptação
+""".strip()
+
+    user = {
+        "task": requested_task or "Release / Nota Institucional para Imprensa ou Parceiros",
+        "focus": _trim_text(selected_theme) or "não informado",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.28, max_tokens=2800)
+        )
+        if _is_valid_external_mentions_release_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_external_mentions_release_fallback(nucleus or {}, requested_task, selected_theme)
+
+
+def _is_valid_external_mentions_faq_output(data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    blocks = data.get("blocos")
+    if not isinstance(blocks, list) or len(blocks) < 4:
+        return False
+
+    has_faq = False
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        tipo = _trim_text(block.get("tipo")).lower()
+        conteudo = block.get("conteudo") if isinstance(block.get("conteudo"), dict) else {}
+        if tipo == "faq":
+            perguntas = conteudo.get("perguntas")
+            if isinstance(perguntas, list) and len(perguntas) >= 5:
+                has_faq = True
+
+    return has_faq
+
+
+def _build_external_mentions_faq_fallback(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    ctx = _external_mentions_context_map(nucleus)
+    company = ctx["company"]
+    theme = _trim_text(selected_theme, max_chars=120) or ctx["offer"]
+
+    questions = [
+        {
+            "pergunta": f"O que é {company} em uma frase clara?",
+            "resposta": _external_mentions_entity_statement(ctx, max_chars=220),
+        },
+        {
+            "pergunta": f"O que a empresa faz no contexto de {theme}?",
+            "resposta": f"A atuação principal está organizada em torno de {ctx['offer']}, com recorte institucional compatível com {theme}.",
+        },
+        {
+            "pergunta": "Para quem essa atuação costuma fazer sentido?",
+            "resposta": f"O público mais aderente hoje é {ctx['audience']}, sempre respeitando o núcleo real já informado.",
+        },
+        {
+            "pergunta": "Qual é o diferencial que pode ser citado sem inflar a marca?",
+            "resposta": f"O melhor caminho é repetir algo verificável e sóbrio: {ctx['differential']}.",
+        },
+        {
+            "pergunta": "Em que contexto a empresa atua?",
+            "resposta": f"O contexto institucional informado hoje é {ctx['region']}. Esse recorte ajuda a evitar descrição ampla demais.",
+        },
+        {
+            "pergunta": "Como parceiros, jornalistas ou eventos devem apresentar a empresa?",
+            "resposta": "Com uma descrição factual, curta e estável, priorizando o que a empresa faz, para quem faz e em que contexto atua.",
+        },
+    ]
+
+    return {
+        "titulo_da_tela": _trim_text(requested_task) or f"FAQ institucional — {company}",
+        "blocos": [
+            {
+                "tipo": "markdown",
+                "conteudo": {
+                    "texto": (
+                        "### Leitura editorial\n"
+                        "O FAQ abaixo serve para reduzir ruído quando terceiros precisam entender a empresa rapidamente. "
+                        f"A prioridade é organizar **{company}** como entidade clara, com linguagem fácil de citar e pouca dependência de adaptação."
+                    )
+                },
+            },
+            {
+                "tipo": "faq",
+                "conteudo": {
+                    "titulo": "Perguntas institucionais prontas para reutilizar",
+                    "perguntas": questions,
+                },
+            },
+            {
+                "tipo": "keyword_list",
+                "conteudo": {
+                    "titulo": "Sinais institucionais que vale repetir",
+                    "limite_por_item": "curtos, estáveis e citáveis",
+                    "items": _external_mentions_signal_items(ctx, [theme, "parceiros", "jornalistas", "eventos"]),
+                },
+            },
+            {
+                "tipo": "highlight",
+                "conteudo": {
+                    "titulo": "Recomendação final",
+                    "texto": "Se um terceiro não consegue entender a empresa em poucas respostas, a menção tende a sair distorcida. FAQ institucional bom encurta esse caminho com precisão e sobriedade.",
+                    "icone": "check",
+                },
+            },
+        ],
+    }
+
+
+def _run_external_mentions_faq_task(
+    nucleus: Dict[str, Any],
+    requested_task: str,
+    selected_theme: str,
+) -> Dict[str, Any]:
+    system = """
+Sua missão é criar um FAQ institucional para jornalistas, eventos, parceiros e diretórios.
+Responda SOMENTE em JSON com:
+- titulo_da_tela
+- blocos (array)
+
+Use somente tipos de bloco: markdown, faq, keyword_list, highlight.
+
+Estruture em:
+1. leitura editorial
+2. 5 a 8 perguntas e respostas institucionais
+3. sinais institucionais que vale repetir
+4. recomendação final
+
+Regras:
+- linguagem institucional, clara e citável
+- responder quem é a empresa, o que faz, para quem faz e em que contexto atua
+- não transformar resposta em copy comercial
+- não invente fatos, números, reconhecimento ou cobertura
+""".strip()
+
+    user = {
+        "task": requested_task or "FAQ Institucional para Jornalistas, Eventos e Parceiros",
+        "focus": _trim_text(selected_theme) or "não informado",
+        "nucleus_digest": _build_nucleus_digest(nucleus or {}),
+        "nucleus": nucleus or {},
+    }
+
+    try:
+        normalized = _normalize_authority_output(
+            _call_chat_json(system=system, user=user, temperature=0.28, max_tokens=2400)
+        )
+        if _is_valid_external_mentions_faq_output(normalized):
+            return normalized
+    except Exception:
+        pass
+
+    return _build_external_mentions_faq_fallback(nucleus or {}, requested_task, selected_theme)

@@ -149,6 +149,32 @@ class ImageEngineProject(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow, index=True)
 
 
+
+
+class ImageEngineHistoryEntry(SQLModel, table=True):
+    __tablename__ = "image_engine_history_entry"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    public_id: str = Field(index=True, unique=True)
+
+    type: str = Field(default="edited", index=True)
+    url: str = Field(default="")
+    thumbnail_url: Optional[str] = Field(default=None)
+
+    motor: str = Field(default="")
+    engine_id: str = Field(default="")
+    format: str = Field(default="")
+    quality: str = Field(default="")
+
+    width: Optional[int] = Field(default=None)
+    height: Optional[int] = Field(default=None)
+
+    prompt: Optional[str] = Field(default=None)
+    improved_prompt: Optional[str] = Field(default=None)
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
 class ChatMessage(SQLModel, table=True):
     __tablename__ = "chat_message"
 
