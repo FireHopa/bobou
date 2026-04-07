@@ -37,11 +37,71 @@ const VIDEO_FORMAT_OPTIONS = [
   { value: "quick_diagnosis", label: "Diagnóstico ou opinião rápida" },
 ];
 
+const YOUTUBE_VIDEO_TYPE_OPTIONS = [
+  { value: "conteudo_pilar", label: "Conteúdo pilar / vídeo longo" },
+  { value: "shorts", label: "Shorts / vídeo curto" },
+  { value: "institucional", label: "Institucional / sobre a empresa" },
+];
+
+const YOUTUBE_GOAL_OPTIONS = [
+  { value: "gerar_descoberta", label: "Gerar descoberta" },
+  { value: "gerar_autoridade", label: "Gerar autoridade" },
+  { value: "gerar_consideracao", label: "Gerar consideração" },
+  { value: "gerar_conversao", label: "Gerar conversão" },
+];
+
 export const YOUTUBE_TASKS: AuthorityTask[] = [
-  { title: "Roteiro de Vídeo Longo (Conteúdo Pilar)", inputMode: "theme", aiSuggestions: true },
-  { title: "Roteiro de Shorts / Vídeo Curto", inputMode: "theme", aiSuggestions: true },
-  { title: "Títulos e Descrições Otimizadas (SEO/AEO)", inputMode: "theme", aiSuggestions: true },
-  { title: "Roteiro Institucional (Sobre a Empresa)", inputMode: "theme", aiSuggestions: true }
+  {
+    title: "Roteiro estratégico para YouTube",
+    description: "Consolida os antigos roteiros redundantes em um fluxo só, adaptando a estrutura para vídeo longo, Shorts ou institucional sem perder retenção nem clareza.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual é o tema central do vídeo?",
+    inputPlaceholder: "Ex: por que empresas boas parecem genéricas no YouTube mesmo com assunto forte...",
+    submitLabel: "Gerar roteiro",
+    extraFields: [
+      {
+        key: "youtube_video_type",
+        label: "Tipo de vídeo",
+        type: "select",
+        placeholder: "Escolha o tipo de vídeo",
+        options: YOUTUBE_VIDEO_TYPE_OPTIONS,
+        required: true,
+      },
+      {
+        key: "youtube_goal",
+        label: "Objetivo principal",
+        type: "select",
+        placeholder: "Escolha o objetivo do vídeo",
+        options: YOUTUBE_GOAL_OPTIONS,
+        required: true,
+      },
+    ],
+  },
+  {
+    title: "Títulos + descrições otimizadas (SEO/AEO)",
+    description: "Cria combinações de títulos, descrições e sinais semânticos para busca, recomendação e entendimento por humanos e IA.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual vídeo, tema ou promessa você quer empacotar melhor?",
+    inputPlaceholder: "Ex: vídeo sobre posicionamento de marca no YouTube, vídeo explicando prova social, vídeo institucional da empresa...",
+    submitLabel: "Gerar títulos e descrições",
+  },
+  {
+    title: "Estrutura de série / playlist de autoridade",
+    description: "Organiza uma sequência editorial para transformar um tema grande em episódios, pilares e continuidade inteligente no canal.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual tema, frente ou assunto você quer transformar em série?",
+    inputPlaceholder: "Ex: série sobre SEO local para clínicas, série sobre construção de autoridade digital, série sobre educação do mercado...",
+    submitLabel: "Gerar série",
+  },
+  {
+    title: "Descrição do canal + posicionamento",
+    description: "Estrutura a seção Sobre do canal, promessa editorial, recortes e sinais que deixam a empresa mais entendível no YouTube.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  }
 ];
 
 export const INSTAGRAM_TASKS: AuthorityTask[] = [
@@ -248,43 +308,158 @@ export const SOCIAL_PROOF_TASKS: AuthorityTask[] = [
 ];
 
 export const LINKEDIN_TASKS: AuthorityTask[] = [
-  { title: "Post Educacional / Opinião Técnica", inputMode: "theme", aiSuggestions: true },
-  { title: "Estudo de Caso / Resultado B2B", inputMode: "theme", aiSuggestions: true },
-  { title: "Otimização de Perfil Pessoal (Headline e Sobre)", inputMode: "direct", aiSuggestions: false },
-  { title: "Otimização de LinkedIn Page (Empresa)", inputMode: "direct", aiSuggestions: false }
+  {
+    title: "Post de Insight / Tese Executiva",
+    description: "Transforma tema, opinião ou leitura de mercado em post de LinkedIn com densidade, progressão lógica e utilidade executiva.",
+    prompt: "Com base no tema escolhido e no núcleo real da empresa, crie um post de LinkedIn com tese clara, leitura de contexto, implicação prática e fechamento maduro. A saída deve fortalecer autoridade profissional, evitar motivacional corporativo e soar como alguém que entende processo, mercado e execução.",
+    inputMode: "theme",
+    aiSuggestions: true,
+  },
+  {
+    title: "Case / Aprendizado Aplicado B2B",
+    description: "Estrutura um case de resultado, bastidor ou aprendizado aplicado sem parecer autopromoção vazia.",
+    prompt: "Com base no núcleo real da empresa e no tema escolhido, estruture um case ou aprendizado aplicado para LinkedIn. A resposta deve mostrar contexto, problema, decisão, processo, mudança e lição útil para quem atua no mercado, sem inventar números, cliente ou resultado.",
+    inputMode: "theme",
+    aiSuggestions: true,
+  },
+  {
+    title: "Perfil Pessoal (Headline + Sobre)",
+    description: "Reposiciona headline e seção Sobre do especialista para deixar claro o que faz, para quem, em que contexto e com qual diferencial real.",
+    prompt: "Com base no núcleo real da empresa e do especialista, crie opções de headline e seção Sobre para perfil pessoal no LinkedIn. A saída deve priorizar clareza profissional, posicionamento, especialidade, público e diferencial real, sem frase vazia, sem pose de guru e sem inventar credenciais.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+  {
+    title: "LinkedIn Page da Empresa",
+    description: "Organiza descrição institucional, proposta de valor e pilares de presença da página da empresa no LinkedIn.",
+    prompt: "Com base no núcleo real da empresa, crie a estrutura principal da LinkedIn Page da empresa: descrição curta, resumo institucional, proposta de valor, especialidade, sinais de credibilidade e pilares editoriais. A saída deve parecer madura, B2B, clara e coerente com a entidade real.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  }
 ];
 
 export const GOOGLE_BUSINESS_PROFILE_TASKS: AuthorityTask[] = [
-  { title: "Postagem de Atualização / Oferta", inputMode: "theme", aiSuggestions: true },
-  { title: "Responder Dúvidas Frequentes (FAQ)", inputMode: "theme", aiSuggestions: true },
-  { title: "Otimização de Serviços e Descrição (SEO Local)", inputMode: "direct", aiSuggestions: false },
   {
-    title: "SEO Local para Serviços",
-    prompt: "Com base no núcleo real da empresa, gere uma lista em tópicos de palavras-chave e frases curtas para cadastro em Editar serviços do Perfil de Empresa no Google. A lista deve fortalecer SEO local, GEO e AEO com máxima clareza semântica. Regras obrigatórias: cada item deve ter no máximo 120 caracteres; incluir o maior número possível de variações naturais, específicas e pesquisáveis; priorizar serviço principal, especialidade, intenção local, modalidade de atendimento e problemas resolvidos quando fizer sentido; evitar duplicações quase idênticas; não inventar serviços, produtos, localidades ou promessas; organizar a saída de forma pronta para copiar.",
+    title: "Descrição principal do perfil (SEO Local)",
+    description: "Reposiciona o Perfil de Empresa no Google para deixar claro quem você atende, o que entrega, em que contexto opera e por que isso importa localmente.",
+    prompt: "Com base no núcleo real da empresa, crie a descrição principal do Perfil de Empresa no Google com foco em clareza de entidade, categoria principal, serviço central, diferenciais reais, modalidade de atendimento e contexto geográfico. A resposta deve evitar frase genérica de marketing e ficar pronta para cadastro.",
     inputMode: "direct",
-    aiSuggestions: false
+    aiSuggestions: false,
   },
   {
     title: "Serviços + Descrições",
+    description: "Organiza os serviços em nomes curtos, descrições claras e palavras-chave pesquisáveis para cadastro no perfil.",
     prompt: "Com base nos serviços e produtos reais da empresa, crie uma lista em tópicos com as principais palavras-chave e suas variações pesquisáveis. Para cada serviço ou produto, entregue: 1) um nome curto com no máximo 56 caracteres; 2) uma descrição curta, natural e profissional usando SEO, GEO e AEO, contendo termos que ajudem humanos e IA a entender com clareza o que a empresa faz. Também encontre palavras similares que as pessoas pesquisam, sem inventar serviços, localidades ou promessas. A saída deve ficar organizada, pronta para cadastro e fácil de copiar.",
     inputMode: "direct",
-    aiSuggestions: false
+    aiSuggestions: false,
+  },
+  {
+    title: "SEO Local para Serviços",
+    description: "Gera um mapa de termos, variações e combinações locais para fortalecer os campos de serviço do perfil.",
+    prompt: "Com base no núcleo real da empresa, gere uma lista em tópicos de palavras-chave e frases curtas para cadastro em Editar serviços do Perfil de Empresa no Google. A lista deve fortalecer SEO local, GEO e AEO com máxima clareza semântica. Regras obrigatórias: cada item deve ter no máximo 120 caracteres; incluir o maior número possível de variações naturais, específicas e pesquisáveis; priorizar serviço principal, especialidade, intenção local, modalidade de atendimento e problemas resolvidos quando fizer sentido; evitar duplicações quase idênticas; não inventar serviços, produtos, localidades ou promessas; organizar a saída de forma pronta para copiar.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+  {
+    title: "Perguntas e Respostas do Perfil (FAQ Local)",
+    description: "Cria perguntas e respostas que reduzem dúvida local, explicam serviço, modalidade de atendimento e próximos passos no próprio perfil.",
+    prompt: "Crie um FAQ para Perfil de Empresa no Google com perguntas e respostas realmente úteis, locais e citáveis. A estrutura deve reduzir atrito, explicar atendimento, área de atuação, serviços, processo e próximos passos sem soar promocional ou genérico.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual serviço, dúvida ou decisão esse FAQ precisa destravar?",
+    inputPlaceholder: "Ex: FAQ para clínica odontológica em Curitiba, FAQ para elétrica residencial com atendimento em São Paulo...",
+    submitLabel: "Gerar FAQ local",
+  },
+  {
+    title: "Postagem de Atualização / Oferta",
+    description: "Monta posts de Perfil de Empresa no Google com abertura clara, contexto local, prova plausível e CTA coerente com a intenção da busca.",
+    prompt: "Crie uma postagem para Perfil de Empresa no Google com foco em clareza local, utilidade e próximo passo. A resposta deve considerar contexto geográfico, serviço principal, diferencial real, intenção de busca e CTA sem cara de anúncio genérico.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual atualização, oferta, campanha ou serviço você quer publicar?",
+    inputPlaceholder: "Ex: manutenção preventiva para ar-condicionado comercial em Campinas, campanha de check-up odontológico infantil...",
+    submitLabel: "Gerar postagem",
   },
   {
     title: "Responder Avaliação",
+    description: "Cria respostas humanas e específicas para avaliações, reforçando contexto e relevância local sem parecer texto automático.",
     prompt: "Me ajude a criar respostas personalizadas e profissionais para avaliações positivas do Perfil de Empresa no Google. A primeira linha deve agradecer de forma humanizada e natural. O restante da resposta deve contextualizar a experiência mencionada e incluir, de forma orgânica, o nome do produto, serviço ou especialidade relevante da empresa para fortalecer SEO local, AEO e GEO sem parecer estratégia, propaganda ou texto genérico. O tom deve ser humano, elegante e específico. Se eu enviar uma avaliação, responda exatamente a ela. Se eu não enviar, gere modelos prontos adaptáveis.",
     inputMode: "textarea",
     inputLabel: "Cole aqui a avaliação que você quer responder",
     inputPlaceholder: "Ex: Atendimento excelente, equipe muito atenciosa e o serviço foi entregue no prazo. Recomendo!",
-    submitLabel: "Gerar Resposta",
-    aiSuggestions: false
+    submitLabel: "Gerar resposta",
+    aiSuggestions: false,
   }
 ];
 
+export const CROSS_PLATFORM_CONSISTENCY_TASKS: AuthorityTask[] = [
+  {
+    title: "Auditoria de consistência entre canais",
+    description: "Compara como a marca aparece em site, Google, Instagram, LinkedIn e demais canais para encontrar conflitos de nome, oferta, público, promessa e especialidade.",
+    prompt: "Faça uma auditoria de consistência entre os canais da empresa. Compare nome da marca, descrição da oferta, público, diferenciais, promessa, especialidade, escopo e contexto geográfico. A saída deve identificar conflitos reais, sugerir um padrão mestre e priorizar o que precisa ser corrigido primeiro.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+  {
+    title: "Núcleo fixo da marca (mensagem-mestre)",
+    description: "Define a mensagem-base e os elementos que devem permanecer estáveis em todos os canais para a marca ser entendida como uma única entidade.",
+    prompt: "Crie o núcleo fixo da marca para ser repetido com consistência entre canais. Organize quem a empresa é, o que faz, para quem faz, em que contexto atua, qual diferencial real deve se repetir e quais termos precisam permanecer estáveis.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+  {
+    title: "Ajustes por canal sem perder identidade",
+    description: "Traduz o mesmo núcleo da marca para cada canal sem descaracterizar a entidade, diferenciando o que pode adaptar e o que não pode variar.",
+    prompt: "Com base no núcleo real da empresa, mostre como adaptar a mensagem para site, Perfil de Empresa no Google, Instagram, LinkedIn, YouTube, TikTok e menções externas sem perder consistência. A resposta deve deixar claro o que pode variar por canal e o que precisa permanecer fixo.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+  {
+    title: "Checklist editorial de consistência e governança",
+    description: "Cria uma rotina prática para revisar conteúdos, bios, descrições e materiais institucionais sem gerar ruído estratégico entre canais.",
+    prompt: "Monte um checklist editorial de consistência e governança para a empresa manter alinhamento semântico entre canais. Estruture regras de revisão, itens que precisam permanecer estáveis, sinais de alerta de incoerência e rotina prática de manutenção.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+];
+
+
+
 export const EXTERNAL_MENTIONS_TASKS: AuthorityTask[] = [
-  { title: "Kit de Menção (Textos Oficiais da Empresa)", inputMode: "direct", aiSuggestions: false },
-  { title: "Modelo de Mini Apresentação (Pitch)", inputMode: "direct", aiSuggestions: false },
-  { title: "Artigo / Release para Imprensa ou Parceiros", inputMode: "theme", aiSuggestions: true }
+  {
+    title: "Kit de Menção (Textos Oficiais da Empresa)",
+    description: "Cria versões oficiais e citáveis da empresa para portais, parceiros, diretórios, eventos e materiais de terceiros.",
+    prompt: "Com base no núcleo real da empresa, crie um kit de menção institucional com versões oficiais curtas, médias e editoriais da descrição da empresa. O material precisa ser copiável por terceiros, sóbrio, claro e reaproveitável sem soar anúncio.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+  {
+    title: "Modelo de Mini Apresentação (Pitch Institucional)",
+    description: "Monta apresentações curtas e institucionais para abrir reunião, evento, parceria, podcast ou introdução editorial.",
+    prompt: "Crie mini apresentações institucionais da empresa em versões curtas e médias, prontas para uso em reunião, evento, podcast, parceria ou introdução editorial. O texto deve parecer institucional e citável, sem linguagem de vendas nem adjetivo inflado.",
+    inputMode: "direct",
+    aiSuggestions: false,
+  },
+  {
+    title: "Release / Nota Institucional para Imprensa ou Parceiros",
+    description: "Estrutura um release ou nota institucional com leitura editorial, contexto e reaproveitamento por terceiros.",
+    prompt: "Crie um release ou nota institucional para imprensa, parceiros ou diretórios editoriais. Organize a resposta com contexto, lead, ângulos de apoio, sinais institucionais e trechos reaproveitáveis. O texto deve ser sóbrio, factual e fácil de citar.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual anúncio, movimento, tema ou contexto você quer transformar em release?",
+    inputPlaceholder: "Ex: nova unidade, parceria estratégica, lançamento de serviço, participação em evento, reposicionamento da empresa...",
+    submitLabel: "Gerar release",
+  },
+  {
+    title: "FAQ Institucional para Jornalistas, Eventos e Parceiros",
+    description: "Responde dúvidas institucionais recorrentes sobre quem a empresa é, o que faz, para quem faz e em que contexto atua.",
+    prompt: "Crie um FAQ institucional com perguntas e respostas citáveis para jornalistas, parceiros, eventos e diretórios. A saída deve explicar a empresa, especialidade, contexto de atuação, diferenciais reais e próximos passos sem parecer copy comercial.",
+    inputMode: "theme",
+    aiSuggestions: true,
+    inputLabel: "Qual tema, frente ou contexto esse FAQ precisa esclarecer?",
+    inputPlaceholder: "Ex: atuação da empresa no setor, nova frente de serviço, participação em evento, parceria técnica...",
+    submitLabel: "Gerar FAQ institucional",
+  },
 ];
 
 export const SITE_TASKS: AuthorityTask[] = [
@@ -496,6 +671,8 @@ export function tasksByAgentKey(agentKey?: string | null): AuthorityTask[] {
       return LINKEDIN_TASKS;
     case "google_business_profile":
       return GOOGLE_BUSINESS_PROFILE_TASKS;
+    case "cross_platform_consistency":
+      return CROSS_PLATFORM_CONSISTENCY_TASKS;
     case "external_mentions":
       return EXTERNAL_MENTIONS_TASKS;
     case "site":

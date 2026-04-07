@@ -25,43 +25,56 @@ type ImageHistoryListResponse = {
 };
 
 export async function readImageHistory(): Promise<ImageHistoryItem[]> {
-  const response = await http<ImageHistoryListResponse>("/api/image-engine/history");
-  return Array.isArray(response?.items) ? response.items : [];
+  try {
+    const response = await http<ImageHistoryListResponse>("/api/image-engine/history");
+    return Array.isArray(response?.items) ? response.items : [];
+  } catch (error) {
+    console.warn("Falha ao ler o histórico do image engine:", error);
+    return [];
+  }
 }
 
 export async function writeImageHistory(items: ImageHistoryItem[]) {
-  if (!items.length) {
-    await http<{ ok: true }>("/api/image-engine/history", { method: "DELETE" });
-    return;
-  }
+  try {
+    if (!items.length) {
+      await http<{ ok: true }>("/api/image-engine/history", { method: "DELETE" });
+      return;
+    }
 
-  await http<{ ok: true }>("/api/image-engine/history", { method: "DELETE" });
-  await http<ImageHistoryListResponse>("/api/image-engine/history", {
-    method: "POST",
-    json: {
-      items: items.map(({ type, url, thumbnailUrl, motor, engine_id, format, quality, width, height, prompt, improvedPrompt }) => ({
-        type,
-        url,
-        thumbnailUrl,
-        motor,
-        engine_id,
-        format,
-        quality,
-        width,
-        height,
-        prompt,
-        improvedPrompt,
-      })),
-    },
-  });
+    await http<{ ok: true }>("/api/image-engine/history", { method: "DELETE" });
+    await http<ImageHistoryListResponse>("/api/image-engine/history", {
+      method: "POST",
+      json: {
+        items: items.map(({ type, url, thumbnailUrl, motor, engine_id, format, quality, width, height, prompt, improvedPrompt }) => ({
+          type,
+          url,
+          thumbnailUrl,
+          motor,
+          engine_id,
+          format,
+          quality,
+          width,
+          height,
+          prompt,
+          improvedPrompt,
+        })),
+      },
+    });
+  } catch (error) {
+    console.warn("Falha ao gravar o histórico do image engine:", error);
+  }
 }
 
 export async function appendImageHistory(items: ImageHistoryPayloadItem[]) {
   if (!items.length) return;
-  await http<ImageHistoryListResponse>("/api/image-engine/history", {
-    method: "POST",
-    json: { items },
-  });
+  try {
+    await http<ImageHistoryListResponse>("/api/image-engine/history", {
+      method: "POST",
+      json: { items },
+    });
+  } catch (error) {
+    console.warn("Falha ao adicionar item ao histórico do image engine:", error);
+  }
 }
 
 export async function downloadImage(url: string, filename: string) {

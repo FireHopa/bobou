@@ -17,6 +17,8 @@ import {
   Tag,
   MapPin,
   Globe,
+  Building2,
+  FileText,
 } from "lucide-react";
 
 type Props = {
@@ -41,6 +43,8 @@ type ScriptJson = {
   texto_na_tela?: string[];
   variacoes?: string[];
   legenda?: string;
+  youtube_video_type?: string;
+  youtube_goal?: string;
 };
 
 type HeaderVariant = {
@@ -59,10 +63,64 @@ type SocialProofInsights = {
   sectionCount: number;
 };
 
+type GoogleBusinessInsights = {
+  summary: string;
+  primaryAssetTitle: string;
+  primaryAssetText: string;
+  readyAssetCount: number;
+  localSignalCount: number;
+  faqCount: number;
+  sectionCount: number;
+};
+
+type ExternalMentionsInsights = {
+  summary: string;
+  primaryAssetTitle: string;
+  primaryAssetText: string;
+  readyAssetCount: number;
+  citationSignalCount: number;
+  faqCount: number;
+  sectionCount: number;
+};
+
+type CrossPlatformConsistencyInsights = {
+  summary: string;
+  primaryAssetTitle: string;
+  primaryAssetText: string;
+  alignmentRuleCount: number;
+  channelCount: number;
+  faqCount: number;
+  sectionCount: number;
+};
+
+type YouTubeInsights = {
+  summary: string;
+  primaryAssetTitle: string;
+  primaryAssetText: string;
+  readyAssetCount: number;
+  seoSignalCount: number;
+  timelineCount: number;
+  sectionCount: number;
+};
+
+type LinkedInInsights = {
+  summary: string;
+  primaryAssetTitle: string;
+  primaryAssetText: string;
+  readyAssetCount: number;
+  perspectiveCount: number;
+  faqCount: number;
+  sectionCount: number;
+};
+
 export default function ResultViewer({ title = "Resultado", text, agentKey }: Props) {
   const isGoogleBusiness = agentKey === "google_business_profile";
+  const isYouTube = agentKey === "youtube";
   const isSiteAgent = agentKey === "site";
   const isSocialProof = agentKey === "social_proof";
+  const isLinkedIn = agentKey === "linkedin";
+  const isCrossPlatformConsistency = agentKey === "cross_platform_consistency";
+  const isExternalMentions = agentKey === "external_mentions";
 
   const headerVariant: HeaderVariant = isGoogleBusiness
     ? {
@@ -71,41 +129,81 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
         topBarClass: "bg-gradient-to-r from-google-blue/70 via-emerald-400/50 to-amber-300/60",
         headerClass: "relative bg-gradient-to-br from-google-blue/10 via-transparent to-emerald-400/10 border-b border-border/50 p-8 sm:p-12",
       }
-    : isSiteAgent
+    : isYouTube
       ? {
-          icon: <Globe className="h-7 w-7" />,
-          iconWrapperClass: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-          topBarClass: "bg-gradient-to-r from-amber-400/70 via-orange-300/50 to-yellow-200/60",
-          headerClass: "relative bg-gradient-to-br from-amber-500/10 via-transparent to-orange-400/10 border-b border-border/50 p-8 sm:p-12",
+          icon: <Film className="h-7 w-7" />,
+          iconWrapperClass: "bg-red-500/10 text-red-700 dark:text-red-300",
+          topBarClass: "bg-gradient-to-r from-red-500/80 via-orange-400/50 to-amber-300/60",
+          headerClass: "relative bg-gradient-to-br from-red-500/10 via-transparent to-orange-400/10 border-b border-border/50 p-8 sm:p-12",
         }
-      : isSocialProof
+    : isCrossPlatformConsistency
+      ? {
+          icon: <Repeat2 className="h-7 w-7" />,
+          iconWrapperClass: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
+          topBarClass: "bg-gradient-to-r from-violet-500/80 via-fuchsia-400/50 to-sky-300/60",
+          headerClass: "relative bg-gradient-to-br from-violet-500/10 via-transparent to-sky-400/10 border-b border-border/50 p-8 sm:p-12",
+        }
+      : isExternalMentions
         ? {
-            icon: <Star className="h-7 w-7" />,
-            iconWrapperClass: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-            topBarClass: "bg-gradient-to-r from-amber-400/80 via-orange-300/60 to-rose-300/60",
-            headerClass: "relative bg-gradient-to-br from-amber-500/10 via-transparent to-rose-400/10 border-b border-border/50 p-8 sm:p-12",
+            icon: <Building2 className="h-7 w-7" />,
+            iconWrapperClass: "bg-slate-500/10 text-slate-700 dark:text-slate-200",
+            topBarClass: "bg-gradient-to-r from-slate-500/80 via-sky-400/50 to-indigo-300/60",
+            headerClass: "relative bg-gradient-to-br from-slate-500/10 via-transparent to-sky-400/10 border-b border-border/50 p-8 sm:p-12",
           }
-        : {
-            icon: <Film className="h-7 w-7" />,
-            iconWrapperClass: "bg-google-blue/10 text-google-blue",
-            topBarClass: "bg-gradient-to-r from-transparent via-google-blue/40 to-transparent",
-            headerClass: "relative bg-gradient-to-b from-muted/50 to-transparent border-b border-border/50 p-8 sm:p-12",
-          };
+      : isLinkedIn
+        ? {
+            icon: <AlignLeft className="h-7 w-7" />,
+            iconWrapperClass: "bg-blue-600/10 text-blue-700 dark:text-blue-300",
+            topBarClass: "bg-gradient-to-r from-blue-700/80 via-sky-500/50 to-cyan-300/60",
+            headerClass: "relative bg-gradient-to-br from-blue-600/10 via-transparent to-cyan-400/10 border-b border-border/50 p-8 sm:p-12",
+          }
+      : isSiteAgent
+        ? {
+            icon: <Globe className="h-7 w-7" />,
+            iconWrapperClass: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+            topBarClass: "bg-gradient-to-r from-amber-400/70 via-orange-300/50 to-yellow-200/60",
+            headerClass: "relative bg-gradient-to-br from-amber-500/10 via-transparent to-orange-400/10 border-b border-border/50 p-8 sm:p-12",
+          }
+        : isSocialProof
+          ? {
+              icon: <Star className="h-7 w-7" />,
+              iconWrapperClass: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+              topBarClass: "bg-gradient-to-r from-amber-400/80 via-orange-300/60 to-rose-300/60",
+              headerClass: "relative bg-gradient-to-br from-amber-500/10 via-transparent to-rose-400/10 border-b border-border/50 p-8 sm:p-12",
+            }
+          : {
+              icon: <Film className="h-7 w-7" />,
+              iconWrapperClass: "bg-google-blue/10 text-google-blue",
+              topBarClass: "bg-gradient-to-r from-transparent via-google-blue/40 to-transparent",
+              headerClass: "relative bg-gradient-to-b from-muted/50 to-transparent border-b border-border/50 p-8 sm:p-12",
+            };
 
   const scriptHeaderBadge = isGoogleBusiness
     ? "Perfil de Empresa Google"
-    : isSiteAgent
-      ? "Agente Site"
-      : isSocialProof
-        ? "Prova social estruturada"
-        : "Roteiro estruturado";
+    : isYouTube
+      ? "YouTube estratégico"
+      : isExternalMentions
+        ? "Menções externas e press kit"
+        : isLinkedIn
+          ? "LinkedIn e autoridade profissional"
+          : isSiteAgent
+          ? "Agente Site"
+          : isSocialProof
+            ? "Prova social estruturada"
+            : "Roteiro estruturado";
   const blockHeaderBadge = isGoogleBusiness
     ? "Perfil de Empresa Google"
-    : isSiteAgent
-      ? "Arquitetura de conteúdo para site"
-      : isSocialProof
-        ? "Prova social e reputação"
-        : "Entrega estruturada";
+    : isYouTube
+      ? "YouTube e autoridade editorial"
+      : isExternalMentions
+        ? "Menções externas e reputação editorial"
+        : isLinkedIn
+          ? "LinkedIn, reputação e leitura executiva"
+          : isSiteAgent
+          ? "Arquitetura de conteúdo para site"
+          : isSocialProof
+            ? "Prova social e reputação"
+            : "Entrega estruturada";
 
   const parsed = useMemo(() => {
     try {
@@ -142,12 +240,48 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
     [parsedBlocks],
   );
 
+const googleBusinessInsights = useMemo(
+  () => extractGoogleBusinessInsights(parsedBlocks),
+  [parsedBlocks],
+);
+
+  const youTubeInsights = useMemo(
+    () => extractYouTubeInsights(parsedBlocks),
+    [parsedBlocks],
+  );
+
+  const externalMentionsInsights = useMemo(
+    () => extractExternalMentionsInsights(parsedBlocks),
+    [parsedBlocks],
+  );
+
+  const linkedInInsights = useMemo(
+    () => extractLinkedInInsights(parsedBlocks),
+    [parsedBlocks],
+  );
+
+  const crossPlatformConsistencyInsights = useMemo(
+    () => extractCrossPlatformConsistencyInsights(parsedBlocks),
+    [parsedBlocks],
+  );
+
   const legacyBlocks = useMemo(() => {
     if (parsedScript || parsedBlocks) return [];
     return parseBlocks(text || "");
   }, [text, parsedScript, parsedBlocks]);
 
   if (parsedScript) {
+    if (isYouTube) {
+      return (
+        <YouTubeScriptResult
+          title={title}
+          parsedScript={parsedScript}
+          headerVariant={headerVariant}
+          badge={scriptHeaderBadge}
+        />
+      );
+    }
+
     return (
       <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="rounded-[2.5rem] border border-border bg-card/80 backdrop-blur-xl shadow-sm overflow-hidden">
@@ -349,6 +483,30 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
   }
 
   if (parsedBlocks) {
+    if (isYouTube) {
+      return (
+        <YouTubeResult
+          title={title}
+          parsedBlocks={parsedBlocks}
+          headerVariant={headerVariant}
+          badge={blockHeaderBadge}
+          insights={youTubeInsights}
+        />
+      );
+    }
+
+    if (isGoogleBusiness) {
+      return (
+        <GoogleBusinessResult
+          title={title}
+          parsedBlocks={parsedBlocks}
+          headerVariant={headerVariant}
+          badge={blockHeaderBadge}
+          insights={googleBusinessInsights}
+        />
+      );
+    }
+
     if (isSocialProof) {
       return (
         <SocialProofResult
@@ -357,6 +515,42 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
           headerVariant={headerVariant}
           badge={blockHeaderBadge}
           insights={socialProofInsights}
+        />
+      );
+    }
+
+    if (isCrossPlatformConsistency) {
+      return (
+        <CrossPlatformConsistencyResult
+          title={title}
+          parsedBlocks={parsedBlocks}
+          headerVariant={headerVariant}
+          badge={blockHeaderBadge}
+          insights={crossPlatformConsistencyInsights}
+        />
+      );
+    }
+
+    if (isExternalMentions) {
+      return (
+        <ExternalMentionsResult
+          title={title}
+          parsedBlocks={parsedBlocks}
+          headerVariant={headerVariant}
+          badge={blockHeaderBadge}
+          insights={externalMentionsInsights}
+        />
+      );
+    }
+
+    if (isLinkedIn) {
+      return (
+        <LinkedInResult
+          title={title}
+          parsedBlocks={parsedBlocks}
+          headerVariant={headerVariant}
+          badge={blockHeaderBadge}
+          insights={linkedInInsights}
         />
       );
     }
@@ -414,6 +608,1099 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
   );
 }
 
+
+
+
+function YouTubeScriptResult({
+  title,
+  parsedScript,
+  headerVariant,
+  badge,
+}: {
+  title: string;
+  parsedScript: ScriptJson;
+  headerVariant: HeaderVariant;
+  badge: string;
+}) {
+  const timeline = Array.isArray(parsedScript.roteiro_segundo_a_segundo)
+    ? parsedScript.roteiro_segundo_a_segundo
+    : [];
+  const hooks = Array.isArray(parsedScript.hooks) ? parsedScript.hooks : [];
+  const screenItems = Array.isArray(parsedScript.texto_na_tela) ? parsedScript.texto_na_tela : [];
+  const variations = Array.isArray(parsedScript.variacoes) ? parsedScript.variacoes : [];
+
+  const primaryHook = hooks[0] || "";
+  const youtubeVideoType = parsedScript.youtube_video_type || parsedScript.video_format_selected || "não informado";
+  const youtubeGoal = parsedScript.youtube_goal || "não informado";
+
+  return (
+    <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="rounded-[2.5rem] border border-border bg-card/90 backdrop-blur-xl shadow-sm overflow-hidden">
+        <div className={headerVariant.headerClass}>
+          <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-4xl">
+              <div className="flex items-start gap-4">
+                <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                  {headerVariant.icon}
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-red-700/80 dark:text-red-300/80">
+                    {badge}
+                  </p>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight max-w-4xl">
+                    {parsedScript.titulo_da_tela || title}
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-base sm:text-lg leading-relaxed text-foreground/75">
+                    {parsedScript.analise_do_tema || "Roteiro estruturado para YouTube com foco em retenção, profundidade e continuidade editorial."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[28rem]">
+              <YouTubeMetric label="Tipo de vídeo" value={youtubeVideoType} helper="arquitetura escolhida" />
+              <YouTubeMetric label="Objetivo" value={youtubeGoal} helper="intenção principal" />
+              <YouTubeMetric label="Segmentos" value={String(timeline.length || 0)} helper="blocos do roteiro" />
+            </div>
+          </div>
+
+          {primaryHook ? (
+            <div className="mt-8 rounded-[2rem] border border-red-300/40 bg-background/70 p-5 sm:p-6 shadow-sm">
+              <div className="mb-4 flex items-center gap-3 text-red-700 dark:text-red-300">
+                <Lightbulb className="h-5 w-5" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em]">Hook principal em destaque</span>
+              </div>
+              <p className="text-lg sm:text-2xl leading-relaxed font-semibold text-foreground/90">
+                {primaryHook}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-6 sm:p-10 space-y-6">
+          <section className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+            <div className="mb-5 flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/10 text-red-700 dark:text-red-300">
+                <Film className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Estratégia editorial</p>
+                <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">Estrutura do vídeo</h3>
+              </div>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-[1.5rem] border border-red-200/60 bg-red-50/70 dark:bg-[#2a1616] dark:border-red-900/50 p-5">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">Tipo escolhido</div>
+                <p className="text-base sm:text-lg font-medium leading-relaxed text-red-950/90 dark:text-red-100/90">{youtubeVideoType}</p>
+              </div>
+              <div className="rounded-[1.5rem] border border-amber-200/60 bg-amber-50/70 dark:bg-[#2a2416] dark:border-amber-900/50 p-5">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Leitura de construção</div>
+                <RichText text={parsedScript.estrategia_do_video || "não informado"} />
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+            <div className="mb-6 flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                <Lightbulb className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Aberturas</p>
+                <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">Hooks para segurar a atenção</h3>
+              </div>
+            </div>
+
+            {hooks.length ? (
+              <div className="grid gap-4">
+                {hooks.map((hook, idx) => (
+                  <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                    <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">Hook {idx + 1}</div>
+                    <p className="text-base sm:text-lg leading-relaxed font-medium text-foreground/90">{hook}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState />
+            )}
+          </section>
+
+          <section className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+            <div className="mb-6 flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/10 text-red-700 dark:text-red-300">
+                <Clock3 className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Roteiro</p>
+                <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">Arquitetura do vídeo</h3>
+              </div>
+            </div>
+
+            {timeline.length ? (
+              <div className="relative pl-2 sm:pl-4">
+                <div className="relative border-l-[3px] border-muted/60 space-y-6 py-2">
+                  {timeline.map((item, idx) => (
+                    <div key={idx} className="relative pl-8 sm:pl-10">
+                      <div className="absolute -left-[11px] top-5 flex h-5 w-5 items-center justify-center rounded-full bg-background border-[4px] border-red-500 ring-4 ring-background shadow-sm" />
+                      <div className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 sm:p-6 shadow-sm">
+                        <div className="mb-4 flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">
+                            {item?.tempo || `Trecho ${idx + 1}`}
+                          </span>
+                        </div>
+
+                        {item?.acao ? (
+                          <div className="mb-4">
+                            <p className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Função do trecho</p>
+                            <p className="text-base leading-relaxed text-foreground/90">{item.acao}</p>
+                          </div>
+                        ) : null}
+
+                        {item?.fala ? (
+                          <div>
+                            <p className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Fala</p>
+                            <div className="rounded-xl bg-muted/40 border border-border/60 p-4">
+                              <p className="text-base sm:text-lg leading-relaxed text-foreground font-medium">{item.fala}</p>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <EmptyState />
+            )}
+          </section>
+
+          <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <section className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+              <div className="mb-6 flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-700 dark:text-blue-300">
+                  <Captions className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Apoio visual</p>
+                  <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">Texto na tela</h3>
+                </div>
+              </div>
+
+              {screenItems.length ? (
+                <div className="grid gap-3">
+                  {screenItems.map((item, idx) => (
+                    <div key={idx} className="rounded-[1.25rem] border border-blue-200/70 bg-blue-50/70 dark:bg-[#16202a] dark:border-blue-900/50 p-4">
+                      <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">Tela {idx + 1}</div>
+                      <p className="text-base font-medium leading-relaxed text-blue-950/90 dark:text-blue-100/90">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState />
+              )}
+            </section>
+
+            <section className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+              <div className="mb-6 flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                  <Repeat2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Desdobramentos</p>
+                  <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">Variações</h3>
+                </div>
+              </div>
+
+              {variations.length ? (
+                <div className="grid gap-4">
+                  {variations.map((item, idx) => (
+                    <article key={idx} className="rounded-[1.5rem] border border-emerald-200/70 bg-emerald-50/70 dark:bg-[#162a20] dark:border-emerald-900/50 p-5">
+                      <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Variação {idx + 1}</div>
+                      <p className="text-base leading-relaxed text-emerald-950/90 dark:text-emerald-100/90">{item}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState />
+              )}
+            </section>
+          </div>
+
+          <section className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+            <div className="mb-6 flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-500/10 text-slate-700 dark:text-slate-300">
+                <AlignLeft className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Empacotamento final</p>
+                <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">Legenda / descrição curta</h3>
+              </div>
+            </div>
+            <div className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 sm:p-6">
+              <RichText text={parsedScript.legenda || "não informado"} />
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function YouTubeMetric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-[1.75rem] border border-border/70 bg-background/75 p-4 shadow-sm">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">{value}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{helper}</div>
+    </div>
+  );
+}
+
+function YouTubeResult({
+  title,
+  parsedBlocks,
+  headerVariant,
+  badge,
+  insights,
+}: {
+  title: string;
+  parsedBlocks: any;
+  headerVariant: HeaderVariant;
+  badge: string;
+  insights: YouTubeInsights;
+}) {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+  const heroTitle = parsedBlocks?.titulo_da_tela || title;
+
+  return (
+    <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="rounded-[2.5rem] border border-border bg-card/90 backdrop-blur-xl shadow-sm overflow-hidden">
+        <div className={headerVariant.headerClass}>
+          <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-4xl">
+              <div className="flex items-start gap-4">
+                <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                  {headerVariant.icon}
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-red-700/80 dark:text-red-300/80">
+                    {badge}
+                  </p>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight">
+                    {heroTitle}
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-base sm:text-lg leading-relaxed text-foreground/75">
+                    {insights.summary || "Material estruturado para fortalecer o canal, o empacotamento do vídeo e a leitura editorial do YouTube."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[28rem]">
+              <YouTubeMetric label="Ativos prontos" value={String(insights.readyAssetCount)} helper="títulos, descrições e blocos" />
+              <YouTubeMetric label="Sinais SEO/AEO" value={String(insights.seoSignalCount)} helper="termos e eixos úteis" />
+              <YouTubeMetric label="Ritmo / sequência" value={String(insights.timelineCount)} helper="etapas e continuidade" />
+            </div>
+          </div>
+
+          {insights.primaryAssetText ? (
+            <div className="mt-8 rounded-[2rem] border border-red-300/30 bg-background/70 p-5 sm:p-6 shadow-sm">
+              <div className="mb-4 flex items-center gap-3 text-red-700 dark:text-red-300">
+                <Search className="h-5 w-5" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em]">
+                  {insights.primaryAssetTitle || "Ativo principal em destaque"}
+                </span>
+              </div>
+              <p className="text-lg sm:text-2xl leading-relaxed font-semibold text-foreground/90">
+                {insights.primaryAssetText}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-6 sm:p-10 space-y-6">
+          {blocks.map((bloco: any, idx: number) => (
+            <React.Fragment key={idx}>{renderYouTubeBlock(bloco, idx)}</React.Fragment>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function extractYouTubeInsights(parsedBlocks: any): YouTubeInsights {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+
+  let summary = "";
+  let primaryAssetTitle = "";
+  let primaryAssetText = "";
+  let readyAssetCount = 0;
+  let seoSignalCount = 0;
+  let timelineCount = 0;
+
+  for (const block of blocks) {
+    const tipo = typeof block?.tipo === "string" ? block.tipo.toLowerCase() : "";
+    const conteudo = typeof block?.conteudo === "object" && block?.conteudo ? block.conteudo : {};
+
+    if (!summary && tipo === "markdown" && typeof conteudo.texto === "string") {
+      const firstParagraph = parseBlocks(conteudo.texto).find((item) => item.kind === "p");
+      if (firstParagraph && "text" in firstParagraph) {
+        summary = firstParagraph.text;
+      }
+    }
+
+    if (!primaryAssetText && tipo === "highlight" && typeof conteudo.texto === "string") {
+      primaryAssetTitle = String(conteudo.titulo || "").trim();
+      primaryAssetText = conteudo.texto.trim();
+    }
+
+    if (!primaryAssetText && tipo === "response_variations" && Array.isArray(conteudo.items) && conteudo.items[0]) {
+      primaryAssetTitle = String(conteudo.titulo || "Primeiro ativo pronto").trim();
+      primaryAssetText = String(conteudo.items[0]).trim();
+    }
+
+    if (tipo === "response_variations" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+    }
+
+    if (tipo === "service_cards" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+    }
+
+    if (tipo === "keyword_list" && Array.isArray(conteudo.items)) {
+      seoSignalCount += conteudo.items.length;
+    }
+
+    if (tipo === "timeline" && Array.isArray(conteudo.passos)) {
+      timelineCount += conteudo.passos.length;
+    }
+
+    if (tipo === "faq" && Array.isArray(conteudo.perguntas)) {
+      timelineCount += conteudo.perguntas.length;
+    }
+  }
+
+  return {
+    summary,
+    primaryAssetTitle,
+    primaryAssetText,
+    readyAssetCount,
+    seoSignalCount,
+    timelineCount,
+    sectionCount: blocks.length,
+  };
+}
+
+function renderYouTubeBlock(bloco: any, key: number) {
+  const tipo = typeof bloco?.tipo === "string" ? bloco.tipo.toLowerCase() : "";
+  const conteudo = typeof bloco?.conteudo === "object" && bloco?.conteudo ? bloco.conteudo : {};
+
+  switch (tipo) {
+    case "markdown": {
+      const mBlocks = parseBlocks(conteudo.texto || "");
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/10 text-red-700 dark:text-red-300">
+              <Film className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Leitura editorial</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Contexto do canal ou do vídeo"}
+              </h3>
+            </div>
+          </div>
+          <div className="prose prose-zinc dark:prose-invert prose-lg max-w-none text-foreground/80 leading-relaxed font-normal marker:text-red-500/70">
+            {mBlocks.map((block, idx) => renderLegacyBlock(block, idx))}
+          </div>
+        </section>
+      );
+    }
+
+    case "response_variations": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/10 text-red-700 dark:text-red-300">
+              <MessageSquareQuote className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Ativos prontos</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Variações prontas"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {items.map((item: string, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">
+                  {youTubeVariationLabel(conteudo.titulo, idx)}
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "service_cards": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
+              <ListVideo className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Blocos de canal / vídeo</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Estrutura aplicada"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {items.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.75rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.nome || `Bloco ${idx + 1}`}</h4>
+                  <span className="shrink-0 rounded-full bg-red-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">
+                    Item {idx + 1}
+                  </span>
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item.descricao || "não informado"}</p>
+                {Array.isArray(item.palavras_chave) && item.palavras_chave.length > 0 ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {item.palavras_chave.map((keyword: string, keywordIdx: number) => (
+                      <span key={keywordIdx} className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium text-foreground/80">
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "keyword_list": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/10 text-red-700 dark:text-red-300">
+              <Search className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Sinais SEO / AEO</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Termos e marcadores"}
+              </h3>
+              {conteudo.limite_por_item ? <p className="mt-1 text-sm text-muted-foreground">{conteudo.limite_por_item}</p> : null}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {items.map((item: string, idx: number) => (
+              <span key={idx} className="rounded-full border border-red-300/30 bg-red-500/5 px-4 py-2 text-sm font-medium text-foreground/90">
+                {item}
+              </span>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "timeline": {
+      const steps = Array.isArray(conteudo.passos) ? conteudo.passos : [];
+      if (!steps.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/10 text-red-700 dark:text-red-300">
+              <Clock3 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Progressão</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Ritmo recomendado"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="relative pl-2 sm:pl-4">
+            <div className="relative border-l-[3px] border-muted/60 space-y-6 py-2">
+              {steps.map((item: any, idx: number) => {
+                const text = typeof item === "string" ? item : item?.descricao || item?.texto || item?.titulo || `Passo ${idx + 1}`;
+                const title = typeof item === "string" ? `Passo ${idx + 1}` : item?.titulo || `Passo ${idx + 1}`;
+                return (
+                  <div key={idx} className="relative pl-8 sm:pl-10">
+                    <div className="absolute -left-[11px] top-5 flex h-5 w-5 items-center justify-center rounded-full bg-background border-[4px] border-red-500 ring-4 ring-background shadow-sm" />
+                    <div className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 sm:p-6 shadow-sm">
+                      <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">{title}</div>
+                      <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{text}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    case "faq": {
+      const questions = Array.isArray(conteudo.perguntas) ? conteudo.perguntas : [];
+      if (!questions.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+              <CheckCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Checagens do canal</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Perguntas importantes"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            {questions.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Pergunta {idx + 1}</div>
+                <h4 className="text-lg font-bold tracking-tight text-foreground">{item.pergunta || "não informado"}</h4>
+                <p className="mt-3 text-sm sm:text-base leading-relaxed text-muted-foreground">{item.resposta || "não informado"}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "highlight": {
+      const tone = socialProofHighlightTone(conteudo.icone);
+      const Icon = tone.icon;
+
+      return (
+        <section key={key} className={`rounded-[2rem] border p-5 sm:p-7 shadow-sm ${tone.containerClass}`}>
+          <div className="flex items-start gap-4">
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tone.iconWrapperClass}`}>
+              <Icon className="h-5 w-5" />
+            </div>
+            <div>
+              <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${tone.eyebrowClass}`}>Direção final</p>
+              {conteudo.titulo ? (
+                <h3 className={`mt-1 text-xl sm:text-2xl font-extrabold tracking-tight ${tone.titleClass}`}>
+                  {conteudo.titulo}
+                </h3>
+              ) : null}
+              <p className={`mt-3 text-sm sm:text-base leading-relaxed ${tone.textClass}`}>
+                {conteudo.texto || "não informado"}
+              </p>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    default:
+      return renderJsonBlock(bloco, key);
+  }
+}
+
+function youTubeVariationLabel(title: string | undefined, index: number) {
+  const normalized = String(title || "").toLowerCase();
+
+  if (normalized.includes("título") || normalized.includes("titulo")) {
+    return `Título ${index + 1}`;
+  }
+
+  if (normalized.includes("descrição") || normalized.includes("descricao")) {
+    return `Descrição ${index + 1}`;
+  }
+
+  return `Ativo ${index + 1}`;
+}
+
+function GoogleBusinessResult({
+  title,
+  parsedBlocks,
+  headerVariant,
+  badge,
+  insights,
+}: {
+  title: string;
+  parsedBlocks: any;
+  headerVariant: HeaderVariant;
+  badge: string;
+  insights: GoogleBusinessInsights;
+}) {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+  const heroTitle = parsedBlocks?.titulo_da_tela || title;
+
+  return (
+    <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="rounded-[2.5rem] border border-border bg-card/90 backdrop-blur-xl shadow-sm overflow-hidden">
+        <div className={headerVariant.headerClass}>
+          <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-4xl">
+              <div className="flex items-start gap-4">
+                <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                  {headerVariant.icon}
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-google-blue/80">
+                    {badge}
+                  </p>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight">
+                    {heroTitle}
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-base sm:text-lg leading-relaxed text-foreground/75">
+                    {insights.summary || "Material estruturado para fortalecer leitura local, cadastro semântico e resposta rápida dentro do Perfil de Empresa."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[28rem]">
+              <GoogleBusinessMetric
+                label="Ativos prontos"
+                value={String(insights.readyAssetCount)}
+                helper="cadastros e textos utilizáveis"
+              />
+              <GoogleBusinessMetric
+                label="Sinais locais"
+                value={String(insights.localSignalCount)}
+                helper="termos e contextos mapeados"
+              />
+              <GoogleBusinessMetric
+                label="FAQ / respostas"
+                value={String(insights.faqCount)}
+                helper="dúvidas destravadas"
+              />
+            </div>
+          </div>
+
+          {insights.primaryAssetText ? (
+            <div className="mt-8 rounded-[2rem] border border-google-blue/20 bg-background/70 p-5 sm:p-6 shadow-sm">
+              <div className="mb-4 flex items-center gap-3 text-google-blue">
+                <MapPin className="h-5 w-5" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em]">
+                  {insights.primaryAssetTitle || "Ativo principal em destaque"}
+                </span>
+              </div>
+              <p className="text-lg sm:text-2xl leading-relaxed font-semibold text-foreground/90">
+                {insights.primaryAssetText}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-6 sm:p-10 space-y-6">
+          {blocks.map((bloco: any, idx: number) => (
+            <React.Fragment key={idx}>{renderGoogleBusinessBlock(bloco, idx)}</React.Fragment>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function GoogleBusinessMetric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-[1.75rem] border border-border/70 bg-background/75 p-4 shadow-sm">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-3xl font-extrabold tracking-tight text-foreground">{value}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{helper}</div>
+    </div>
+  );
+}
+
+function extractGoogleBusinessInsights(parsedBlocks: any): GoogleBusinessInsights {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+
+  let summary = "";
+  let primaryAssetTitle = "";
+  let primaryAssetText = "";
+  let readyAssetCount = 0;
+  let localSignalCount = 0;
+  let faqCount = 0;
+
+  for (const block of blocks) {
+    const tipo = typeof block?.tipo === "string" ? block.tipo.toLowerCase() : "";
+    const conteudo = typeof block?.conteudo === "object" && block?.conteudo ? block.conteudo : {};
+
+    if (!summary && tipo === "markdown" && typeof conteudo.texto === "string") {
+      const firstParagraph = parseBlocks(conteudo.texto).find((item) => item.kind === "p");
+      if (firstParagraph && "text" in firstParagraph) {
+        summary = firstParagraph.text;
+      }
+    }
+
+    if (!primaryAssetText && tipo === "highlight" && typeof conteudo.texto === "string") {
+      primaryAssetTitle = String(conteudo.titulo || "").trim();
+      primaryAssetText = conteudo.texto.trim();
+    }
+
+    if (!primaryAssetText && tipo === "response_variations" && Array.isArray(conteudo.items) && conteudo.items[0]) {
+      primaryAssetTitle = String(conteudo.titulo || "Primeira versão pronta").trim();
+      primaryAssetText = String(conteudo.items[0]).trim();
+    }
+
+    if (tipo === "response_variations" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+      faqCount += conteudo.items.length;
+    }
+
+    if (tipo === "service_cards" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+    }
+
+    if (tipo === "keyword_list" && Array.isArray(conteudo.items)) {
+      localSignalCount += conteudo.items.length;
+    }
+
+    if (tipo === "faq" && Array.isArray(conteudo.perguntas)) {
+      faqCount += conteudo.perguntas.length;
+    }
+  }
+
+  return {
+    summary,
+    primaryAssetTitle,
+    primaryAssetText,
+    readyAssetCount,
+    localSignalCount,
+    faqCount,
+    sectionCount: blocks.length,
+  };
+}
+
+function renderGoogleBusinessBlock(bloco: any, key: number) {
+  const tipo = typeof bloco?.tipo === "string" ? bloco.tipo.toLowerCase() : "";
+  const conteudo = typeof bloco?.conteudo === "object" && bloco?.conteudo ? bloco.conteudo : {};
+
+  switch (tipo) {
+    case "markdown": {
+      const mBlocks = parseBlocks(conteudo.texto || "");
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Leitura local</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Contexto do perfil"}
+              </h3>
+            </div>
+          </div>
+          <div className="prose prose-zinc dark:prose-invert prose-lg max-w-none text-foreground/80 leading-relaxed font-normal marker:text-google-blue/70">
+            {mBlocks.map((block, idx) => renderLegacyBlock(block, idx))}
+          </div>
+        </section>
+      );
+    }
+
+    case "response_variations": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+              <MessageSquareQuote className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Textos prontos</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Variações prontas"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {items.map((item: string, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
+                  {googleBusinessVariationLabel(conteudo.titulo, idx)}
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "keyword_list": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
+              <Search className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Mapa semântico</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Sinais locais"}
+              </h3>
+              {conteudo.limite_por_item ? (
+                <p className="mt-1 text-sm text-muted-foreground">{conteudo.limite_por_item}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {items.map((item: string, idx: number) => (
+              <div key={idx} className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm">
+                <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-google-blue/80">
+                  <Tag className="h-3.5 w-3.5" />
+                  Sinal local {idx + 1}
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "service_cards": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
+              <ListVideo className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Estrutura pronta</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Cards do perfil"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {items.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.75rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.nome || `Card ${idx + 1}`}</h4>
+                  <span className="shrink-0 rounded-full bg-google-blue/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-google-blue">
+                    Item {idx + 1}
+                  </span>
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item.descricao || "não informado"}</p>
+                {Array.isArray(item.palavras_chave) && item.palavras_chave.length > 0 ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {item.palavras_chave.map((keyword: string, keywordIdx: number) => (
+                      <span key={keywordIdx} className="rounded-full border border-google-blue/20 bg-google-blue/5 px-3 py-1.5 text-xs font-medium text-foreground/85">
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "faq": {
+      const perguntas = Array.isArray(conteudo.perguntas) ? conteudo.perguntas : [];
+      if (!perguntas.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
+              <CheckCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Redução de dúvida</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Perguntas e respostas"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            {perguntas.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Pergunta {idx + 1}</div>
+                <h4 className="text-lg font-bold tracking-tight text-foreground">{item.pergunta || "não informado"}</h4>
+                <p className="mt-3 text-sm sm:text-base leading-relaxed text-muted-foreground">{item.resposta || "não informado"}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "timeline": {
+      const passos = Array.isArray(conteudo.passos) ? conteudo.passos : [];
+      if (!passos.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-google-blue/10 text-google-blue">
+              <Clock3 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Sequência recomendada</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Como aplicar no perfil"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="relative pl-2 sm:pl-4">
+            <div className="relative border-l-[3px] border-google-blue/20 space-y-6 py-2">
+              {passos.map((passo: string, idx: number) => (
+                <div key={idx} className="relative pl-8 sm:pl-10">
+                  <div className="absolute -left-[11px] top-4 flex h-5 w-5 items-center justify-center rounded-full bg-background border-[4px] border-google-blue ring-4 ring-background shadow-sm" />
+                  <div className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                    <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-google-blue/80">
+                      Passo {idx + 1}
+                    </div>
+                    <p
+                      className="text-sm sm:text-base leading-relaxed text-foreground/90"
+                      dangerouslySetInnerHTML={{ __html: inlineFormat(passo) }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    case "highlight": {
+      const tone = googleBusinessHighlightTone(conteudo.icone);
+      const Icon = tone.icon;
+
+      return (
+        <section key={key} className={`rounded-[2rem] border p-5 sm:p-7 shadow-sm ${tone.containerClass}`}>
+          <div className="flex items-start gap-4">
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tone.iconWrapperClass}`}>
+              <Icon className="h-5 w-5" />
+            </div>
+            <div>
+              <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${tone.eyebrowClass}`}>Destaque</p>
+              {conteudo.titulo ? (
+                <h3 className={`mt-1 text-xl sm:text-2xl font-extrabold tracking-tight ${tone.titleClass}`}>
+                  {conteudo.titulo}
+                </h3>
+              ) : null}
+              <p className={`mt-3 text-sm sm:text-base leading-relaxed ${tone.textClass}`}>
+                {conteudo.texto || "não informado"}
+              </p>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    default:
+      return renderJsonBlock(bloco, key);
+  }
+}
+
+function googleBusinessVariationLabel(title: string | undefined, index: number) {
+  const normalized = String(title || "").toLowerCase();
+
+  if (normalized.includes("resposta")) {
+    return `Resposta ${index + 1}`;
+  }
+
+  if (normalized.includes("post")) {
+    return `Postagem ${index + 1}`;
+  }
+
+  return `Versão ${index + 1}`;
+}
+
+function googleBusinessHighlightTone(iconName: string | undefined) {
+  const icon = String(iconName || "").toLowerCase();
+
+  if (icon === "alert") {
+    return {
+      icon: AlertTriangle,
+      containerClass: "border-red-200/70 bg-red-50/80 dark:bg-[#2a1616] dark:border-red-900/50",
+      iconWrapperClass: "bg-red-200/50 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+      eyebrowClass: "text-red-700 dark:text-red-300",
+      titleClass: "text-red-900 dark:text-red-200",
+      textClass: "text-red-950/90 dark:text-red-100/90",
+    };
+  }
+
+  if (icon === "check") {
+    return {
+      icon: CheckCircle,
+      containerClass: "border-emerald-200/70 bg-emerald-50/80 dark:bg-[#162a20] dark:border-emerald-900/50",
+      iconWrapperClass: "bg-emerald-200/50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+      eyebrowClass: "text-emerald-700 dark:text-emerald-300",
+      titleClass: "text-emerald-900 dark:text-emerald-200",
+      textClass: "text-emerald-950/90 dark:text-emerald-100/90",
+    };
+  }
+
+  return {
+    icon: MapPin,
+    containerClass: "border-blue-200/70 bg-blue-50/80 dark:bg-[#16202a] dark:border-blue-900/50",
+    iconWrapperClass: "bg-blue-200/50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
+    eyebrowClass: "text-blue-700 dark:text-blue-300",
+    titleClass: "text-blue-900 dark:text-blue-200",
+    textClass: "text-blue-950/90 dark:text-blue-100/90",
+  };
+}
 
 function SocialProofResult({
   title,
@@ -887,6 +2174,1327 @@ function socialProofHighlightTone(iconName: string | undefined) {
     textClass: "text-amber-950/90 dark:text-amber-100/90",
   };
 }
+
+
+function ExternalMentionsResult({
+  title,
+  parsedBlocks,
+  headerVariant,
+  badge,
+  insights,
+}: {
+  title: string;
+  parsedBlocks: any;
+  headerVariant: HeaderVariant;
+  badge: string;
+  insights: ExternalMentionsInsights;
+}) {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+  const heroTitle = parsedBlocks?.titulo_da_tela || title;
+
+  return (
+    <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="rounded-[2.5rem] border border-border bg-card/90 backdrop-blur-xl shadow-sm overflow-hidden">
+        <div className={headerVariant.headerClass}>
+          <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-4xl">
+              <div className="flex items-start gap-4">
+                <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                  {headerVariant.icon}
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-slate-600/90 dark:text-slate-300/90">
+                    {badge}
+                  </p>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight">
+                    {heroTitle}
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-base sm:text-lg leading-relaxed text-foreground/75">
+                    {insights.summary || "Material estruturado para deixar a empresa mais fácil de citar por imprensa, parceiros, eventos e diretórios sem parecer anúncio."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[28rem]">
+              <ExternalMentionsMetric
+                label="Ativos citáveis"
+                value={String(insights.readyAssetCount)}
+                helper="versões e blocos prontos"
+              />
+              <ExternalMentionsMetric
+                label="Sinais oficiais"
+                value={String(insights.citationSignalCount)}
+                helper="marcadores de entidade"
+              />
+              <ExternalMentionsMetric
+                label="FAQ / suporte"
+                value={String(insights.faqCount)}
+                helper="dúvidas resolvidas"
+              />
+            </div>
+          </div>
+
+          {insights.primaryAssetText ? (
+            <div className="mt-8 rounded-[2rem] border border-slate-300/50 bg-background/70 p-5 sm:p-6 shadow-sm">
+              <div className="mb-4 flex items-center gap-3 text-slate-700 dark:text-slate-300">
+                <FileText className="h-5 w-5" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em]">
+                  {insights.primaryAssetTitle || "Trecho institucional em destaque"}
+                </span>
+              </div>
+              <p className="text-lg sm:text-2xl leading-relaxed font-semibold text-foreground/90">
+                {insights.primaryAssetText}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-6 sm:p-10 space-y-6">
+          {blocks.map((bloco: any, idx: number) => (
+            <React.Fragment key={idx}>{renderExternalMentionsBlock(bloco, idx)}</React.Fragment>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExternalMentionsMetric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-[1.75rem] border border-border/70 bg-background/75 p-4 shadow-sm">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-3xl font-extrabold tracking-tight text-foreground">{value}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{helper}</div>
+    </div>
+  );
+}
+
+function extractExternalMentionsInsights(parsedBlocks: any): ExternalMentionsInsights {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+
+  let summary = "";
+  let primaryAssetTitle = "";
+  let primaryAssetText = "";
+  let readyAssetCount = 0;
+  let citationSignalCount = 0;
+  let faqCount = 0;
+
+  for (const block of blocks) {
+    const tipo = typeof block?.tipo === "string" ? block.tipo.toLowerCase() : "";
+    const conteudo = typeof block?.conteudo === "object" && block?.conteudo ? block.conteudo : {};
+
+    if (!summary && tipo === "markdown" && typeof conteudo.texto === "string") {
+      const firstParagraph = parseBlocks(conteudo.texto).find((item) => item.kind === "p");
+      if (firstParagraph && "text" in firstParagraph) {
+        summary = firstParagraph.text;
+      }
+    }
+
+    if (!primaryAssetText && tipo === "highlight" && typeof conteudo.texto === "string") {
+      primaryAssetTitle = String(conteudo.titulo || "").trim();
+      primaryAssetText = conteudo.texto.trim();
+    }
+
+    if (!primaryAssetText && tipo === "response_variations" && Array.isArray(conteudo.items) && conteudo.items[0]) {
+      primaryAssetTitle = String(conteudo.titulo || "Versão institucional").trim();
+      primaryAssetText = String(conteudo.items[0]).trim();
+    }
+
+    if (tipo === "response_variations" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+    }
+
+    if (tipo === "service_cards" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+    }
+
+    if (tipo === "keyword_list" && Array.isArray(conteudo.items)) {
+      citationSignalCount += conteudo.items.length;
+    }
+
+    if (tipo === "faq" && Array.isArray(conteudo.perguntas)) {
+      faqCount += conteudo.perguntas.length;
+    }
+  }
+
+  return {
+    summary,
+    primaryAssetTitle,
+    primaryAssetText,
+    readyAssetCount,
+    citationSignalCount,
+    faqCount,
+    sectionCount: blocks.length,
+  };
+}
+
+function renderExternalMentionsBlock(bloco: any, key: number) {
+  const tipo = typeof bloco?.tipo === "string" ? bloco.tipo.toLowerCase() : "";
+  const conteudo = typeof bloco?.conteudo === "object" && bloco?.conteudo ? bloco.conteudo : {};
+
+  switch (tipo) {
+    case "markdown": {
+      const mBlocks = parseBlocks(conteudo.texto || "");
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-500/10 text-slate-700 dark:text-slate-300">
+              <FileText className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Leitura editorial</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Base institucional"}
+              </h3>
+            </div>
+          </div>
+          <div className="prose prose-zinc dark:prose-invert prose-lg max-w-none text-foreground/80 leading-relaxed font-normal marker:text-slate-500/70">
+            {mBlocks.map((block, idx) => renderLegacyBlock(block, idx))}
+          </div>
+        </section>
+      );
+    }
+
+    case "response_variations": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-700 dark:text-sky-300">
+              <MessageSquareQuote className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Ativos reaproveitáveis</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Variações institucionais"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {items.map((item: string, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-300">
+                  {externalMentionsVariationLabel(conteudo.titulo, idx)}
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "keyword_list": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-500/10 text-slate-700 dark:text-slate-300">
+              <Tag className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Sinais institucionais</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Marcadores de entidade"}
+              </h3>
+              {conteudo.limite_por_item ? (
+                <p className="mt-1 text-sm text-muted-foreground">{conteudo.limite_por_item}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {items.map((item: string, idx: number) => (
+              <span
+                key={idx}
+                className="rounded-full border border-slate-400/20 bg-slate-500/5 px-4 py-2 text-sm font-medium text-foreground/90"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "service_cards": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-500/10 text-slate-700 dark:text-slate-300">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Blocos institucionais</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Pontos oficiais"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {items.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.75rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.nome || `Bloco ${idx + 1}`}</h4>
+                  <span className="shrink-0 rounded-full bg-slate-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300">
+                    Item {idx + 1}
+                  </span>
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item.descricao || "não informado"}</p>
+                {Array.isArray(item.palavras_chave) && item.palavras_chave.length > 0 ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {item.palavras_chave.map((keyword: string, keywordIdx: number) => (
+                      <span key={keywordIdx} className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium text-foreground/80">
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "faq": {
+      const perguntas = Array.isArray(conteudo.perguntas) ? conteudo.perguntas : [];
+      if (!perguntas.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-700 dark:text-sky-300">
+              <CheckCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Esclarecimento institucional</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Perguntas e respostas"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            {perguntas.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-300">Pergunta {idx + 1}</div>
+                <h4 className="text-lg font-bold tracking-tight text-foreground">{item.pergunta || "não informado"}</h4>
+                <p className="mt-3 text-sm sm:text-base leading-relaxed text-muted-foreground">{item.resposta || "não informado"}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "timeline": {
+      const passos = Array.isArray(conteudo.passos) ? conteudo.passos : [];
+      if (!passos.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-500/10 text-slate-700 dark:text-slate-300">
+              <Clock3 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Padronização recomendada</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Como aplicar"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="relative pl-2 sm:pl-4">
+            <div className="relative border-l-[3px] border-slate-300/40 dark:border-slate-700/40 space-y-6 py-2">
+              {passos.map((passo: string, idx: number) => (
+                <div key={idx} className="relative pl-8 sm:pl-10">
+                  <div className="absolute -left-[11px] top-4 flex h-5 w-5 items-center justify-center rounded-full bg-background border-[4px] border-slate-500 ring-4 ring-background shadow-sm" />
+                  <div className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                    <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300">
+                      Passo {idx + 1}
+                    </div>
+                    <p
+                      className="text-sm sm:text-base leading-relaxed text-foreground/90"
+                      dangerouslySetInnerHTML={{ __html: inlineFormat(passo) }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    case "highlight": {
+      const tone = externalMentionsHighlightTone(conteudo.icone);
+      const Icon = tone.icon;
+
+      return (
+        <section key={key} className={`rounded-[2rem] border p-5 sm:p-7 shadow-sm ${tone.containerClass}`}>
+          <div className="flex items-start gap-4">
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tone.iconWrapperClass}`}>
+              <Icon className="h-5 w-5" />
+            </div>
+            <div>
+              <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${tone.eyebrowClass}`}>Recomendação editorial</p>
+              {conteudo.titulo ? (
+                <h3 className={`mt-1 text-xl sm:text-2xl font-extrabold tracking-tight ${tone.titleClass}`}>
+                  {conteudo.titulo}
+                </h3>
+              ) : null}
+              <p className={`mt-3 text-sm sm:text-base leading-relaxed ${tone.textClass}`}>
+                {conteudo.texto || "não informado"}
+              </p>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    default:
+      return renderJsonBlock(bloco, key);
+  }
+}
+
+function externalMentionsVariationLabel(title: string | undefined, index: number) {
+  const normalized = String(title || "").toLowerCase();
+
+  if (normalized.includes("títulos") || normalized.includes("titulos")) {
+    return `Título ${index + 1}`;
+  }
+
+  if (normalized.includes("mini")) {
+    return `Pitch ${index + 1}`;
+  }
+
+  if (normalized.includes("textos oficiais")) {
+    return `Versão ${index + 1}`;
+  }
+
+  return `Ativo ${index + 1}`;
+}
+
+function externalMentionsHighlightTone(iconName: string | undefined) {
+  const icon = String(iconName || "").toLowerCase();
+
+  if (icon === "alert") {
+    return {
+      icon: AlertTriangle,
+      containerClass: "border-red-200/70 bg-red-50/80 dark:bg-[#2a1616] dark:border-red-900/50",
+      iconWrapperClass: "bg-red-200/50 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+      eyebrowClass: "text-red-700 dark:text-red-300",
+      titleClass: "text-red-900 dark:text-red-200",
+      textClass: "text-red-950/90 dark:text-red-100/90",
+    };
+  }
+
+  if (icon === "check") {
+    return {
+      icon: CheckCircle,
+      containerClass: "border-emerald-200/70 bg-emerald-50/80 dark:bg-[#162a20] dark:border-emerald-900/50",
+      iconWrapperClass: "bg-emerald-200/50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+      eyebrowClass: "text-emerald-700 dark:text-emerald-300",
+      titleClass: "text-emerald-900 dark:text-emerald-200",
+      textClass: "text-emerald-950/90 dark:text-emerald-100/90",
+    };
+  }
+
+  return {
+    icon: Building2,
+    containerClass: "border-slate-200/70 bg-slate-50/80 dark:bg-[#1b2128] dark:border-slate-800/60",
+    iconWrapperClass: "bg-slate-200/60 text-slate-700 dark:bg-slate-500/20 dark:text-slate-200",
+    eyebrowClass: "text-slate-700 dark:text-slate-300",
+    titleClass: "text-slate-900 dark:text-slate-100",
+    textClass: "text-slate-950/90 dark:text-slate-100/90",
+  };
+}
+
+
+function CrossPlatformConsistencyResult({
+  title,
+  parsedBlocks,
+  headerVariant,
+  badge,
+  insights,
+}: {
+  title: string;
+  parsedBlocks: any;
+  headerVariant: HeaderVariant;
+  badge: string;
+  insights: CrossPlatformConsistencyInsights;
+}) {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+  const heroTitle = parsedBlocks?.titulo_da_tela || title;
+
+  return (
+    <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="rounded-[2.5rem] border border-border bg-card/90 backdrop-blur-xl shadow-sm overflow-hidden">
+        <div className={headerVariant.headerClass}>
+          <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-4xl">
+              <div className="flex items-start gap-4">
+                <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                  {headerVariant.icon}
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-violet-700/90 dark:text-violet-300/90">
+                    {badge}
+                  </p>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight">
+                    {heroTitle}
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-base sm:text-lg leading-relaxed text-foreground/75">
+                    {insights.summary || "Material organizado para alinhar entidade, mensagem e padrão editorial entre canais sem apagar o diferencial real da marca."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[28rem]">
+              <CrossPlatformConsistencyMetric
+                label="Canais / frentes"
+                value={String(insights.channelCount)}
+                helper="pontos de alinhamento"
+              />
+              <CrossPlatformConsistencyMetric
+                label="Regras fixas"
+                value={String(insights.alignmentRuleCount)}
+                helper="elementos estáveis"
+              />
+              <CrossPlatformConsistencyMetric
+                label="FAQ / rotina"
+                value={String(insights.faqCount)}
+                helper="manutenção guiada"
+              />
+            </div>
+          </div>
+
+          {insights.primaryAssetText ? (
+            <div className="mt-8 rounded-[2rem] border border-violet-300/50 bg-background/70 p-5 sm:p-6 shadow-sm">
+              <div className="mb-4 flex items-center gap-3 text-violet-700 dark:text-violet-300">
+                <Repeat2 className="h-5 w-5" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em]">
+                  {insights.primaryAssetTitle || "Regra central"}
+                </span>
+              </div>
+              <p className="text-lg sm:text-2xl leading-relaxed font-semibold text-foreground/90">
+                {insights.primaryAssetText}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-6 sm:p-10 space-y-6">
+          {blocks.map((bloco: any, idx: number) => (
+            <React.Fragment key={idx}>{renderCrossPlatformConsistencyBlock(bloco, idx)}</React.Fragment>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+function LinkedInMetric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-[1.75rem] border border-border/70 bg-background/75 p-4 shadow-sm">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-3xl font-extrabold tracking-tight text-foreground">{value}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{helper}</div>
+    </div>
+  );
+}
+
+function extractLinkedInInsights(parsedBlocks: any): LinkedInInsights {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+
+  let summary = "";
+  let primaryAssetTitle = "";
+  let primaryAssetText = "";
+  let readyAssetCount = 0;
+  let perspectiveCount = 0;
+  let faqCount = 0;
+
+  for (const block of blocks) {
+    const tipo = typeof block?.tipo === "string" ? block.tipo.toLowerCase() : "";
+    const conteudo = typeof block?.conteudo === "object" && block?.conteudo ? block.conteudo : {};
+
+    if (!summary && tipo === "markdown" && typeof conteudo.texto === "string") {
+      const firstParagraph = parseBlocks(conteudo.texto).find((item) => item.kind === "p");
+      if (firstParagraph && "text" in firstParagraph) {
+        summary = firstParagraph.text;
+      }
+    }
+
+    if (!primaryAssetText && tipo === "highlight" && typeof conteudo.texto === "string") {
+      primaryAssetTitle = String(conteudo.titulo || "").trim();
+      primaryAssetText = conteudo.texto.trim();
+    }
+
+    if (!primaryAssetText && tipo === "response_variations" && Array.isArray(conteudo.items) && conteudo.items[0]) {
+      primaryAssetTitle = String(conteudo.titulo || "Primeira versão pronta").trim();
+      primaryAssetText = String(conteudo.items[0]).trim();
+    }
+
+    if (tipo === "response_variations" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+    }
+
+    if (tipo === "service_cards" && Array.isArray(conteudo.items)) {
+      readyAssetCount += conteudo.items.length;
+      perspectiveCount += conteudo.items.length;
+    }
+
+    if (tipo === "keyword_list" && Array.isArray(conteudo.items)) {
+      perspectiveCount += conteudo.items.length;
+    }
+
+    if (tipo === "faq" && Array.isArray(conteudo.perguntas)) {
+      faqCount += conteudo.perguntas.length;
+    }
+
+    if (tipo === "timeline" && Array.isArray(conteudo.passos)) {
+      faqCount += conteudo.passos.length;
+    }
+  }
+
+  return {
+    summary,
+    primaryAssetTitle,
+    primaryAssetText,
+    readyAssetCount,
+    perspectiveCount,
+    faqCount,
+    sectionCount: blocks.length,
+  };
+}
+
+function linkedInVariationLabel(title: any, idx: number) {
+  const normalized = String(title || "").toLowerCase();
+  if (normalized.includes("headline")) return `Headline ${idx + 1}`;
+  if (normalized.includes("descri")) return `Descrição ${idx + 1}`;
+  if (normalized.includes("post")) return `Post ${idx + 1}`;
+  if (normalized.includes("case")) return `Bloco ${idx + 1}`;
+  return `Versão ${idx + 1}`;
+}
+
+function renderLinkedInBlock(bloco: any, key: number) {
+  const tipo = typeof bloco?.tipo === "string" ? bloco.tipo.toLowerCase() : "";
+  const conteudo = typeof bloco?.conteudo === "object" && bloco?.conteudo ? bloco.conteudo : {};
+
+  switch (tipo) {
+    case "markdown": {
+      const mBlocks = parseBlocks(conteudo.texto || "");
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-700 dark:text-blue-300">
+              <AlignLeft className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Leitura executiva</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Base estratégica"}
+              </h3>
+            </div>
+          </div>
+          <div className="prose prose-zinc dark:prose-invert prose-lg max-w-none text-foreground/80 leading-relaxed font-normal marker:text-blue-500/70">
+            {mBlocks.map((block, idx) => renderLegacyBlock(block, idx))}
+          </div>
+        </section>
+      );
+    }
+
+    case "response_variations": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-700 dark:text-sky-300">
+              <MessageSquareQuote className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Ativos prontos</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Variações prontas"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {items.map((item: string, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-300">
+                  {linkedInVariationLabel(conteudo.titulo, idx)}
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "service_cards": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-700 dark:text-blue-300">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Blocos de autoridade</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Componentes do posicionamento"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {items.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.75rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.nome || `Bloco ${idx + 1}`}</h4>
+                  <span className="shrink-0 rounded-full bg-blue-600/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">
+                    Item {idx + 1}
+                  </span>
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item.descricao || "não informado"}</p>
+                {Array.isArray(item.palavras_chave) && item.palavras_chave.length > 0 ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {item.palavras_chave.map((keyword: string, keywordIdx: number) => (
+                      <span key={keywordIdx} className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium text-foreground/80">
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "keyword_list": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-700 dark:text-blue-300">
+              <Search className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Sinais de perfil</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Termos e eixos que precisam aparecer"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {items.map((item: string, idx: number) => (
+              <span
+                key={idx}
+                className="rounded-full border border-blue-400/20 bg-blue-500/5 px-4 py-2 text-sm font-medium text-foreground/90"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "timeline": {
+      const steps = Array.isArray(conteudo.passos) ? conteudo.passos : [];
+      if (!steps.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">
+              <Clock3 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Aplicação</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Ordem recomendada"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {steps.map((step: string, idx: number) => (
+              <div key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-cyan-700 dark:text-cyan-300">
+                  Passo {idx + 1}
+                </div>
+                <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{step}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "faq": {
+      const perguntas = Array.isArray(conteudo.perguntas) ? conteudo.perguntas : [];
+      if (!perguntas.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-700 dark:text-blue-300">
+              <Lightbulb className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">FAQ / leitura institucional</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Dúvidas que o posicionamento precisa responder"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {perguntas.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">
+                  Pergunta {idx + 1}
+                </div>
+                <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.pergunta || `Pergunta ${idx + 1}`}</h4>
+                <p className="mt-3 text-sm sm:text-base leading-relaxed text-foreground/90">{item.resposta || "não informado"}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "highlight": {
+      const textValue = typeof conteudo.texto === "string" ? conteudo.texto : "";
+      if (!textValue) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-blue-300/30 bg-blue-500/5 p-5 sm:p-7 shadow-sm">
+          <div className="mb-4 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-700 dark:text-blue-300">
+              <CheckCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-blue-700/80 dark:text-blue-300/80">Síntese central</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Ponto de vista aprovado"}
+              </h3>
+            </div>
+          </div>
+          <p className="text-base sm:text-lg leading-relaxed text-foreground/90">{textValue}</p>
+        </section>
+      );
+    }
+
+    default:
+      return renderJsonBlock(bloco, key);
+  }
+}
+
+function LinkedInResult({
+  title,
+  parsedBlocks,
+  headerVariant,
+  badge,
+  insights,
+}: {
+  title: string;
+  parsedBlocks: any;
+  headerVariant: HeaderVariant;
+  badge: string;
+  insights: LinkedInInsights;
+}) {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+  const heroTitle = parsedBlocks?.titulo_da_tela || title;
+
+  return (
+    <section className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="rounded-[2.5rem] border border-border bg-card/90 backdrop-blur-xl shadow-sm overflow-hidden">
+        <div className={headerVariant.headerClass}>
+          <div className={`absolute top-0 left-0 w-full h-1 ${headerVariant.topBarClass}`} />
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-4xl">
+              <div className="flex items-start gap-4">
+                <div className={`hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${headerVariant.iconWrapperClass}`}>
+                  {headerVariant.icon}
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-blue-700/90 dark:text-blue-300/90">
+                    {badge}
+                  </p>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground leading-tight">
+                    {heroTitle}
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-base sm:text-lg leading-relaxed text-foreground/75">
+                    {insights.summary || "Material estruturado para fortalecer autoridade profissional, leitura executiva e posicionamento B2B no LinkedIn."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[28rem]">
+              <LinkedInMetric label="Ativos prontos" value={String(insights.readyAssetCount)} helper="posts, versões e blocos" />
+              <LinkedInMetric label="Sinais / eixos" value={String(insights.perspectiveCount)} helper="pontos de vista e termos" />
+              <LinkedInMetric label="FAQ / aplicação" value={String(insights.faqCount)} helper="dúvidas e sequência" />
+            </div>
+          </div>
+
+          {insights.primaryAssetText ? (
+            <div className="mt-8 rounded-[2rem] border border-blue-300/30 bg-background/70 p-5 sm:p-6 shadow-sm">
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-blue-700/80 dark:text-blue-300/80">
+                {insights.primaryAssetTitle || "Ponto de vista central"}
+              </div>
+              <p className="text-base sm:text-lg leading-relaxed text-foreground/90">{insights.primaryAssetText}</p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-6 sm:p-10 space-y-8">
+          {blocks.map((bloco: any, idx: number) => (
+            <React.Fragment key={idx}>{renderLinkedInBlock(bloco, idx)}</React.Fragment>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+function CrossPlatformConsistencyMetric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-[1.75rem] border border-border/70 bg-background/75 p-4 shadow-sm">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-3xl font-extrabold tracking-tight text-foreground">{value}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{helper}</div>
+    </div>
+  );
+}
+
+function extractCrossPlatformConsistencyInsights(parsedBlocks: any): CrossPlatformConsistencyInsights {
+  const blocks = Array.isArray(parsedBlocks?.blocos) ? parsedBlocks.blocos : [];
+
+  let summary = "";
+  let primaryAssetTitle = "";
+  let primaryAssetText = "";
+  let alignmentRuleCount = 0;
+  let channelCount = 0;
+  let faqCount = 0;
+
+  for (const block of blocks) {
+    const tipo = typeof block?.tipo === "string" ? block.tipo.toLowerCase() : "";
+    const conteudo = typeof block?.conteudo === "object" && block?.conteudo ? block.conteudo : {};
+
+    if (!summary && tipo === "markdown" && typeof conteudo.texto === "string") {
+      const firstParagraph = parseBlocks(conteudo.texto).find((item) => item.kind === "p");
+      if (firstParagraph && "text" in firstParagraph) {
+        summary = firstParagraph.text;
+      }
+    }
+
+    if (!primaryAssetText && tipo === "highlight" && typeof conteudo.texto === "string") {
+      primaryAssetTitle = String(conteudo.titulo || "").trim();
+      primaryAssetText = conteudo.texto.trim();
+    }
+
+    if (tipo === "keyword_list" && Array.isArray(conteudo.items)) {
+      alignmentRuleCount += conteudo.items.length;
+    }
+
+    if (tipo === "service_cards" && Array.isArray(conteudo.items)) {
+      channelCount = Math.max(channelCount, conteudo.items.length);
+    }
+
+    if (tipo === "comparison_table" && Array.isArray(conteudo.items)) {
+      channelCount = Math.max(channelCount, conteudo.items.length);
+    }
+
+    if (tipo === "faq" && Array.isArray(conteudo.perguntas)) {
+      faqCount += conteudo.perguntas.length;
+    }
+  }
+
+  return {
+    summary,
+    primaryAssetTitle,
+    primaryAssetText,
+    alignmentRuleCount,
+    channelCount,
+    faqCount,
+    sectionCount: blocks.length,
+  };
+}
+
+function renderCrossPlatformConsistencyBlock(bloco: any, key: number) {
+  const tipo = typeof bloco?.tipo === "string" ? bloco.tipo.toLowerCase() : "";
+  const conteudo = typeof bloco?.conteudo === "object" && bloco?.conteudo ? bloco.conteudo : {};
+
+  switch (tipo) {
+    case "markdown": {
+      const mBlocks = parseBlocks(conteudo.texto || "");
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
+              <Repeat2 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Leitura de governança</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Diagnóstico de consistência"}
+              </h3>
+            </div>
+          </div>
+          <div className="prose prose-zinc dark:prose-invert prose-lg max-w-none text-foreground/80 leading-relaxed font-normal marker:text-violet-500/70">
+            {mBlocks.map((block, idx) => renderLegacyBlock(block, idx))}
+          </div>
+        </section>
+      );
+    }
+
+    case "comparison_table": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300">
+              <AlignLeft className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Conflitos e ajustes</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Leitura comparativa"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            {items.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.75rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.criterio || `Critério ${idx + 1}`}</h4>
+                  <span className="shrink-0 rounded-full bg-violet-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-violet-700 dark:text-violet-300">
+                    Critério {idx + 1}
+                  </span>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
+                  <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 dark:bg-[#162a20] dark:border-emerald-900/50 p-4">
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
+                      Padrão recomendado
+                    </div>
+                    <p className="text-sm sm:text-base leading-relaxed text-emerald-950/90 dark:text-emerald-100/90">
+                      {item.nossa_solucao || "não informado"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 dark:bg-[#2a2416] dark:border-amber-900/50 p-4">
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+                      Risco atual
+                    </div>
+                    <p className="text-sm sm:text-base leading-relaxed text-amber-950/90 dark:text-amber-100/90">
+                      {item.mercado || "não informado"}
+                    </p>
+                  </div>
+                </div>
+
+                {item.recomendacao ? (
+                  <div className="mt-4 rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-violet-700 dark:text-violet-300">
+                      Leitura operacional
+                    </div>
+                    <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item.recomendacao}</p>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "service_cards": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
+              <ListVideo className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Padrão por frente</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Regras por canal"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {items.map((item: any, idx: number) => (
+              <article key={idx} className="rounded-[1.75rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-lg font-extrabold tracking-tight text-foreground">{item.nome || `Item ${idx + 1}`}</h4>
+                  <span className="shrink-0 rounded-full bg-violet-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-violet-700 dark:text-violet-300">
+                    Frente {idx + 1}
+                  </span>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Regra aplicada</p>
+                  <p className="text-sm sm:text-base leading-relaxed text-foreground/90">{item.descricao}</p>
+                </div>
+                {Array.isArray(item.palavras_chave) && item.palavras_chave.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Elementos estáveis</p>
+                    <div className="flex flex-wrap gap-2">
+                      {item.palavras_chave.map((keyword: string, keywordIdx: number) => (
+                        <span key={keywordIdx} className="rounded-full border border-violet-500/20 bg-violet-500/5 px-3 py-1.5 text-xs font-medium text-foreground/85">
+                          {keyword}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "keyword_list": {
+      const items = Array.isArray(conteudo.items) ? conteudo.items : [];
+      if (!items.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-700 dark:text-sky-300">
+              <Tag className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Partes imutáveis</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Elementos estáveis"}
+              </h3>
+              {conteudo.limite_por_item ? (
+                <p className="mt-1 text-sm text-muted-foreground">{conteudo.limite_por_item}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {items.map((item: string, idx: number) => (
+              <span
+                key={idx}
+                className="rounded-full border border-sky-400/20 bg-sky-500/5 px-4 py-2 text-sm font-medium text-foreground/90"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "timeline": {
+      const passos = Array.isArray(conteudo.passos) ? conteudo.passos : [];
+      if (!passos.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
+              <Clock3 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Ritmo de aplicação</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "Ordem de correção"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="relative border-l-[3px] border-violet-200/70 dark:border-violet-900/50 space-y-6 py-1 pl-4">
+            {passos.map((passo: string, idx: number) => (
+              <div key={idx} className="relative pl-8">
+                <div className="absolute -left-[11px] top-3 flex h-5 w-5 items-center justify-center rounded-full bg-background border-[4px] border-violet-500 shadow-sm" />
+                <div
+                  className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm text-sm sm:text-base leading-relaxed text-foreground/90"
+                  dangerouslySetInnerHTML={{ __html: inlineFormat(passo) }}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "faq": {
+      const perguntas = Array.isArray(conteudo.perguntas) ? conteudo.perguntas : [];
+      if (!perguntas.length) return null;
+
+      return (
+        <section key={key} className="rounded-[2rem] border border-border/70 bg-background/70 p-5 sm:p-7 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
+              <Captions className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Perguntas de governança</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                {conteudo.titulo || "FAQ de manutenção"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {perguntas.map((q: any, idx: number) => (
+              <div key={idx} className="rounded-[1.5rem] border border-border/70 bg-card/90 p-5 shadow-sm">
+                <h4 className="mb-3 text-lg font-extrabold tracking-tight text-foreground flex items-start gap-3">
+                  <span className="text-violet-600 dark:text-violet-300">Q.</span>
+                  {q.pergunta}
+                </h4>
+                <p
+                  className="text-sm sm:text-base leading-relaxed text-muted-foreground"
+                  dangerouslySetInnerHTML={{ __html: inlineFormat(q.resposta || "") }}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    case "highlight": {
+      const tone = crossPlatformHighlightTone(conteudo.icone);
+      const Icon = tone.icon;
+      return (
+        <section key={key} className={`rounded-[2rem] border p-6 sm:p-7 shadow-sm ${tone.containerClass}`}>
+          <div className="flex items-start gap-4">
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tone.iconWrapperClass}`}>
+              <Icon className="h-5 w-5" />
+            </div>
+            <div>
+              <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${tone.eyebrowClass}`}>Regra central</p>
+              <h3 className={`mt-2 text-xl sm:text-2xl font-extrabold tracking-tight ${tone.titleClass}`}>
+                {conteudo.titulo || "Leitura principal"}
+              </h3>
+              <p className={`mt-3 text-sm sm:text-base leading-relaxed ${tone.textClass}`}>
+                {conteudo.texto || "não informado"}
+              </p>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    default:
+      return renderJsonBlock(bloco, key);
+  }
+}
+
+function crossPlatformHighlightTone(iconName: string | undefined) {
+  const icon = String(iconName || "").toLowerCase();
+
+  if (icon === "alert") {
+    return {
+      icon: AlertTriangle,
+      containerClass: "border-red-200/70 bg-red-50/80 dark:bg-[#2a1616] dark:border-red-900/50",
+      iconWrapperClass: "bg-red-200/50 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+      eyebrowClass: "text-red-700 dark:text-red-300",
+      titleClass: "text-red-900 dark:text-red-200",
+      textClass: "text-red-950/90 dark:text-red-100/90",
+    };
+  }
+
+  if (icon === "check") {
+    return {
+      icon: CheckCircle,
+      containerClass: "border-emerald-200/70 bg-emerald-50/80 dark:bg-[#162a20] dark:border-emerald-900/50",
+      iconWrapperClass: "bg-emerald-200/50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+      eyebrowClass: "text-emerald-700 dark:text-emerald-300",
+      titleClass: "text-emerald-900 dark:text-emerald-200",
+      textClass: "text-emerald-950/90 dark:text-emerald-100/90",
+    };
+  }
+
+  if (icon === "star") {
+    return {
+      icon: Sparkles,
+      containerClass: "border-sky-200/70 bg-sky-50/80 dark:bg-[#141f2b] dark:border-sky-900/50",
+      iconWrapperClass: "bg-sky-200/50 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300",
+      eyebrowClass: "text-sky-700 dark:text-sky-300",
+      titleClass: "text-sky-900 dark:text-sky-200",
+      textClass: "text-sky-950/90 dark:text-sky-100/90",
+    };
+  }
+
+  return {
+    icon: Repeat2,
+    containerClass: "border-violet-200/70 bg-violet-50/80 dark:bg-[#21162c] dark:border-violet-900/50",
+    iconWrapperClass: "bg-violet-200/50 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
+    eyebrowClass: "text-violet-700 dark:text-violet-300",
+    titleClass: "text-violet-900 dark:text-violet-200",
+    textClass: "text-violet-950/90 dark:text-violet-100/90",
+  };
+}
+
 
 function ScriptSection({
   number,

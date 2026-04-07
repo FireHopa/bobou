@@ -1135,6 +1135,12 @@ const handleSelectProject = useCallback(
         : currentFormat.shortLabel,
     [currentFormat.shortLabel, hasValidCustomDimensions, parsedCustomHeight, parsedCustomWidth, resolutionMode]
   );
+  const currentResizeBehaviorLabel = useMemo(() => {
+    if (!allowResizeCrop) return "Sem resize exato";
+    if (preserveOriginalFrame) return "Expand sem crop";
+    return "Crop exato";
+  }, [allowResizeCrop, preserveOriginalFrame]);
+
 
   const previewAspectRatio = getPreviewAspectRatio(
     formato,
@@ -1571,6 +1577,8 @@ const handleSelectProject = useCallback(
       formData.append("formato", effectiveFormato);
       formData.append("qualidade", qualidade);
       formData.append("instrucoes_edicao", instruction);
+      formData.append("preserve_original_frame", String(preserveOriginalFrame));
+      formData.append("allow_resize_crop", String(allowResizeCrop));
 
       if (resolutionMode === "custom" && allowResizeCrop && hasValidCustomDimensions) {
         formData.append("width", String(parsedCustomWidth));
@@ -2464,11 +2472,13 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                     {[
                       {
                         label: "Preservar enquadramento original",
+                        description: "Mantém todo o conteúdo já visível da base. Se a proporção mudar, o sistema tenta expandir o canvas com IA antes de recorrer a fallback sem crop.",
                         value: preserveOriginalFrame,
                         setValue: setPreserveOriginalFrame,
                       },
                       {
                         label: "Ativar resize/crop para tamanho exato",
+                        description: "Aplica o width/height customizado no arquivo final. Com enquadramento preservado, o sistema prioriza expandir a peça para preencher o formato sem cortar o layout central.",
                         value: allowResizeCrop,
                         setValue: setAllowResizeCrop,
                       },
@@ -2482,7 +2492,10 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                           toggle.value ? "border-blue-400/25 bg-blue-500/10" : "border-white/10 bg-slate-950/50 hover:bg-white/[0.04]"
                         )}
                       >
-                        <div className="pr-4 text-sm text-white">{toggle.label}</div>
+                        <div className="pr-4">
+                          <div className="text-sm text-white">{toggle.label}</div>
+                          <div className="mt-1 text-xs leading-5 text-slate-400">{toggle.description}</div>
+                        </div>
                         <div
                           className={cn(
                             "flex h-7 w-12 items-center rounded-full p-1 transition-all",
@@ -2521,6 +2534,10 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                     <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                       <span>Base original</span>
                       <span className="font-semibold text-white">Preservada</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+                      <span>Resize final</span>
+                      <span className="font-semibold text-white">{currentResizeBehaviorLabel}</span>
                     </div>
                     <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                       <span>Canvas</span>
