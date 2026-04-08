@@ -305,6 +305,18 @@ def update_image_engine_project(
     return {"project": _serialize_image_project(project).model_dump()}
 
 
+@router.delete("/api/image-engine/projects/{public_id}")
+def delete_image_engine_project(
+    public_id: str,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    project = _get_user_image_project_or_404(session, current_user.id, public_id)
+    session.delete(project)
+    session.commit()
+    return {"ok": True, "deleted_project_id": public_id}
+
+
 
 
 SUPPORTED_BASE_SIZES: List[Tuple[int, int]] = [
