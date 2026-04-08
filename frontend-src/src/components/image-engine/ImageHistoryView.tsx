@@ -129,7 +129,7 @@ export default function ImageHistoryView({ onBack }: Props) {
             {items.map((item) => (
               <Card key={item.id} className="overflow-hidden border-white/10 bg-[linear-gradient(180deg,rgba(7,12,22,0.96)_0%,rgba(6,10,18,0.98)_100%)] shadow-[0_10px_30px_rgba(0,0,0,0.22)] rounded-2xl">
                 <div className="relative aspect-square bg-black/30">
-                  <img src={item.thumbnailUrl || item.url} alt={item.motor} className="h-full w-full object-cover" loading="lazy" />
+                  <img src={item.thumbnailUrl || item.url} alt={item.motor} className="h-full w-full object-contain" loading="lazy" />
                   <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] font-medium text-white backdrop-blur-md">
                     {formatHistoryMode(item.type)}
                   </div>

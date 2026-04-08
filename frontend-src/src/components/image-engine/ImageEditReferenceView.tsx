@@ -1867,7 +1867,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           </Button>
 
           {isProjectsOpen ? (
-            <div className="absolute left-0 top-[calc(100%+12px)] z-30 w-[min(360px,calc(100vw-32px))] rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] p-3 shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+            <div className="absolute left-0 top-[calc(100%+12px)] z-30 flex max-h-[min(70vh,560px)] w-[min(360px,calc(100vw-32px))] flex-col rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] p-3 shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl">
               <div className="mb-3 flex items-center justify-between gap-3 px-1">
                 <div>
                   <div className="text-sm font-semibold text-white">Projetos</div>
@@ -1882,7 +1882,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 </Button>
               </div>
 
-              <div className="space-y-2">
+              <div className="custom-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 scrollbar-gutter-stable">
                 {projects.map((project) => {
                   const projectCanvasCount = project.snapshot.canvasItems.filter((item) => item.kind !== "pending").length;
 
