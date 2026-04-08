@@ -309,6 +309,32 @@ function buildChatAttachments(baseReference: ReferenceAttachment | null): ChatAt
   ];
 }
 
+function isBrowserObjectUrl(url: string) {
+  return url.startsWith("blob:");
+}
+
+async function urlToDataUrl(url: string): Promise<string> {
+  if (url.startsWith("data:")) {
+    return url;
+  }
+
+  const response = await fetch(url);
+  const blob = await response.blob();
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Não foi possível serializar a imagem local."));
+    };
+    reader.onerror = () => reject(new Error("Não foi possível serializar a imagem local."));
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function fileFromUrl(url: string, filename: string) {
   if (url.startsWith("data:")) {
     return dataUrlToFile(url, filename);
@@ -633,19 +659,29 @@ async function serializeProjectSnapshot(
       }
     : null;
 
-  const persistedCanvasItems = snapshot.canvasItems
-    .filter((item) => item.kind !== "pending")
-    .map((item) => {
-      if (item.kind === "base" && persistedBaseReference) {
-        return {
-          ...item,
-          url: persistedBaseReference.previewUrl,
-          naturalWidth: persistedBaseReference.width,
-          naturalHeight: persistedBaseReference.height,
-        };
-      }
-      return item;
-    });
+  const persistedCanvasItems = await Promise.all(
+    snapshot.canvasItems
+      .filter((item) => item.kind !== "pending")
+      .map(async (item) => {
+        if (item.kind === "base" && persistedBaseReference) {
+          return {
+            ...item,
+            url: persistedBaseReference.previewUrl,
+            naturalWidth: persistedBaseReference.width,
+            naturalHeight: persistedBaseReference.height,
+          };
+        }
+
+        if (isBrowserObjectUrl(item.url)) {
+          return {
+            ...item,
+            url: await urlToDataUrl(item.url),
+          };
+        }
+
+        return item;
+      })
+  );
 
   return {
     ...snapshot,
@@ -678,7 +714,7 @@ async function deserializeProjectSnapshot(snapshot?: PersistedProjectSnapshot | 
 
   const canvasItems = Array.isArray(snapshot.canvasItems)
     ? snapshot.canvasItems
-        .filter((item) => item && item.kind !== "pending")
+        .filter((item) => item && item.kind !== "pending" && (item.kind === "base" || !isBrowserObjectUrl(item.url)))
         .map((item) => {
           if (item.kind === "base" && baseReference) {
             return {
@@ -756,6 +792,7 @@ const baseDataUrlCacheRef = useRef<Record<string, string>>({});
 const persistProjectsTimeoutRef = useRef<number | null>(null);
 const [projectsReady, setProjectsReady] = useState(false);
 const [projectsLoading, setProjectsLoading] = useState(true);
+const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
 
 
 
@@ -851,6 +888,15 @@ const createProjectOnServer = useCallback(
     return await hydrateProjectFromServer(data.project as PersistedProjectItem);
   },
   [fetchProjectsJson, getPersistableBaseDataUrl, hydrateProjectFromServer]
+);
+
+const deleteProjectOnServer = useCallback(
+  async (projectId: string) => {
+    await fetchProjectsJson(`/api/image-engine/projects/${projectId}`, {
+      method: "DELETE",
+    });
+  },
+  [fetchProjectsJson]
 );
 
 const persistProjectsToServer = useCallback(
@@ -1105,8 +1151,84 @@ const handleSelectProject = useCallback(
 
     setCurrentProjectId(projectId);
     applyProjectSnapshot(targetProject.snapshot);
+    setIsProjectsOpen(false);
   },
   [abortActiveJobsForProjectSwitch, applyProjectSnapshot, commitCurrentProjectSnapshot, currentProjectId]
+);
+
+const handleDeleteProject = useCallback(
+  async (projectId: string) => {
+    const targetProject = projectsRef.current.find((project) => project.id === projectId);
+    if (!targetProject || deletingProjectId) return;
+
+    const confirmed = window.confirm(`Excluir o projeto "${targetProject.name}"? Essa ação remove o canvas salvo desse projeto.`);
+    if (!confirmed) return;
+
+    setDeletingProjectId(projectId);
+
+    try {
+      let syncedProjects = projectsRef.current;
+
+      if (projectId === currentProjectId) {
+        abortActiveJobsForProjectSwitch();
+        syncedProjects = commitCurrentProjectSnapshot();
+      }
+
+      await deleteProjectOnServer(projectId);
+
+      const remainingProjects = syncedProjects.filter((project) => project.id !== projectId);
+
+      if (remainingProjects.length === 0) {
+        const fallbackProjectTemplate = createProjectItem(1);
+        const fallbackProject = await createProjectOnServer(
+          fallbackProjectTemplate.name,
+          fallbackProjectTemplate.snapshot,
+          0,
+          true
+        );
+
+        projectsRef.current = [fallbackProject];
+        setProjects([fallbackProject]);
+        setCurrentProjectId(fallbackProject.id);
+        applyProjectSnapshot(fallbackProject.snapshot);
+        setStatusText("Projeto excluído. Um novo projeto vazio foi criado.");
+        setIsProjectsOpen(false);
+        return;
+      }
+
+      const nextCurrentProjectId = projectId === currentProjectId ? remainingProjects[0].id : currentProjectId;
+      const nextCurrentProject =
+        remainingProjects.find((project) => project.id === nextCurrentProjectId) ?? remainingProjects[0];
+
+      await persistProjectsToServer(remainingProjects, nextCurrentProject.id);
+
+      projectsRef.current = remainingProjects;
+      setProjects(remainingProjects);
+      setCurrentProjectId(nextCurrentProject.id);
+
+      if (projectId === currentProjectId) {
+        applyProjectSnapshot(nextCurrentProject.snapshot);
+      }
+
+      setStatusText(`Projeto "${targetProject.name}" excluído.`);
+      setIsProjectsOpen(false);
+    } catch (error) {
+      console.error("Falha ao excluir projeto no servidor:", error);
+      setStatusText("Não foi possível excluir o projeto.");
+    } finally {
+      setDeletingProjectId(null);
+    }
+  },
+  [
+    abortActiveJobsForProjectSwitch,
+    applyProjectSnapshot,
+    commitCurrentProjectSnapshot,
+    createProjectOnServer,
+    currentProjectId,
+    deleteProjectOnServer,
+    deletingProjectId,
+    persistProjectsToServer,
+  ]
 );
 
   const hasValidCustomDimensions =
@@ -1615,73 +1737,76 @@ const handleSelectProject = useCallback(
         let buffer = "";
         let streamFinishedWithResult = false;
 
-        readStream: while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
+        try {
+          readStream: while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const events = buffer.split("\n\n");
-          buffer = events.pop() || "";
+            buffer += decoder.decode(value, { stream: true });
+            const events = buffer.split("\n\n");
+            buffer = events.pop() || "";
 
-          for (const rawEvent of events) {
-            const line = rawEvent
-              .split("\n")
-              .find((item) => item.startsWith("data:"));
-            if (!line) continue;
+            for (const rawEvent of events) {
+              const line = rawEvent
+                .split("\n")
+                .find((item) => item.startsWith("data:"));
+              if (!line) continue;
 
-            const payload = JSON.parse(line.replace(/^data:\s*/, ""));
+              const payload = JSON.parse(line.replace(/^data:\s*/, ""));
 
-            if (payload.error) {
-              throw new Error(payload.error);
-            }
+              if (payload.error) {
+                throw new Error(payload.error);
+              }
 
-            if (payload.status) {
-              setStatusText(payload.status);
-              updateCanvasItem(pendingCanvasItemId, {
-                status: payload.status,
-                progress: typeof payload.progress === "number" ? payload.progress : undefined,
-              });
-              setActiveJobs((current) =>
-                current.map((job) =>
-                  job.id === jobId
-                    ? {
-                        ...job,
-                        status: payload.status,
-                        progress: typeof payload.progress === "number" ? payload.progress : job.progress,
-                      }
-                    : job
-                )
-              );
+              if (payload.status) {
+                setStatusText(payload.status);
+                updateCanvasItem(pendingCanvasItemId, {
+                  status: payload.status,
+                  progress: typeof payload.progress === "number" ? payload.progress : undefined,
+                });
+                setActiveJobs((current) =>
+                  current.map((job) =>
+                    job.id === jobId
+                      ? {
+                          ...job,
+                          status: payload.status,
+                          progress: typeof payload.progress === "number" ? payload.progress : job.progress,
+                        }
+                      : job
+                  )
+                );
 
-              if (lastStatusByJobRef.current[jobId] !== payload.status) {
-                lastStatusByJobRef.current[jobId] = payload.status;
-                pushAssistantMessage(payload.status);
+                if (lastStatusByJobRef.current[jobId] !== payload.status) {
+                  lastStatusByJobRef.current[jobId] = payload.status;
+                  pushAssistantMessage(payload.status);
+                }
+              }
+
+              if (payload.warning) {
+                pushAssistantMessage(payload.warning, "warning");
+              }
+
+              if (payload.partial_result?.url) {
+                updateCanvasItem(pendingCanvasItemId, {
+                  url: payload.partial_result.url,
+                  motor: payload.partial_result.motor,
+                  engineId: payload.partial_result.engine_id,
+                });
+              }
+
+              if (Array.isArray(payload.final_results) && payload.final_results[0]?.url) {
+                await finalizeJobOnCanvas(pendingCanvasItemId, payload.final_results[0], instruction);
+                streamFinishedWithResult = true;
+                setStatusText("Entrega concluída.");
+                break readStream;
               }
             }
-
-            if (payload.warning) {
-              pushAssistantMessage(payload.warning, "warning");
-            }
-
-            if (payload.partial_result?.url) {
-              updateCanvasItem(pendingCanvasItemId, {
-                url: payload.partial_result.url,
-                motor: payload.partial_result.motor,
-                engineId: payload.partial_result.engine_id,
-              });
-            }
-
-            if (Array.isArray(payload.final_results) && payload.final_results[0]?.url) {
-              await finalizeJobOnCanvas(pendingCanvasItemId, payload.final_results[0], instruction);
-              streamFinishedWithResult = true;
-              setStatusText("Entrega concluída.");
-              try {
-                await reader.cancel();
-              } catch {
-                // noop
-              }
-              break readStream;
-            }
+          }
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch {
+            // noop
           }
         }
 
@@ -1696,7 +1821,11 @@ const handleSelectProject = useCallback(
           return;
         }
 
-        const message = error instanceof Error ? error.message : "Falha inesperada na edição.";
+        const rawMessage = error instanceof Error ? error.message : "Falha inesperada na edição.";
+        const message =
+          /network error|failed to fetch/i.test(rawMessage)
+            ? "A conexão do stream da edição foi interrompida antes da entrega final. Tente novamente."
+            : rawMessage;
         setStatusText(message);
         updateCanvasItem(pendingCanvasItemId, {
           status: message,
@@ -1887,35 +2016,56 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               <div className="custom-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 scrollbar-gutter-stable">
                 {projects.map((project) => {
                   const projectCanvasCount = project.snapshot.canvasItems.filter((item) => item.kind !== "pending").length;
+                  const isCurrentProject = project.id === currentProjectId;
+                  const isDeletingProject = deletingProjectId === project.id;
 
                   return (
-                    <button
+                    <div
                       key={project.id}
-                      type="button"
-                      onClick={() => handleSelectProject(project.id)}
                       className={cn(
-                        "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-all",
-                        project.id === currentProjectId
+                        "flex items-center gap-2 rounded-2xl border p-2 transition-all",
+                        isCurrentProject
                           ? "border-blue-400/35 bg-blue-500/10"
                           : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
                       )}
                     >
-                      <div className="min-w-0 pr-3">
-                        <div className="truncate text-sm font-semibold text-white">{project.name}</div>
-                        <div className="mt-1 text-xs text-slate-400">
-                          {project.snapshot.baseReference ? "Com base carregada" : "Sem base"} • {projectCanvasCount} item{projectCanvasCount === 1 ? "" : "s"} no canvas
+                      <button
+                        type="button"
+                        onClick={() => handleSelectProject(project.id)}
+                        className="flex min-w-0 flex-1 items-center justify-between rounded-xl px-2 py-1 text-left"
+                      >
+                        <div className="min-w-0 pr-3">
+                          <div className="truncate text-sm font-semibold text-white">{project.name}</div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            {project.snapshot.baseReference ? "Com base carregada" : "Sem base"} • {projectCanvasCount} item{projectCanvasCount === 1 ? "" : "s"} no canvas
+                          </div>
                         </div>
-                      </div>
-                      {project.id === currentProjectId ? (
-                        <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-blue-500/20 text-blue-100">
-                          <Check className="h-4 w-4" />
-                        </span>
-                      ) : (
-                        <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-400">
-                          <LayoutTemplate className="h-4 w-4" />
-                        </span>
-                      )}
-                    </button>
+                        {isCurrentProject ? (
+                          <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-blue-500/20 text-blue-100">
+                            <Check className="h-4 w-4" />
+                          </span>
+                        ) : (
+                          <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-400">
+                            <LayoutTemplate className="h-4 w-4" />
+                          </span>
+                        )}
+                      </button>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={Boolean(deletingProjectId)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDeleteProject(project.id);
+                        }}
+                        className="h-10 w-10 shrink-0 rounded-xl border border-red-500/20 bg-red-500/10 text-red-200 hover:bg-red-500/20 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        title={isDeletingProject ? "Excluindo projeto..." : `Excluir ${project.name}`}
+                      >
+                        {isDeletingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   );
                 })}
               </div>
