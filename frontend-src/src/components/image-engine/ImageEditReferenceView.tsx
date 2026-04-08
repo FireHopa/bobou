@@ -1136,10 +1136,12 @@ const handleSelectProject = useCallback(
     [currentFormat.shortLabel, hasValidCustomDimensions, parsedCustomHeight, parsedCustomWidth, resolutionMode]
   );
   const currentResizeBehaviorLabel = useMemo(() => {
-    if (!allowResizeCrop) return "Sem resize exato";
     if (preserveOriginalFrame) return "Expand sem crop";
+    if (resolutionMode === "custom" && hasValidCustomDimensions && allowResizeCrop) return "Crop exato";
+    if (resolutionMode === "custom" && hasValidCustomDimensions) return "Ajuste exato sem crop";
+    if (!allowResizeCrop) return "Sem resize exato";
     return "Crop exato";
-  }, [allowResizeCrop, preserveOriginalFrame]);
+  }, [allowResizeCrop, hasValidCustomDimensions, preserveOriginalFrame, resolutionMode]);
 
 
   const previewAspectRatio = getPreviewAspectRatio(
@@ -1479,8 +1481,8 @@ const handleSelectProject = useCallback(
           engine_id: result.engine_id,
           format: formato,
           quality: qualidade,
-          width: resolutionMode === "custom" && allowResizeCrop && hasValidCustomDimensions ? parsedCustomWidth : undefined,
-          height: resolutionMode === "custom" && allowResizeCrop && hasValidCustomDimensions ? parsedCustomHeight : undefined,
+          width: resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomWidth : undefined,
+          height: resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomHeight : undefined,
           prompt: instruction,
         },
       ]);
@@ -1520,7 +1522,7 @@ const handleSelectProject = useCallback(
         return;
       }
 
-      if (resolutionMode === "custom" && allowResizeCrop && !hasValidCustomDimensions) {
+      if (resolutionMode === "custom" && !hasValidCustomDimensions) {
         pushAssistantMessage("As dimensões customizadas precisam estar entre 256 e 4096 pixels.", "warning");
         return;
       }
@@ -1547,9 +1549,9 @@ const handleSelectProject = useCallback(
       setPromptInput("");
 
       const placeholderWidth =
-        resolutionMode === "custom" && allowResizeCrop && hasValidCustomDimensions ? parsedCustomWidth : baseReference.width;
+        resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomWidth : baseReference.width;
       const placeholderHeight =
-        resolutionMode === "custom" && allowResizeCrop && hasValidCustomDimensions ? parsedCustomHeight : baseReference.height;
+        resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomHeight : baseReference.height;
 
       setCanvasItems((current) => [
         ...current,
@@ -1580,7 +1582,7 @@ const handleSelectProject = useCallback(
       formData.append("preserve_original_frame", String(preserveOriginalFrame));
       formData.append("allow_resize_crop", String(allowResizeCrop));
 
-      if (resolutionMode === "custom" && allowResizeCrop && hasValidCustomDimensions) {
+      if (resolutionMode === "custom" && hasValidCustomDimensions) {
         formData.append("width", String(parsedCustomWidth));
         formData.append("height", String(parsedCustomHeight));
       }
@@ -2228,7 +2230,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 {currentFormatBadgeLabel} • {currentQuality.shortLabel}
               </div>
               <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                {resolutionMode === "custom" && allowResizeCrop && hasValidCustomDimensions
+                {resolutionMode === "custom" && hasValidCustomDimensions
                   ? `${parsedCustomWidth}×${parsedCustomHeight}`
                   : "Resolução preservada"}
               </div>
@@ -2425,7 +2427,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                       No tamanho exato, a proporção vem da resolução informada. Os presets 1:1, 9:16 e 16:9 ficam desativados para evitar conflito no resultado.
                     </div>
                     <div className="text-xs text-slate-400">
-                      Faixa aceita pelo backend: 256 a 4096 pixels. O tamanho customizado só é enviado quando o resize/crop está ativado.
+                      Faixa aceita pelo backend: 256 a 4096 pixels. Quando a resolução estiver válida, o tamanho customizado é enviado ao backend mesmo sem crop.
                     </div>
                   </div>
                 )}
@@ -2477,8 +2479,8 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                         setValue: setPreserveOriginalFrame,
                       },
                       {
-                        label: "Ativar resize/crop para tamanho exato",
-                        description: "Aplica o width/height customizado no arquivo final. Com enquadramento preservado, o sistema prioriza expandir a peça para preencher o formato sem cortar o layout central.",
+                        label: "Permitir crop para preencher 100%",
+                        description: "Quando ligado, o arquivo final pode cortar as sobras para ocupar todo o width/height. Quando desligado, o sistema mantém o tamanho exato sem distorcer e sem crop agressivo.",
                         value: allowResizeCrop,
                         setValue: setAllowResizeCrop,
                       },
