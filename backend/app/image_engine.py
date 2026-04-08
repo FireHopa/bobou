@@ -70,7 +70,7 @@ class ImageEditRequest(BaseModel):
     width: Optional[int] = Field(default=None, description="Largura final customizada em pixels")
     height: Optional[int] = Field(default=None, description="Altura final customizada em pixels")
     preserve_original_frame: bool = Field(default=False, description="Preserva o enquadramento visível da base durante o resize final")
-    allow_resize_crop: bool = Field(default=False, description="Aplica width/height customizados no arquivo final")
+    allow_resize_crop: bool = Field(default=False, description="Permite crop para preencher 100% do tamanho final customizado")
 
 class ImageHistoryItemPayload(BaseModel):
     type: str = Field(default="edited")
@@ -396,6 +396,23 @@ def _trim_uniform_borders(image: Image.Image) -> Image.Image:
     if width < 8 or height < 8:
         return rgba
 
+    alpha = rgba.getchannel("A")
+    bbox = alpha.getbbox()
+    if not bbox:
+        return rgba
+
+    if bbox != (0, 0, width, height):
+        left, top, right, bottom = bbox
+        trimmed_width = right - left
+        trimmed_height = bottom - top
+        if trimmed_width > 0 and trimmed_height > 0:
+            coverage_ratio = (trimmed_width * trimmed_height) / max(1, width * height)
+            if coverage_ratio >= 0.55:
+                return rgba.crop(bbox)
+
+    if alpha.getextrema()[0] >= 250:
+        return rgba
+
     corners = [
         rgba.getpixel((0, 0)),
         rgba.getpixel((width - 1, 0)),
@@ -634,20 +651,87 @@ async def _expand_image_to_supported_canvas(
     return next_result
 
 
+def _build_change_mask_from_original(
+    edited_image: Image.Image,
+    original_reference: Image.Image,
+) -> Image.Image:
+    edited_rgba = edited_image.convert("RGBA")
+    original_rgba = original_reference.convert("RGBA")
+    diff = ImageChops.difference(edited_rgba, original_rgba).convert("L")
+    diff = diff.filter(ImageFilter.GaussianBlur(radius=0.8))
+    diff = diff.point(lambda px: 255 if px >= 16 else 0, mode="L")
+    diff = diff.filter(ImageFilter.MaxFilter(5))
+    diff = diff.filter(ImageFilter.GaussianBlur(radius=1.1))
+    return diff
+
+
+
+def _mask_coverage(mask: Image.Image) -> float:
+    histogram = mask.convert("L").histogram()
+    non_zero = sum(count for idx, count in enumerate(histogram) if idx > 8)
+    total = max(1, sum(histogram))
+    return non_zero / total
+
+
+
+def _project_edited_changes_onto_reference(
+    edited_image: Image.Image,
+    original_reference: Image.Image,
+    target_width: int,
+    target_height: int,
+) -> Optional[Image.Image]:
+    edited_rgba = edited_image.convert("RGBA")
+    original_rgba = original_reference.convert("RGBA")
+    if edited_rgba.width <= 0 or edited_rgba.height <= 0 or original_rgba.width <= 0 or original_rgba.height <= 0:
+        return None
+
+    original_in_edit_space = original_rgba.resize(edited_rgba.size, Image.Resampling.LANCZOS)
+    mask_in_edit_space = _build_change_mask_from_original(edited_rgba, original_in_edit_space)
+    coverage = _mask_coverage(mask_in_edit_space)
+    if coverage <= 0.0008:
+        return original_rgba.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+    base_target = original_rgba.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    edited_target = edited_rgba.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    mask_target = mask_in_edit_space.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+    # Quando a mudança ocupa boa parte da peça, ainda priorizamos resize direto sem blur/crop.
+    if coverage >= 0.38:
+        return edited_target
+
+    return Image.composite(edited_target, base_target, mask_target)
+
+
+
 def _resize_image_bytes_exact(
     image_bytes: bytes,
     target_width: int,
     target_height: int,
     preserve_original_frame: bool,
+    allow_resize_crop: bool,
+    original_reference_bytes: Optional[bytes] = None,
 ) -> bytes:
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
             prepared = img.convert("RGBA") if img.mode not in {"RGB", "RGBA"} else img.copy()
             prepared = _trim_uniform_borders(prepared)
-            if preserve_original_frame:
-                result = prepared.resize((target_width, target_height), Image.Resampling.LANCZOS)
-            else:
+            if allow_resize_crop and not preserve_original_frame:
                 result = _resize_to_cover(prepared, target_width, target_height)
+            else:
+                result = None
+                if original_reference_bytes:
+                    try:
+                        with Image.open(io.BytesIO(original_reference_bytes)) as original_img:
+                            result = _project_edited_changes_onto_reference(
+                                prepared,
+                                original_img,
+                                target_width,
+                                target_height,
+                            )
+                    except UnidentifiedImageError:
+                        result = None
+                if result is None:
+                    result = prepared.resize((target_width, target_height), Image.Resampling.LANCZOS)
             return _encode_png_bytes(result)
     except UnidentifiedImageError as exc:
         raise ValueError(f"Não foi possível interpretar a imagem retornada para pós-processamento: {exc}")
@@ -658,6 +742,8 @@ async def _apply_postprocess_if_needed(
     result: Dict[str, Any],
     target_dimensions: Optional[Tuple[int, int]],
     preserve_original_frame: bool = False,
+    allow_resize_crop: bool = False,
+    original_reference_bytes: Optional[bytes] = None,
 ) -> Dict[str, Any]:
     if not target_dimensions:
         return result
@@ -679,14 +765,22 @@ async def _apply_postprocess_if_needed(
         target_width,
         target_height,
         preserve_original_frame=preserve_original_frame,
+        allow_resize_crop=allow_resize_crop,
+        original_reference_bytes=original_reference_bytes,
     )
     next_result = dict(result)
     next_result["url"] = _result_url_from_image_bytes(processed_bytes, "image/png")
     next_result["postprocessed"] = True
     next_result["target_dimensions"] = {"width": target_width, "height": target_height}
+    if preserve_original_frame:
+        resize_label = "Resize exato sem crop"
+    elif allow_resize_crop:
+        resize_label = "Resize exato com crop"
+    else:
+        resize_label = "Resize exato sem crop"
     next_result["motor"] = (
         f"{result.get('motor', 'Imagem')} + "
-        f"{'Resize exato preservado' if preserve_original_frame else 'Resize exato com crop'}"
+        f"{resize_label}"
     )
     return next_result
 
@@ -2285,11 +2379,12 @@ async def image_engine_stream(
                     try:
                         result = await coro
                         result = await _apply_postprocess_if_needed(
-                    client,
-                    result,
-                    requested_dimensions,
-                    preserve_original_frame=body.preserve_original_frame,
-                )
+                            client,
+                            result,
+                            requested_dimensions,
+                            preserve_original_frame=False,
+                            allow_resize_crop=False,
+                        )
                         completed_results.append(result)
                         done_count += 1
 
@@ -2400,7 +2495,7 @@ async def image_engine_edit_stream(
         if not body.instrucoes_edicao.strip():
             raise ValueError("As instruções de edição são obrigatórias.")
         source_width, source_height = _read_image_dimensions(image_bytes)
-        requested_dimensions = _resolve_target_dimensions(body.width, body.height) if body.allow_resize_crop else None
+        requested_dimensions = _resolve_target_dimensions(body.width, body.height)
         aspect_ratio = _normalize_aspect_ratio(body.formato)
         openai_quality = _normalize_quality(body.qualidade)
     except ValueError as e:
@@ -2684,6 +2779,8 @@ async def image_engine_edit_stream(
                             requested_dimensions[0],
                             requested_dimensions[1],
                             preserve_original_frame=True,
+                            allow_resize_crop=False,
+                            original_reference_bytes=image_bytes,
                         )
                         result = dict(result)
                         result["url"] = _result_url_from_image_bytes(fallback_bytes, "image/png")
@@ -2697,6 +2794,8 @@ async def image_engine_edit_stream(
                         result,
                         requested_dimensions,
                         preserve_original_frame=True,
+                        allow_resize_crop=False,
+                        original_reference_bytes=image_bytes,
                     )
                 else:
                     result = await _apply_postprocess_if_needed(
@@ -2704,6 +2803,8 @@ async def image_engine_edit_stream(
                         result,
                         requested_dimensions,
                         preserve_original_frame=body.preserve_original_frame,
+                        allow_resize_crop=body.allow_resize_crop,
+                        original_reference_bytes=image_bytes,
                     )
 
                 yield _sse({
