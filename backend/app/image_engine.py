@@ -645,12 +645,7 @@ def _resize_image_bytes_exact(
             prepared = img.convert("RGBA") if img.mode not in {"RGB", "RGBA"} else img.copy()
             prepared = _trim_uniform_borders(prepared)
             if preserve_original_frame:
-                src_ratio = prepared.width / max(1, prepared.height)
-                target_ratio = target_width / max(1, target_height)
-                if abs(src_ratio - target_ratio) <= 0.012:
-                    result = prepared.resize((target_width, target_height), Image.Resampling.LANCZOS)
-                else:
-                    result = _edge_extend_fill(prepared, target_width, target_height)
+                result = prepared.resize((target_width, target_height), Image.Resampling.LANCZOS)
             else:
                 result = _resize_to_cover(prepared, target_width, target_height)
             return _encode_png_bytes(result)
@@ -691,7 +686,7 @@ async def _apply_postprocess_if_needed(
     next_result["target_dimensions"] = {"width": target_width, "height": target_height}
     next_result["motor"] = (
         f"{result.get('motor', 'Imagem')} + "
-        f"{'Resize exato sem corte' if preserve_original_frame else 'Resize exato com crop'}"
+        f"{'Resize exato preservado' if preserve_original_frame else 'Resize exato com crop'}"
     )
     return next_result
 
@@ -1646,7 +1641,7 @@ def _build_localized_prompt_appendix(
     lines = []
     target = localized_analysis.get("target_text") or ""
     replacement = localized_analysis.get("replacement_text") or ""
-    operation = localized_analysis.get("operation") or "text_replace"
+    operation = (localized_analysis.get("operation") or "text_replace").lower()
     confidence = float(localized_analysis.get("confidence", 0.0) or 0.0)
     bbox = localized_analysis.get("bbox")
     text_bbox = localized_analysis.get("text_bbox")
@@ -1655,7 +1650,12 @@ def _build_localized_prompt_appendix(
     lines.append("\n\n--- INSTRUÇÃO LOCALIZADA DE EDIÇÃO ---")
 
     if target and replacement:
-        lines.append(f"Substitua o texto \"{target}\" por \"{replacement}\".")
+        if operation == "append_right":
+            lines.append(f'Mantenha o texto âncora "{target}" intacto e adicione exatamente "{replacement}" imediatamente à direita dele.')
+        elif operation == "append_left":
+            lines.append(f'Mantenha o texto âncora "{target}" intacto e adicione exatamente "{replacement}" imediatamente à esquerda dele.')
+        else:
+            lines.append(f'Substitua o texto "{target}" por "{replacement}".')
 
     if operation == "button_text_replace":
         lines.append("Este texto está dentro de um botão, badge ou chip. Preserve a forma, cor e bordas do elemento container.")
@@ -1689,6 +1689,10 @@ def _build_localized_prompt_appendix(
         style_notes.append(f"cor de fundo: {style['background_color']}")
     if style.get("font_weight"):
         style_notes.append(f"peso da fonte: {style['font_weight']}")
+    if style.get("font_family_hint"):
+        style_notes.append(f"família visual aproximada: {style['font_family_hint']}")
+    if style.get("preferred_font_size"):
+        style_notes.append(f"tamanho aparente aproximado: {style['preferred_font_size']}")
     if style.get("alignment"):
         style_notes.append(f"alinhamento: {style['alignment']}")
     if style.get("shadow"):
@@ -1697,6 +1701,10 @@ def _build_localized_prompt_appendix(
         style_notes.append("com brilho/glow")
     if style_notes:
         lines.append("Estilo visual a manter: " + ", ".join(style_notes) + ".")
+
+    if operation in {"append_right", "append_left"}:
+        lines.append("A tipografia deve parecer continuação direta do texto âncora: mesma cor percebida, mesmo peso, mesma altura aparente e mesma baseline.")
+        lines.append("Não reescreva o texto âncora. Não altere nenhum outro texto da linha. Não troque acentos, espaços ou capitalização.")
 
     if confidence >= 0.75:
         lines.append("Nível de confiança na localização: alto. Aplique a edição com precisão cirúrgica.")
@@ -1709,16 +1717,385 @@ def _build_localized_prompt_appendix(
     return "\n".join(lines)
 
 
+
+def _clamp_int(value: int, low: int, high: int) -> int:
+    return max(low, min(high, int(value)))
+
+
+def _norm_box_to_px_engine(
+    box: Optional[Dict[str, Any]],
+    width: int,
+    height: int,
+) -> Optional[Tuple[int, int, int, int]]:
+    if not box:
+        return None
+    try:
+        x = float(box.get("x", 0.0) or 0.0)
+        y = float(box.get("y", 0.0) or 0.0)
+        w = float(box.get("w", 0.0) or 0.0)
+        h = float(box.get("h", 0.0) or 0.0)
+    except Exception:
+        return None
+
+    x1 = _clamp_int(round(x * width), 0, width)
+    y1 = _clamp_int(round(y * height), 0, height)
+    x2 = _clamp_int(round((x + w) * width), 0, width)
+    y2 = _clamp_int(round((y + h) * height), 0, height)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
+
+
+def _build_append_sprite_prompt(
+    analysis: Dict[str, Any],
+    operation: str,
+) -> str:
+    target = (analysis.get("target_text") or "").strip()
+    replacement = (analysis.get("replacement_text") or "").strip()
+    style = analysis.get("style") or {}
+
+    side_text = "à direita" if operation == "append_right" else "à esquerda"
+    style_notes: List[str] = []
+    if style.get("text_color"):
+        style_notes.append(f"cor percebida do texto: {style.get('text_color')}")
+    if style.get("font_weight"):
+        style_notes.append(f"peso percebido: {style.get('font_weight')}")
+    if style.get("font_family_hint"):
+        style_notes.append(f"família aproximada: {style.get('font_family_hint')}")
+    if style.get("glow"):
+        style_notes.append("preserve o glow/brilho do lettering")
+    if style.get("shadow"):
+        style_notes.append("preserve a sombra do lettering")
+
+    style_line = ""
+    if style_notes:
+        style_line = " Referência de estilo: " + "; ".join(style_notes) + "."
+
+    return (
+        "Você recebeu um recorte de uma arte já pronta. "
+        "O texto âncora existente neste recorte é autoritativo e deve continuar exatamente como está. "
+        f"Adicione APENAS o novo trecho de texto imediatamente {side_text} do texto âncora, sem alterar o restante da linha, sem trocar a cor, sem trocar o peso, sem trocar o brilho, sem trocar a tipografia percebida e sem mover os elementos existentes. "
+        f'Texto âncora que deve permanecer intacto: "{target}". '
+        f'Texto novo a ser inserido exatamente como escrito, preservando maiúsculas, minúsculas, acentos e espaços: "{replacement}". '
+        "Mantenha a mesma baseline, o mesmo tamanho aparente, o mesmo espaçamento visual e o mesmo acabamento do texto âncora. "
+        "Não reescreva o texto âncora. Não traduza. Não corrija automaticamente. Não simplifique acentos. "
+        "Edite somente a área mascarada. Preserve absolutamente todos os demais pixels do recorte."
+        + style_line
+    )
+
+
+def _build_append_crop_plan(
+    image_bytes: bytes,
+    analysis: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    operation = (analysis.get("operation") or "").lower()
+    if operation not in {"append_right", "append_left"}:
+        return None
+
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        image = im.convert("RGBA")
+        width, height = image.size
+
+    anchor = _norm_box_to_px_engine(
+        analysis.get("text_bbox") or analysis.get("bbox") or analysis.get("container_bbox"),
+        width,
+        height,
+    )
+    if not anchor:
+        return None
+
+    target_text = (analysis.get("target_text") or "").strip()
+    replacement_text = (analysis.get("replacement_text") or "").strip()
+    style = analysis.get("style") or {}
+
+    anchor_w = max(1, anchor[2] - anchor[0])
+    anchor_h = max(1, anchor[3] - anchor[1])
+    gap = max(4, int(round(float(style.get("append_gap") or max(6.0, anchor_h * 0.16)))))
+    overlap = max(2, int(round(anchor_h * 0.06)))
+    vertical_pad = max(14, int(round(anchor_h * 0.90)))
+    left_context = max(28, int(round(anchor_w * 0.42)))
+    right_context = max(28, int(round(anchor_w * 0.42)))
+    target_len = max(1, len(target_text))
+    replacement_len = max(1, len(replacement_text))
+    ratio = replacement_len / float(target_len)
+    expected_new_w = max(72, int(round(anchor_w * min(2.8, max(0.85, ratio + 0.28)))))
+
+    if operation == "append_right":
+        crop_x1 = max(0, anchor[0] - left_context)
+        crop_x2 = min(width, anchor[2] + gap + expected_new_w + right_context)
+    else:
+        crop_x1 = max(0, anchor[0] - gap - expected_new_w - left_context)
+        crop_x2 = min(width, anchor[2] + right_context)
+
+    crop_y1 = max(0, anchor[1] - vertical_pad)
+    crop_y2 = min(height, anchor[3] + vertical_pad)
+
+    if crop_x2 - crop_x1 < max(120, anchor_w + expected_new_w // 2):
+        return None
+    if crop_y2 - crop_y1 < max(28, anchor_h + 12):
+        return None
+
+    crop_rect = (crop_x1, crop_y1, crop_x2, crop_y2)
+    crop_w = crop_x2 - crop_x1
+    crop_h = crop_y2 - crop_y1
+    anchor_local = (
+        anchor[0] - crop_x1,
+        anchor[1] - crop_y1,
+        anchor[2] - crop_x1,
+        anchor[3] - crop_y1,
+    )
+    edit_y1 = max(0, anchor_local[1] - max(6, int(round(anchor_h * 0.14))))
+    edit_y2 = min(crop_h, anchor_local[3] + max(6, int(round(anchor_h * 0.14))))
+
+    if operation == "append_right":
+        edit_x1 = max(0, anchor_local[2] - overlap)
+        edit_x2 = min(crop_w, anchor_local[2] + gap + expected_new_w + 16)
+    else:
+        edit_x1 = max(0, anchor_local[0] - gap - expected_new_w - 16)
+        edit_x2 = min(crop_w, anchor_local[0] + overlap)
+
+    if edit_x2 <= edit_x1 + 10:
+        return None
+
+    return {
+        "crop_rect": crop_rect,
+        "crop_size": (crop_w, crop_h),
+        "anchor_local_rect": anchor_local,
+        "editable_local_rect": (edit_x1, edit_y1, edit_x2, edit_y2),
+        "operation": operation,
+    }
+
+
+def _map_rect_to_placement(
+    rect: Tuple[int, int, int, int],
+    placement: Tuple[int, int, int, int],
+    source_width: int,
+    source_height: int,
+) -> Tuple[int, int, int, int]:
+    px1, py1, px2, py2 = placement
+    fitted_w = max(1, px2 - px1)
+    fitted_h = max(1, py2 - py1)
+    scale_x = fitted_w / max(1, source_width)
+    scale_y = fitted_h / max(1, source_height)
+    return (
+        px1 + int(round(rect[0] * scale_x)),
+        py1 + int(round(rect[1] * scale_y)),
+        px1 + int(round(rect[2] * scale_x)),
+        py1 + int(round(rect[3] * scale_y)),
+    )
+
+
+def _build_crop_canvas_for_append_edit(
+    crop_bytes: bytes,
+    editable_local_rect: Tuple[int, int, int, int],
+) -> Tuple[bytes, bytes, Dict[str, Any]]:
+    with Image.open(io.BytesIO(crop_bytes)) as im:
+        crop = im.convert("RGBA")
+        crop_w, crop_h = crop.size
+        canvas_w, canvas_h = _choose_best_supported_base_size(crop_w, crop_h)
+        fitted, placement = _resize_to_contain(crop, canvas_w, canvas_h)
+
+        canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+        canvas.alpha_composite(fitted, (placement[0], placement[1]))
+
+        mapped_edit_rect = _map_rect_to_placement(editable_local_rect, placement, crop_w, crop_h)
+        mask = Image.new("RGBA", (canvas_w, canvas_h), (255, 255, 255, 255))
+        draw = ImageDraw.Draw(mask)
+        radius = max(6, int(round((mapped_edit_rect[3] - mapped_edit_rect[1]) * 0.16)))
+        draw.rounded_rectangle(mapped_edit_rect, radius=radius, fill=(0, 0, 0, 0))
+
+        return (
+            _encode_png_bytes(canvas),
+            _encode_png_bytes(mask),
+            {
+                "placement": {
+                    "x1": placement[0],
+                    "y1": placement[1],
+                    "x2": placement[2],
+                    "y2": placement[3],
+                },
+                "source_width": crop_w,
+                "source_height": crop_h,
+                "canvas_width": canvas_w,
+                "canvas_height": canvas_h,
+                "mapped_edit_rect": {
+                    "x1": mapped_edit_rect[0],
+                    "y1": mapped_edit_rect[1],
+                    "x2": mapped_edit_rect[2],
+                    "y2": mapped_edit_rect[3],
+                },
+            },
+        )
+
+
+def _restore_crop_from_canvas_result(
+    edited_canvas_bytes: bytes,
+    meta: Dict[str, Any],
+) -> bytes:
+    with Image.open(io.BytesIO(edited_canvas_bytes)) as im:
+        canvas = im.convert("RGBA")
+        placement = meta["placement"]
+        fitted_region = canvas.crop((placement["x1"], placement["y1"], placement["x2"], placement["y2"]))
+        restored = fitted_region.resize((meta["source_width"], meta["source_height"]), Image.Resampling.LANCZOS)
+        return _encode_png_bytes(restored)
+
+
+def _build_allowed_mask(
+    size: Tuple[int, int],
+    rect: Tuple[int, int, int, int],
+) -> Image.Image:
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rectangle(rect, fill=255)
+    return mask
+
+
+def _extract_append_overlay_from_crop(
+    original_crop_bytes: bytes,
+    edited_crop_bytes: bytes,
+    editable_local_rect: Tuple[int, int, int, int],
+) -> Tuple[Optional[bytes], Optional[Dict[str, int]]]:
+    with Image.open(io.BytesIO(original_crop_bytes)) as orig_im, Image.open(io.BytesIO(edited_crop_bytes)) as edited_im:
+        original = orig_im.convert("RGBA")
+        edited = edited_im.convert("RGBA")
+        if original.size != edited.size:
+            edited = edited.resize(original.size, Image.Resampling.LANCZOS)
+
+        diff = ImageChops.difference(original, edited).convert("L")
+        diff = diff.point(lambda p: 255 if p >= 16 else 0)
+
+        allowed = _build_allowed_mask(original.size, editable_local_rect)
+        diff = ImageChops.multiply(diff, allowed)
+        diff = diff.filter(ImageFilter.MaxFilter(3))
+        diff = diff.filter(ImageFilter.GaussianBlur(radius=0.8))
+        diff = diff.point(lambda p: 255 if p >= 18 else 0)
+
+        bbox = diff.getbbox()
+        if not bbox:
+            return None, None
+
+        patch = edited.copy()
+        patch.putalpha(diff)
+        return _encode_png_bytes(patch), {
+            "x1": int(bbox[0]),
+            "y1": int(bbox[1]),
+            "x2": int(bbox[2]),
+            "y2": int(bbox[3]),
+        }
+
+
+def _composite_append_overlay_into_image(
+    image_bytes: bytes,
+    overlay_bytes: bytes,
+    crop_rect: Tuple[int, int, int, int],
+) -> bytes:
+    with Image.open(io.BytesIO(image_bytes)) as base_im, Image.open(io.BytesIO(overlay_bytes)) as overlay_im:
+        base = base_im.convert("RGBA")
+        overlay = overlay_im.convert("RGBA")
+        composite = base.copy()
+        composite.alpha_composite(overlay, (crop_rect[0], crop_rect[1]))
+        return _encode_png_bytes(composite)
+
+
+async def _synthesize_append_text_with_ai_crop(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    analysis: Dict[str, Any],
+    openai_key: str,
+    openai_quality: str,
+) -> Optional[Dict[str, Any]]:
+    plan = _build_append_crop_plan(image_bytes, analysis)
+    if not plan:
+        return None
+
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        full = im.convert("RGBA")
+        crop = full.crop(plan["crop_rect"])
+        crop_bytes = _encode_png_bytes(crop)
+
+    canvas_bytes, mask_bytes, canvas_meta = _build_crop_canvas_for_append_edit(
+        crop_bytes,
+        plan["editable_local_rect"],
+    )
+
+    canvas_w = canvas_meta["canvas_width"]
+    canvas_h = canvas_meta["canvas_height"]
+    prompt = _build_append_sprite_prompt(analysis, plan["operation"])
+
+    result = await _edit_openai_image(
+        client=client,
+        image_bytes=canvas_bytes,
+        filename="localized-append-crop.png",
+        content_type="image/png",
+        final_prompt=prompt,
+        aspect_ratio=_base_size_to_aspect_ratio(canvas_w, canvas_h),
+        quality=openai_quality,
+        openai_key=openai_key,
+        openai_size=f"{canvas_w}x{canvas_h}",
+        mask_bytes=mask_bytes,
+        input_fidelity="high",
+    )
+
+    edited_canvas_bytes, _ = _image_bytes_from_result_url(result["url"])
+    edited_crop_bytes = _restore_crop_from_canvas_result(edited_canvas_bytes, canvas_meta)
+    overlay_bytes, overlay_bbox = _extract_append_overlay_from_crop(
+        crop_bytes,
+        edited_crop_bytes,
+        plan["editable_local_rect"],
+    )
+    if not overlay_bytes or not overlay_bbox:
+        return None
+
+    composed_bytes = _composite_append_overlay_into_image(
+        image_bytes,
+        overlay_bytes,
+        plan["crop_rect"],
+    )
+
+    next_result = dict(result)
+    next_result["engine_id"] = "openai_append_crop_composite"
+    next_result["motor"] = "OpenAI GPT Image 1.5 + Composição Local por Crop"
+    next_result["url"] = _result_url_from_image_bytes(composed_bytes, "image/png")
+    next_result["append_crop_plan"] = {
+        "crop_rect": {
+            "x1": plan["crop_rect"][0],
+            "y1": plan["crop_rect"][1],
+            "x2": plan["crop_rect"][2],
+            "y2": plan["crop_rect"][3],
+        },
+        "editable_local_rect": {
+            "x1": plan["editable_local_rect"][0],
+            "y1": plan["editable_local_rect"][1],
+            "x2": plan["editable_local_rect"][2],
+            "y2": plan["editable_local_rect"][3],
+        },
+        "overlay_bbox": overlay_bbox,
+    }
+    return next_result
+
+
 def _build_edit_attempt_plan(
     instruction_info: Dict[str, Any],
     localized_analysis: Optional[Dict[str, Any]],
     localized_mode: bool,
 ) -> Dict[str, Any]:
-    use_local_render_first = should_use_local_text_render(localized_analysis, instruction_info)
+    operation = ((localized_analysis or {}).get("operation") or "").lower()
+    use_ai_append_crop = bool(
+        instruction_info.get("is_pure_text_edit")
+        and operation in {"append_right", "append_left"}
+        and float((localized_analysis or {}).get("confidence", 0.0) or 0.0) >= 0.74
+    )
+    use_local_render_first = should_use_local_text_render(localized_analysis, instruction_info) and not use_ai_append_crop
+    reason = (
+        "append_text_ai_crop_composite"
+        if use_ai_append_crop
+        else ("text_replace_deterministic" if use_local_render_first else ("masked_openai_edit" if localized_mode else "full_openai_edit"))
+    )
     return {
+        "use_ai_append_crop": use_ai_append_crop,
         "use_local_render_first": use_local_render_first,
-        "call_openai_edit": not use_local_render_first,
-        "reason": "text_replace_deterministic" if use_local_render_first else ("masked_openai_edit" if localized_mode else "full_openai_edit"),
+        "call_openai_edit": not use_local_render_first and not use_ai_append_crop,
+        "reason": reason,
     }
 
 
@@ -2156,12 +2533,22 @@ async def image_engine_edit_stream(
                     localized_analysis=localized_analysis,
                     localized_mode=localized_mode,
                 ) if not all_localizable else {
+                    "use_ai_append_crop": False,
                     "use_local_render_first": True,
                     "call_openai_edit": False,
                     "reason": "multi_text_replace_deterministic",
                 }
 
-                if attempt_plan["use_local_render_first"]:
+                if attempt_plan["use_ai_append_crop"]:
+                    yield _sse({
+                        "status": "Texto direcional localizado com boa confiança. Gerando o novo trecho via crop com IA e recompondo localmente no original para preservar tipografia percebida, baseline e diagramação.",
+                        "progress": 62,
+                        "localized_analysis": localized_analysis,
+                        "localized_mode": localized_mode,
+                        "warning": localized_warning,
+                        "attempt_plan": attempt_plan,
+                    })
+                elif attempt_plan["use_local_render_first"]:
                     n = len(all_localized_analyses)
                     yield _sse({
                         "status": f"{'Múltiplas substituições' if is_multi_replace else 'Texto'} identificado{'s' if is_multi_replace else ''} com boa confiança. Aplicando {n} edição{'ões' if n > 1 else ''} local{'is' if n > 1 else ''} determinística{'s' if n > 1 else ''} preservando 100% do layout.",
@@ -2204,6 +2591,20 @@ async def image_engine_edit_stream(
                             "url": _data_uri_from_b64(base64.b64encode(local_bytes).decode("utf-8"), "image/png"),
                             "raw": {"strategy": attempt_plan["reason"], "replacements_count": len(all_localized_analyses)},
                         }
+
+                if result is None and attempt_plan["use_ai_append_crop"] and localized_analysis:
+                    try:
+                        result = await _synthesize_append_text_with_ai_crop(
+                            client=client,
+                            image_bytes=image_bytes,
+                            analysis=localized_analysis,
+                            openai_key=openai_key,
+                            openai_quality=openai_quality,
+                        )
+                    except Exception as append_exc:
+                        localized_warning = (
+                            f"{localized_warning} | " if localized_warning else ""
+                        ) + f"Falha na composição local por crop: {str(append_exc)}"
 
                 if result is None and attempt_plan["use_local_render_first"] and localized_analysis:
                     local_bytes = render_local_text_fallback(image_bytes=image_bytes, analysis=localized_analysis)

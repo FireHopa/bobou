@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import math
+import os
 import re
 import traceback
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -33,11 +34,30 @@ except Exception:  # pragma: no cover
 DEFAULT_FONT_CANDIDATES = [
     "C:/Windows/Fonts/arialbd.ttf",
     "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/segoeuib.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
     "/Library/Fonts/Arial Bold.ttf",
     "/Library/Fonts/Arial.ttf",
 ]
+SERIF_FONT_CANDIDATES = [
+    "C:/Windows/Fonts/timesbd.ttf",
+    "C:/Windows/Fonts/times.ttf",
+    "C:/Windows/Fonts/georgiab.ttf",
+    "C:/Windows/Fonts/georgia.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSerif-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf",
+    "/Library/Fonts/Times New Roman Bold.ttf",
+    "/Library/Fonts/Times New Roman.ttf",
+    "/Library/Fonts/Georgia Bold.ttf",
+    "/Library/Fonts/Georgia.ttf",
+]
+RUNTIME_FONT_DIR = os.path.join(os.path.dirname(__file__), "_runtime", "fonts")
 
 
 def _parse_json_safe(text: str) -> Dict[str, Any]:
@@ -73,6 +93,98 @@ def _rgb_to_hex(rgb: Tuple[int, int, int]) -> str:
     r, g, b = [max(0, min(255, int(x))) for x in rgb]
     return f"#{r:02X}{g:02X}{b:02X}"
 
+
+def _list_runtime_fonts() -> List[str]:
+    if not os.path.isdir(RUNTIME_FONT_DIR):
+        return []
+    runtime_fonts: List[str] = []
+    for name in sorted(os.listdir(RUNTIME_FONT_DIR)):
+        if name.lower().endswith((".ttf", ".otf")):
+            runtime_fonts.append(os.path.join(RUNTIME_FONT_DIR, name))
+    return runtime_fonts
+
+
+def _build_font_candidates(bold: bool = False, family_hint: Optional[str] = None) -> List[str]:
+    runtime_fonts = _list_runtime_fonts()
+    serif = family_hint == "serif"
+    base_candidates = SERIF_FONT_CANDIDATES if serif else DEFAULT_FONT_CANDIDATES
+
+    ordered: List[str] = []
+    if runtime_fonts:
+        if bold:
+            ordered.extend([p for p in runtime_fonts if re.search(r"(bold|semibold|medium|black)", os.path.basename(p), flags=re.IGNORECASE)])
+        ordered.extend(runtime_fonts)
+
+    if bold:
+        ordered.extend([p for p in base_candidates if re.search(r"(bold|bd\.ttf|semibold|medium)", p, flags=re.IGNORECASE)])
+    ordered.extend(base_candidates)
+
+    seen: set[str] = set()
+    unique: List[str] = []
+    for item in ordered:
+        if item in seen:
+            continue
+        seen.add(item)
+        unique.append(item)
+    return unique
+
+
+def _dominant_text_color(image: Image.Image, rect: Tuple[int, int, int, int]) -> Tuple[int, int, int]:
+    x1, y1, x2, y2 = rect
+    crop = image.crop((x1, y1, x2, y2)).convert("RGB")
+    arr = np.array(crop)
+    if arr.size == 0:
+        return (255, 255, 255)
+
+    h, w = arr.shape[:2]
+    ring = max(1, min(h, w) // 6)
+
+    border_samples = [
+        arr[:ring, :, :].reshape(-1, 3),
+        arr[-ring:, :, :].reshape(-1, 3),
+        arr[:, :ring, :].reshape(-1, 3),
+        arr[:, -ring:, :].reshape(-1, 3),
+    ]
+    border = np.concatenate([b for b in border_samples if len(b)], axis=0) if border_samples else arr.reshape(-1, 3)
+    bg = border.mean(axis=0)
+
+    diff = np.linalg.norm(arr.astype(np.float32) - bg.astype(np.float32), axis=2)
+    threshold = float(np.percentile(diff, 84))
+    mask = diff >= threshold
+
+    if int(mask.sum()) < max(24, (h * w) // 20):
+        luminance = 0.2126 * arr[:, :, 0] + 0.7152 * arr[:, :, 1] + 0.0722 * arr[:, :, 2]
+        bg_l = float(0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2])
+        bright = luminance >= np.percentile(luminance, 82)
+        dark = luminance <= np.percentile(luminance, 18)
+        bright_delta = abs(float(luminance[bright].mean()) - bg_l) if bright.any() else 0.0
+        dark_delta = abs(float(luminance[dark].mean()) - bg_l) if dark.any() else 0.0
+        mask = bright if bright_delta >= dark_delta else dark
+
+    pixels = arr[mask]
+    if pixels.size == 0:
+        pixels = arr.reshape(-1, 3)
+
+    color = pixels.mean(axis=0)
+    return tuple(int(max(0, min(255, round(v)))) for v in color)
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _operation_from_action(action: Optional[str], fallback: str = "text_replace") -> str:
+    mapping = {
+        "replace": "text_replace",
+        "append_right": "append_right",
+        "append_left": "append_left",
+    }
+    if not action:
+        return fallback
+    return mapping.get((action or "").lower(), fallback)
 
 def _norm_box_to_px(box: Optional[Dict[str, Any]], width: int, height: int) -> Optional[Tuple[int, int, int, int]]:
     if not box:
@@ -146,16 +258,12 @@ def _rect_center_distance(a: Tuple[int, int, int, int], b: Tuple[int, int, int, 
     return math.hypot(acx - bcx, acy - bcy)
 
 
-def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    preferred: List[str] = []
-    if bold:
-        preferred.extend([p for p in DEFAULT_FONT_CANDIDATES if "bold" in p.lower() or p.lower().endswith("bd.ttf")])
-    preferred.extend(DEFAULT_FONT_CANDIDATES)
-    seen = set()
-    for path in preferred:
-        if path in seen:
-            continue
-        seen.add(path)
+def _load_font(
+    size: int,
+    bold: bool = False,
+    family_hint: Optional[str] = None,
+) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    for path in _build_font_candidates(bold=bold, family_hint=family_hint):
         try:
             return ImageFont.truetype(path, size=size)
         except Exception:
@@ -178,46 +286,69 @@ def _clean_replacement_token(value: str) -> str:
     return token.strip()
 
 
+
 def _extract_all_text_replacements(instruction: str) -> List[Dict[str, str]]:
-    """Extract ALL text replacement pairs from a multi-replacement instruction."""
+    """
+    Extrai operações textuais estruturadas.
+    action:
+      - replace
+      - append_right
+      - append_left
+    """
     text = (instruction or "").strip()
     if not text:
         return []
 
+    quote = r'[\"“”\']'
     segments = re.split(
-        r"[;,]\s*|\s+e\s+(?=(?:troque|substitua|mude|altere|corrija|edite|atualize)\b)",
+        r"[;,]\s*|\s+e\s+(?=(?:troque|substitua|mude|altere|corrija|edite|atualize|coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\b)",
         text,
         flags=re.IGNORECASE,
     )
     segments = [s.strip() for s in segments if s.strip()]
 
-    patterns = [
-        r'troqu[eia]?\s+\(?\s*[\"“”\'](?P<old>.+?)[\"“”\']\s*\)?\s+por\s+\(?\s*[\"“”\'](?P<new>.+?)[\"“”\']\s*\)?',
-        r'substitu[a-z]*\s+\(?\s*[\"“”\'](?P<old>.+?)[\"“”\']\s*\)?\s+por\s+\(?\s*[\"“”\'](?P<new>.+?)[\"“”\']\s*\)?',
-        r'alter[eia]?\s+\(?\s*[\"“”\'](?P<old>.+?)[\"“”\']\s*\)?\s+para\s+\(?\s*[\"“”\'](?P<new>.+?)[\"“”\']\s*\)?',
-        r'mud[eia]?\s+\(?\s*[\"“”\'](?P<old>.+?)[\"“”\']\s*\)?\s+para\s+\(?\s*[\"“”\'](?P<new>.+?)[\"“”\']\s*\)?',
-        r'troqu[eia]?\s+\(\s*(?P<old>.+?)\s*\)\s+por\s+\(\s*(?P<new>.+?)\s*\)',
-        r'substitu[a-z]*\s+\(\s*(?P<old>.+?)\s*\)\s+por\s+\(\s*(?P<new>.+?)\s*\)',
-        r'alter[eia]?\s+\(\s*(?P<old>.+?)\s*\)\s+para\s+\(\s*(?P<new>.+?)\s*\)',
-        r'mud[eia]?\s+\(\s*(?P<old>.+?)\s*\)\s+para\s+\(\s*(?P<new>.+?)\s*\)',
+    replace_patterns = [
+        r'troqu[eia]?\s+\(?\s*' + quote + r'(?P<old>.+?)' + quote + r'\s*\)?\s+por\s+\(?\s*' + quote + r'(?P<new>.+?)' + quote + r'\s*\)?',
+        r'substitu[a-z]*\s+\(?\s*' + quote + r'(?P<old>.+?)' + quote + r'\s*\)?\s+por\s+\(?\s*' + quote + r'(?P<new>.+?)' + quote + r'\s*\)?',
+        r'alter[eia]?\s+\(?\s*' + quote + r'(?P<old>.+?)' + quote + r'\s*\)?\s+para\s+\(?\s*' + quote + r'(?P<new>.+?)' + quote + r'\s*\)?',
+        r'mud[eia]?\s+\(?\s*' + quote + r'(?P<old>.+?)' + quote + r'\s*\)?\s+para\s+\(?\s*' + quote + r'(?P<new>.+?)' + quote + r'\s*\)?',
         r"troqu[eia]?\s+(?P<old>[^\n,]+?)\s+por\s+(?P<new>[^\n,]+)",
         r"substitu[a-z]*\s+(?P<old>[^\n,]+?)\s+por\s+(?P<new>[^\n,]+)",
         r"alter[eia]?\s+(?P<old>[^\n,]+?)\s+para\s+(?P<new>[^\n,]+)",
         r"mud[eia]?\s+(?P<old>[^\n,]+?)\s+para\s+(?P<new>[^\n,]+)",
     ]
+    append_right_patterns = [
+        r'(?:coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\s+(?:ao\s+lado\s+direito\s+de|depois\s+de|ap[oó]s)\s*' + quote + r'(?P<old>.+?)' + quote + r'\s*(?:o\s+seguinte\s*:)?\s*' + quote + r'(?P<new>.+?)' + quote,
+        r'(?:coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\s*' + quote + r'(?P<new>.+?)' + quote + r'\s+(?:ao\s+lado\s+direito\s+de|depois\s+de|ap[oó]s)\s*' + quote + r'(?P<old>.+?)' + quote,
+    ]
+    append_left_patterns = [
+        r'(?:coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\s+(?:ao\s+lado\s+esquerdo\s+de|antes\s+de)\s*' + quote + r'(?P<old>.+?)' + quote + r'\s*(?:o\s+seguinte\s*:)?\s*' + quote + r'(?P<new>.+?)' + quote,
+        r'(?:coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\s*' + quote + r'(?P<new>.+?)' + quote + r'\s+(?:ao\s+lado\s+esquerdo\s+de|antes\s+de)\s*' + quote + r'(?P<old>.+?)' + quote,
+    ]
 
     results: List[Dict[str, str]] = []
-    seen_old: set = set()
+    seen: set[Tuple[str, str, str]] = set()
 
     for segment in segments:
-        for pattern in patterns:
-            match = re.search(pattern, segment, flags=re.IGNORECASE)
-            if match:
+        matched = False
+        for action, patterns in (
+            ("append_right", append_right_patterns),
+            ("append_left", append_left_patterns),
+            ("replace", replace_patterns),
+        ):
+            for pattern in patterns:
+                match = re.search(pattern, segment, flags=re.IGNORECASE)
+                if not match:
+                    continue
                 old = _clean_replacement_token(match.group("old") or "")
                 new = _clean_replacement_token(match.group("new") or "")
-                if old and new and old.lower() != new.lower() and old.lower() not in seen_old:
-                    seen_old.add(old.lower())
-                    results.append({"old_text": old, "new_text": new})
+                key = (action, old.lower(), new.lower())
+                if old and new and old.lower() != new.lower() and key not in seen:
+                    seen.add(key)
+                    results.append({"old_text": old, "new_text": new, "action": action})
+                matched = True
+                break
+            if matched:
                 break
 
     return results
@@ -235,8 +366,9 @@ def _extract_text_replacement(instruction: str) -> Optional[Dict[str, str]]:
     first = items[0]
     old = _clean_replacement_token(first.get("old_text") or "")
     new = _clean_replacement_token(first.get("new_text") or "")
+    action = (first.get("action") or "replace").strip().lower()
     if old and new and old.lower() != new.lower():
-        return {"old_text": old, "new_text": new}
+        return {"old_text": old, "new_text": new, "action": action}
     return None
 
 
@@ -247,12 +379,13 @@ def extract_edit_instruction_info(text: str) -> Dict[str, Any]:
     replacement = all_replacements[0] if all_replacements else None
 
     pure_text_positive_patterns = [
-        r"\b(troque|substitua|mude|altere|corrija|edite|atualize)\b.*\b(texto|frase|headline|subheadline|bot[aã]o|cta|data|cidade|local)\b",
+        r"\b(troque|substitua|mude|altere|corrija|edite|atualize|coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\b.*\b(texto|frase|headline|subheadline|bot[aã]o|cta|data|cidade|local)\b",
         r"\b(troque|substitua|mude|altere|corrija|atualize)\b.+\bpara\b.+",
+        r"\b(ao\s+lado\s+direito\s+de|ao\s+lado\s+esquerdo\s+de|antes\s+de|depois\s+de|ap[oó]s)\b",
     ]
     broad_visual_markers = [
         "fundo", "background", "cenário", "cenario", "produto", "pessoa", "rosto", "objeto", "logo", "logotipo",
-        "marca", "remove", "remova", "adicione", "adicionar", "insira", "troque a cor", "mudar cor", "cor do",
+        "marca", "remove", "remova", "troque a cor", "mudar cor", "cor do",
         "iluminação", "iluminacao", "sombra", "perspectiva", "composição", "composicao", "estilo", "realista",
         "fotorrealista", "avatar", "personagem", "roupa", "embalagem", "cenografia"
     ]
@@ -261,7 +394,8 @@ def extract_edit_instruction_info(text: str) -> Dict[str, Any]:
 
     edit_type = "generic_edit"
     if all_replacements and (positive_match or not mentions_broad_visual):
-        edit_type = "text_replace"
+        first_action = (replacement or {}).get("action") or "replace"
+        edit_type = "text_append" if first_action in {"append_right", "append_left"} else "text_replace"
 
     target_hint = None
     if replacement:
@@ -271,7 +405,7 @@ def extract_edit_instruction_info(text: str) -> Dict[str, Any]:
         if hint_match:
             target_hint = hint_match.group(1)
 
-    is_pure_text_edit = bool(edit_type == "text_replace" and all_replacements)
+    is_pure_text_edit = bool(edit_type in {"text_replace", "text_append"} and all_replacements)
     is_multi_replace = len(all_replacements) > 1
 
     return {
@@ -280,6 +414,7 @@ def extract_edit_instruction_info(text: str) -> Dict[str, Any]:
         "replacement": replacement,
         "all_replacements": all_replacements,
         "target_hint": target_hint,
+        "edit_action": (replacement or {}).get("action") or "replace",
         "is_pure_text_edit": is_pure_text_edit,
         "is_multi_replace": is_multi_replace,
         "mentions_broad_visual_changes": mentions_broad_visual,
@@ -427,7 +562,11 @@ def _sanitize_analysis(data: Dict[str, Any], replacement: Dict[str, str], width:
     except Exception:
         confidence = 0.0
 
-    operation = data.get("operation") or "text_replace"
+    expected_operation = _operation_from_action(replacement.get("action"), "text_replace")
+    operation = (data.get("operation") or expected_operation or "text_replace").lower()
+    if expected_operation in {"append_right", "append_left"} and operation not in {"append_right", "append_left"}:
+        operation = expected_operation
+
     style = data.get("style") or {}
 
     bbox = _norm_box_to_px(data.get("bbox"), width, height)
@@ -449,14 +588,19 @@ def _sanitize_analysis(data: Dict[str, Any], replacement: Dict[str, str], width:
         "replacement_text": replacement["new_text"],
         "reason": data.get("reason") or "localized-detection",
         "style": {
-            "alignment": (style.get("alignment") or "center").lower(),
+            "alignment": (style.get("alignment") or ("left" if operation in {"append_right", "append_left"} else "center")).lower(),
             "text_color": style.get("text_color"),
             "background_color": style.get("background_color"),
             "border_color": style.get("border_color"),
             "border_radius": float(style.get("border_radius") or 0.0),
             "shadow": bool(style.get("shadow", False)),
             "glow": bool(style.get("glow", False)),
-            "font_weight": (style.get("font_weight") or "regular").lower(),
+            "font_weight": (style.get("font_weight") or ("regular" if operation in {"append_right", "append_left"} else "regular")).lower(),
+            "font_family_hint": (style.get("font_family_hint") or "sans").lower(),
+            "preferred_font_size": _safe_float(style.get("preferred_font_size"), 0.0),
+            "baseline_mode": (style.get("baseline_mode") or ("anchor_top" if operation in {"append_right", "append_left"} else "center")).lower(),
+            "append_gap": _safe_float(style.get("append_gap"), 0.0),
+            "stroke_width": int(_safe_float(style.get("stroke_width"), 0.0)),
         },
     }
     if bbox:
@@ -480,6 +624,43 @@ def _merge_analysis_with_candidates(
     anchor = text_bbox or bbox or container_bbox
     if not anchor:
         return analysis
+
+    operation = (analysis.get("operation") or "text_replace").lower()
+    best_rect = None
+    best_score = -999.0
+    for item in candidates:
+        px = item.get("px_bbox") or {}
+        rect = (int(px.get("x1", 0)), int(px.get("y1", 0)), int(px.get("x2", 0)), int(px.get("y2", 0)))
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            continue
+        iou = _rect_iou(anchor, rect)
+        dist = _rect_center_distance(anchor, rect)
+        diag = math.hypot(width, height)
+        proximity = 1.0 - min(1.0, dist / max(1.0, diag * 0.18))
+        candidate_score = float(item.get("score", 0.5) or 0.5)
+        score = iou * 1.8 + proximity * 0.7 + candidate_score * 0.35
+        if score > best_score:
+            best_rect = rect
+            best_score = score
+
+    if best_rect is None:
+        return analysis
+
+    if operation in {"append_right", "append_left"}:
+        refined_text = best_rect if _rect_iou(anchor, best_rect) >= 0.12 or _rect_center_distance(anchor, best_rect) <= max(8.0, math.hypot(width, height) * 0.025) else anchor
+    else:
+        refined_text = _rect_union([r for r in [anchor, best_rect] if r]) or anchor
+
+    analysis["text_bbox"] = _px_box_to_norm(refined_text, width, height)
+    analysis["bbox"] = _px_box_to_norm(_inflate_rect(refined_text, 8, 8, width, height), width, height)
+
+    if operation == "button_text_replace":
+        container = container_bbox or _inflate_rect(refined_text, 24, 16, width, height)
+        analysis["container_bbox"] = _px_box_to_norm(container, width, height)
+
+    analysis["confidence"] = round(min(0.99, max(float(analysis.get("confidence", 0.0) or 0.0), 0.56 + max(0.0, best_score * 0.08))), 4)
+    analysis["candidate_refined"] = True
+    return analysis
 
     best_rect = None
     best_score = -999.0
@@ -535,12 +716,23 @@ def _estimate_style_from_pixels(
         container_rect = _norm_box_to_px(analysis.get("container_bbox"), width, height)
         bbox = _norm_box_to_px(analysis.get("bbox"), width, height)
         anchor = text_rect or bbox
+        operation = (analysis.get("operation") or "text_replace").lower()
 
         if anchor:
             tx1, ty1, tx2, ty2 = anchor
+            text_h = max(1, ty2 - ty1)
+            if not style.get("text_color"):
+                style["text_color"] = _rgb_to_hex(_dominant_text_color(image, anchor))
+            if not style.get("preferred_font_size"):
+                style["preferred_font_size"] = round(max(12.0, text_h * (0.86 if operation in {"append_right", "append_left"} else 0.92)), 2)
+            if not style.get("append_gap"):
+                style["append_gap"] = round(max(6.0, text_h * 0.18), 2)
+            style.setdefault("baseline_mode", "anchor_top" if operation in {"append_right", "append_left"} else "center")
+            style.setdefault("stroke_width", 0 if operation in {"append_right", "append_left"} else 0)
+
             inner = image.crop(anchor).convert("RGB")
             arr = np.array(inner)
-            if arr.size:
+            if arr.size and "glow" not in style:
                 luminance = 0.2126 * arr[:, :, 0] + 0.7152 * arr[:, :, 1] + 0.0722 * arr[:, :, 2]
                 flat = arr.reshape(-1, 3)
                 top_n = max(8, len(flat) // 7)
@@ -548,18 +740,7 @@ def _estimate_style_from_pixels(
                 light = flat[np.argsort(luminance.reshape(-1))[-top_n:]]
                 dark_mean = tuple(int(x) for x in dark.mean(axis=0)) if len(dark) else (20, 20, 20)
                 light_mean = tuple(int(x) for x in light.mean(axis=0)) if len(light) else (235, 235, 235)
-
-                if not style.get("text_color"):
-                    outer_rect = _inflate_rect(anchor, max(4, (tx2 - tx1) // 6), max(4, (ty2 - ty1) // 4), width, height)
-                    outer_mean = _sample_region_mean(image, outer_rect)
-                    outer_l = sum(outer_mean)
-                    dark_l = sum(dark_mean)
-                    light_l = sum(light_mean)
-                    pick = light_mean if abs(light_l - outer_l) > abs(dark_l - outer_l) else dark_mean
-                    style["text_color"] = _rgb_to_hex(pick)
-
-                if "glow" not in style:
-                    style["glow"] = abs(sum(light_mean) - sum(dark_mean)) > 360 and max(abs(light_mean[i] - dark_mean[i]) for i in range(3)) > 90
+                style["glow"] = operation == "button_text_replace" and abs(sum(light_mean) - sum(dark_mean)) > 360 and max(abs(light_mean[i] - dark_mean[i]) for i in range(3)) > 90
 
         if container_rect:
             if not style.get("background_color"):
@@ -569,11 +750,12 @@ def _estimate_style_from_pixels(
                 ch = container_rect[3] - container_rect[1]
                 style["border_radius"] = round(max(8.0, ch * 0.24), 2)
 
-        style.setdefault("alignment", "center")
-        style.setdefault("font_weight", "bold" if analysis.get("operation") == "button_text_replace" else "regular")
+        style.setdefault("alignment", "left" if operation in {"append_right", "append_left"} else "center")
+        style.setdefault("font_weight", "bold" if operation == "button_text_replace" else "regular")
         style.setdefault("shadow", False)
         style.setdefault("glow", False)
-        style.setdefault("text_color", "#FFFFFF" if analysis.get("operation") == "button_text_replace" else "#111111")
+        style.setdefault("text_color", "#FFFFFF" if operation == "button_text_replace" else "#111111")
+        style.setdefault("font_family_hint", "sans")
         analysis["style"] = style
         return analysis
 
@@ -622,14 +804,15 @@ async def analyze_region_with_openai(
     ]
 
     image_data_url = _data_uri_from_bytes(image_bytes, content_type)
+    requested_action = (replacement.get("action") or "replace").lower()
     system_text = """
 Você é um analista sênior de edição localizada para interfaces, anúncios e criativos.
-Sua tarefa é localizar COM PRECISÃO a região mínima que precisa ser editada quando o usuário quer trocar um texto por outro.
+Sua tarefa é localizar COM PRECISÃO a região mínima que precisa ser editada quando o usuário quer trocar, acrescentar à direita ou acrescentar à esquerda um texto existente.
 
 Retorne SOMENTE JSON válido com esta estrutura:
 {
   "confidence": number,
-  "operation": "text_replace" | "button_text_replace",
+  "operation": "text_replace" | "button_text_replace" | "append_right" | "append_left",
   "target_text": string,
   "replacement_text": string,
   "bbox": {"x": number, "y": number, "w": number, "h": number},
@@ -643,7 +826,11 @@ Retorne SOMENTE JSON válido com esta estrutura:
     "border_radius": number,
     "shadow": boolean,
     "glow": boolean,
-    "font_weight": "regular" | "medium" | "semibold" | "bold"
+    "font_weight": "regular" | "medium" | "semibold" | "bold",
+    "font_family_hint": "sans" | "serif",
+    "preferred_font_size": number,
+    "baseline_mode": "center" | "anchor_top",
+    "append_gap": number
   },
   "reason": string
 }
@@ -651,22 +838,24 @@ Retorne SOMENTE JSON válido com esta estrutura:
 Regras:
 1. Coordenadas normalizadas entre 0 e 1.
 2. bbox deve cobrir a região mínima segura para edição.
-3. text_bbox deve cobrir somente o texto.
+3. text_bbox deve cobrir somente o texto âncora existente.
 4. Se o texto estiver dentro de botão, badge ou chip, preencha container_bbox com a área completa do elemento e use operation=button_text_replace.
-5. Priorize precisão e preservação do restante da imagem.
-6. Se houver candidatos locais fornecidos, use-os como reforço de precisão. Você pode ignorar candidatos ruins.
-7. Mesmo que o texto esteja pequeno, borrado, parcialmente cortado ou com leve diferença visual, localize a região semanticamente correta.
-8. Se houver mais de um bloco parecido, escolha o que melhor combina com a instrução do usuário e com a hierarquia visual da peça.
-9. Evite caixas excessivamente grandes. Prefira a menor área segura que permita editar sem afetar o restante.
+5. Se a ação pedida for acrescentar à direita ou à esquerda, mantenha o texto âncora intacto e use operation=append_right ou append_left.
+6. Priorize precisão e preservação do restante da imagem.
+7. Se houver candidatos locais fornecidos, use-os como reforço de precisão. Você pode ignorar candidatos ruins.
+8. Mesmo que o texto esteja pequeno, borrado, parcialmente cortado ou com leve diferença visual, localize a região semanticamente correta.
+9. Se houver mais de um bloco parecido, escolha o que melhor combina com a instrução do usuário e com a hierarquia visual da peça.
+10. Evite caixas excessivamente grandes. Prefira a menor área segura que permita editar sem afetar o restante.
 """
 
     user_text = (
         f"Instrução do usuário: {instruction}\n"
-        f"Texto atual esperado: {replacement['old_text']}\n"
-        f"Novo texto esperado: {replacement['new_text']}\n"
+        f"Texto âncora esperado: {replacement['old_text']}\n"
+        f"Texto novo esperado: {replacement['new_text']}\n"
+        f"Ação textual esperada: {requested_action}\n"
         f"Dimensões da imagem: {width}x{height}\n"
         f"Candidatos locais detectados por visão computacional: {json.dumps(candidate_summary, ensure_ascii=False)}\n"
-        "Localize a região exata. Considere a semântica do pedido, a hierarquia visual e os candidatos detectados. Estime também o estilo visual necessário para uma edição localizada profissional."
+        "Localize a região exata. Considere a semântica do pedido, a hierarquia visual e os candidatos detectados. Estime também o estilo visual necessário para uma edição localizada profissional. Para append_right/append_left, preserve a tipografia, tamanho aparente, baseline e cor do texto âncora."
     )
 
     base_messages = [
@@ -784,6 +973,8 @@ def should_use_local_text_render(
         return False
 
     minimum_confidence = 0.72 if operation == "button_text_replace" else 0.76
+    if operation in {"append_right", "append_left"}:
+        minimum_confidence = 0.78
     if confidence < minimum_confidence:
         logger.debug("Local render desativado: confiança %.3f abaixo do mínimo %.3f.", confidence, minimum_confidence)
         return False
@@ -801,7 +992,11 @@ def should_use_local_text_render(
         logger.debug("Local render desativado: caixa sem área.")
         return False
 
-    if len(replacement_text) > 48:
+    if operation in {"append_right", "append_left"}:
+        logger.debug("Local render desativado: operações append agora preferem composição local via crop com IA.")
+        return False
+
+    if len(replacement_text) > 64:
         logger.debug("Local render desativado: replacement_text longo demais (%s chars).", len(replacement_text))
         return False
 
@@ -809,7 +1004,11 @@ def should_use_local_text_render(
         old_len = max(1, len(target_text))
         new_len = len(replacement_text)
         ratio = new_len / float(old_len)
-        if ratio < 0.45 or ratio > 2.25:
+        if operation in {"append_right", "append_left"}:
+            if ratio > 2.6:
+                logger.debug("Local render desativado: append muito longo para o texto âncora (ratio=%.3f).", ratio)
+                return False
+        elif ratio < 0.45 or ratio > 2.25:
             logger.debug("Local render desativado: delta de comprimento inseguro (ratio=%.3f).", ratio)
             return False
 
@@ -817,7 +1016,7 @@ def should_use_local_text_render(
         logger.debug("Local render desativado: botão/chip estreito demais (aspect=%.3f).", aspect)
         return False
 
-    if style.get("glow") and operation != "button_text_replace":
+    if style.get("glow") and operation not in {"button_text_replace"}:
         logger.debug("Local render desativado: glow em texto livre aumenta risco de artefato.")
         return False
 
@@ -889,6 +1088,8 @@ def _fit_text(
     box: Tuple[int, int, int, int],
     font_weight: str,
     multiline: bool = False,
+    preferred_font_size: Optional[int] = None,
+    family_hint: Optional[str] = None,
 ) -> Tuple[ImageFont.ImageFont, Tuple[int, int, int, int], List[str], int]:
     try:
         bw = max(1, box[2] - box[0])
@@ -916,9 +1117,15 @@ def _fit_text(
             bounds = probe.multiline_textbbox((0, 0), "\n".join(text_lines), font=candidate_font, spacing=max(2, int(font_size * 0.14)), align="left")
             return text_lines, bounds
 
-        min_size = max(12, int(bh * 0.18))
-        max_size = max(min_size, int(bh * (0.92 if not multiline else 0.82)))
-        best_font: ImageFont.ImageFont = _load_font(min_size, bold=bold)
+        min_size = max(10, int(bh * 0.18))
+        max_size = max(min_size, int(bh * (0.96 if not multiline else 0.84)))
+
+        if preferred_font_size:
+            anchor_size = int(max(min_size, min(max_size, preferred_font_size)))
+            min_size = max(10, min(min_size, anchor_size - max(3, anchor_size // 6)))
+            max_size = max(anchor_size, min(max_size, anchor_size + max(4, anchor_size // 5)))
+
+        best_font: ImageFont.ImageFont = _load_font(min_size, bold=bold, family_hint=family_hint)
         best_bounds = probe.textbbox((0, 0), text, font=best_font)
         best_lines = [text]
         best_spacing = max(2, int(getattr(best_font, 'size', 24) * 0.12))
@@ -926,12 +1133,12 @@ def _fit_text(
         lo, hi = min_size, max_size
         while lo <= hi:
             mid = (lo + hi) // 2
-            candidate = _load_font(mid, bold=bold)
+            candidate = _load_font(mid, bold=bold, family_hint=family_hint)
             current_lines, bounds = wrap(candidate)
             tw = bounds[2] - bounds[0]
             th = bounds[3] - bounds[1]
             spacing = max(2, int(getattr(candidate, 'size', mid) * 0.12))
-            fits = tw <= bw * 0.94 and th <= bh * 0.90 and len(current_lines) <= (3 if multiline else 1)
+            fits = tw <= bw * 0.96 and th <= bh * 0.92 and len(current_lines) <= (3 if multiline else 1)
             if fits:
                 best_font = candidate
                 best_bounds = bounds
@@ -953,9 +1160,18 @@ def _draw_text_with_effects(
     box: Tuple[int, int, int, int],
     style: Dict[str, Any],
     multiline: bool,
+    anchor_rect: Optional[Tuple[int, int, int, int]] = None,
 ) -> None:
     try:
-        font, bounds, text_lines, spacing = _fit_text(text, box, style.get("font_weight", "regular"), multiline=multiline)
+        preferred_font_size = int(_safe_float(style.get("preferred_font_size"), 0.0)) or None
+        font, bounds, text_lines, spacing = _fit_text(
+            text,
+            box,
+            style.get("font_weight", "regular"),
+            multiline=multiline,
+            preferred_font_size=preferred_font_size,
+            family_hint=(style.get("font_family_hint") or "sans").lower(),
+        )
         draw = ImageDraw.Draw(overlay)
         content = "\n".join(text_lines)
         tw = bounds[2] - bounds[0]
@@ -965,32 +1181,37 @@ def _draw_text_with_effects(
         align = (style.get("alignment") or "center").lower()
 
         if align == "left":
-            tx = box[0] + int(bw * 0.06) - bounds[0]
+            tx = box[0] - bounds[0]
             text_align = "left"
         elif align == "right":
-            tx = box[2] - tw - int(bw * 0.06) - bounds[0]
+            tx = box[2] - tw - bounds[0]
             text_align = "right"
         else:
             tx = box[0] + (bw - tw) / 2 - bounds[0]
             text_align = "center"
-        ty = box[1] + (bh - th) / 2 - bounds[1]
+
+        baseline_mode = (style.get("baseline_mode") or "center").lower()
+        if anchor_rect and baseline_mode == "anchor_top":
+            ty = anchor_rect[1] - bounds[1]
+        else:
+            ty = box[1] + (bh - th) / 2 - bounds[1]
 
         color = _hex_or_default(style.get("text_color"), "#FFFFFF")
-        stroke_width = 1 if style.get("font_weight") in {"semibold", "bold"} else 0
-        stroke_fill = None
+        stroke_width = max(0, int(_safe_float(style.get("stroke_width"), 0.0)))
+        stroke_fill = style.get("stroke_fill")
 
         if style.get("glow"):
             glow = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
             glow_draw = ImageDraw.Draw(glow)
-            glow_draw.multiline_text((tx, ty), content, font=font, fill=(255, 255, 255, 150), spacing=spacing, align=text_align)
-            glow_radius = max(4, int(getattr(font, 'size', 24) * 0.14))
+            glow_draw.multiline_text((tx, ty), content, font=font, fill=(255, 255, 255, 120), spacing=spacing, align=text_align)
+            glow_radius = max(3, int(getattr(font, 'size', 24) * 0.12))
             glow = glow.filter(ImageFilter.GaussianBlur(radius=glow_radius))
             overlay.alpha_composite(glow)
             draw = ImageDraw.Draw(overlay)
 
         if style.get("shadow"):
-            shadow_alpha = 120 if not style.get("glow") else 70
-            draw.multiline_text((tx + 2, ty + 2), content, font=font, fill=(0, 0, 0, shadow_alpha), spacing=spacing, align=text_align)
+            shadow_alpha = 110 if not style.get("glow") else 70
+            draw.multiline_text((tx + 1.5, ty + 1.5), content, font=font, fill=(0, 0, 0, shadow_alpha), spacing=spacing, align=text_align)
 
         draw.multiline_text(
             (tx, ty),
@@ -1022,47 +1243,104 @@ def render_local_text_fallback(
                 logger.warning("Nenhum texto de substituição encontrado.")
                 return None
 
-            style = analysis.get("style") or {}
-            operation = analysis.get("operation") or "text_replace"
+            style = dict(analysis.get("style") or {})
+            operation = (analysis.get("operation") or "text_replace").lower()
 
             bbox = _norm_box_to_px(analysis.get("bbox"), width, height)
             text_rect = _norm_box_to_px(analysis.get("text_bbox"), width, height)
             container_rect = _norm_box_to_px(analysis.get("container_bbox"), width, height)
-            
+
             logger.debug(f"Caixas convertidas - bbox: {bbox}, text_rect: {text_rect}, container_rect: {container_rect}")
-            
+
             if not (bbox or text_rect or container_rect):
                 logger.warning("Nenhuma caixa (bbox, text_rect ou container_rect) válida encontrada.")
                 return None
 
-            if text_rect:
-                clean_rect = _inflate_rect(text_rect, max(6, (text_rect[2] - text_rect[0]) // 8), max(6, (text_rect[3] - text_rect[1]) // 5), width, height)
-                image = _inpaint_rgba(image, clean_rect, radius=3)
-            elif bbox:
-                image = _inpaint_rgba(image, _inflate_rect(bbox, 4, 4, width, height), radius=3)
+            anchor_rect = text_rect or bbox or container_rect
+            text_box: Optional[Tuple[int, int, int, int]] = None
 
-            if operation == "button_text_replace" and container_rect:
-                pad_x = max(8, int((container_rect[2] - container_rect[0]) * 0.10))
-                pad_y = max(6, int((container_rect[3] - container_rect[1]) * 0.18))
-                text_box = (
-                    container_rect[0] + pad_x,
-                    container_rect[1] + pad_y,
-                    container_rect[2] - pad_x,
-                    container_rect[3] - pad_y,
+            if operation in {"append_right", "append_left"} and anchor_rect:
+                anchor_h = max(1, anchor_rect[3] - anchor_rect[1])
+                gap = int(round(_safe_float(style.get("append_gap"), max(6.0, anchor_h * 0.18))))
+                pad_y = max(2, int(anchor_h * 0.10))
+                preferred_font_size = int(round(_safe_float(style.get("preferred_font_size"), max(12.0, anchor_h * 0.86))))
+                style.setdefault("preferred_font_size", preferred_font_size)
+                style.setdefault("baseline_mode", "anchor_top")
+                style.setdefault("alignment", "left")
+                style.setdefault("font_weight", "regular")
+                style.setdefault("stroke_width", 0)
+                style.setdefault("text_color", _rgb_to_hex(_dominant_text_color(image, anchor_rect)))
+
+                measure_font = _load_font(
+                    max(10, preferred_font_size),
+                    bold=style.get("font_weight") in {"semibold", "bold", "heavy"},
+                    family_hint=(style.get("font_family_hint") or "sans").lower(),
                 )
+                probe = ImageDraw.Draw(Image.new("RGBA", (8, 8), (0, 0, 0, 0)))
+                measured = probe.textbbox((0, 0), text, font=measure_font)
+                measured_width = max(1, measured[2] - measured[0])
+
+                if operation == "append_right":
+                    x1 = min(width - 2, anchor_rect[2] + gap)
+                    available = max(1, width - x1 - 4)
+                    desired = min(available, max(measured_width + 8, int(measured_width * 1.08)))
+                    if desired <= max(12, measured_width * 0.72):
+                        logger.warning("Área insuficiente para append_right com render local.")
+                        return None
+                    text_box = (
+                        x1,
+                        max(0, anchor_rect[1] - pad_y),
+                        min(width, x1 + desired),
+                        min(height, anchor_rect[3] + pad_y),
+                    )
+                else:
+                    available = max(1, anchor_rect[0] - gap - 4)
+                    desired = min(available, max(measured_width + 8, int(measured_width * 1.08)))
+                    if desired <= max(12, measured_width * 0.72):
+                        logger.warning("Área insuficiente para append_left com render local.")
+                        return None
+                    x2 = max(2, anchor_rect[0] - gap)
+                    text_box = (
+                        max(0, x2 - desired),
+                        max(0, anchor_rect[1] - pad_y),
+                        x2,
+                        min(height, anchor_rect[3] + pad_y),
+                    )
             else:
-                text_box = text_rect or bbox or container_rect
+                if text_rect:
+                    clean_rect = _inflate_rect(
+                        text_rect,
+                        max(6, (text_rect[2] - text_rect[0]) // 8),
+                        max(6, (text_rect[3] - text_rect[1]) // 5),
+                        width,
+                        height,
+                    )
+                    image = _inpaint_rgba(image, clean_rect, radius=3)
+                elif bbox:
+                    image = _inpaint_rgba(image, _inflate_rect(bbox, 4, 4, width, height), radius=3)
+
+                if operation == "button_text_replace" and container_rect:
+                    pad_x = max(8, int((container_rect[2] - container_rect[0]) * 0.10))
+                    pad_y = max(6, int((container_rect[3] - container_rect[1]) * 0.18))
+                    text_box = (
+                        container_rect[0] + pad_x,
+                        container_rect[1] + pad_y,
+                        container_rect[2] - pad_x,
+                        container_rect[3] - pad_y,
+                    )
+                else:
+                    text_box = text_rect or bbox or container_rect
 
             if not text_box:
                 return None
 
             box_w = max(1, text_box[2] - text_box[0])
             box_h = max(1, text_box[3] - text_box[1])
-            multiline = "\n" in text or len(text) > 18 or (box_w / max(1, box_h)) < 4.2
+            multiline = operation not in {"append_right", "append_left"} and ("\n" in text or len(text) > 18 or (box_w / max(1, box_h)) < 4.2)
             overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
-            logger.debug(f"A desenhar o texto: '{text}', multiline: {multiline}, box={text_box}")
-            _draw_text_with_effects(overlay, text, text_box, style, multiline=multiline)
+            logger.debug(f"A desenhar o texto: '{text}', multiline: {multiline}, box={text_box}, operation={operation}")
+            _draw_text_with_effects(overlay, text, text_box, style, multiline=multiline, anchor_rect=anchor_rect)
 
             image.alpha_composite(overlay)
 
@@ -1070,7 +1348,7 @@ def render_local_text_fallback(
             image.save(out, format="PNG")
             logger.info("Renderização concluída com sucesso.")
             return out.getvalue()
-            
+
     except Exception as e:
         logger.error(f"Erro CRÍTICO na função base render_local_text_fallback: {e}", exc_info=True)
         raise
