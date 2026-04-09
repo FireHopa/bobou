@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 PROJECT_ROOT="/opt/bobou"
 BACKEND_DIR="/opt/bobou/backend"
-FRONTEND_DIR="/opt/bobou/frontend-src"
+FRONTEND_DIR="/opt/bobou/frontend-src" 
 
 # AJUSTE AQUI
 GIT_BRANCH="main"
