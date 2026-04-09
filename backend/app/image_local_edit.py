@@ -181,6 +181,7 @@ def _operation_from_action(action: Optional[str], fallback: str = "text_replace"
         "replace": "text_replace",
         "append_right": "append_right",
         "append_left": "append_left",
+        "remove": "text_remove",
     }
     if not action:
         return fallback
@@ -294,6 +295,7 @@ def _extract_all_text_replacements(instruction: str) -> List[Dict[str, str]]:
       - replace
       - append_right
       - append_left
+      - remove
     """
     text = (instruction or "").strip()
     if not text:
@@ -301,7 +303,7 @@ def _extract_all_text_replacements(instruction: str) -> List[Dict[str, str]]:
 
     quote = r'[\"“”\']'
     segments = re.split(
-        r"[;,]\s*|\s+e\s+(?=(?:troque|substitua|mude|altere|corrija|edite|atualize|coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\b)",
+        r"[;,]\s*|\s+e\s+(?=(?:troque|substitua|mude|altere|corrija|edite|atualize|coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar|remova|remove|retire|apague|tire|exclua)\b)",
         text,
         flags=re.IGNORECASE,
     )
@@ -325,6 +327,10 @@ def _extract_all_text_replacements(instruction: str) -> List[Dict[str, str]]:
         r'(?:coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\s+(?:ao\s+lado\s+esquerdo\s+de|antes\s+de)\s*' + quote + r'(?P<old>.+?)' + quote + r'\s*(?:o\s+seguinte\s*:)?\s*' + quote + r'(?P<new>.+?)' + quote,
         r'(?:coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\s*' + quote + r'(?P<new>.+?)' + quote + r'\s+(?:ao\s+lado\s+esquerdo\s+de|antes\s+de)\s*' + quote + r'(?P<old>.+?)' + quote,
     ]
+    remove_patterns = [
+        r'(?:remov[a-z]*|retir[a-z]*|apag[a-z]*|tir[a-z]*|exclu[a-z]*)\s+(?:o\s+texto\s+|a\s+frase\s+|a\s+palavra\s+|o\s+trecho\s+)?' + quote + r'(?P<old>.+?)' + quote,
+        r'(?:remov[a-z]*|retir[a-z]*|apag[a-z]*|tir[a-z]*|exclu[a-z]*)\s+(?:o\s+texto\s+|a\s+frase\s+|a\s+palavra\s+|o\s+trecho\s+)(?P<old>[^\n,;]+)',
+    ]
 
     results: List[Dict[str, str]] = []
     seen: set[Tuple[str, str, str]] = set()
@@ -334,6 +340,7 @@ def _extract_all_text_replacements(instruction: str) -> List[Dict[str, str]]:
         for action, patterns in (
             ("append_right", append_right_patterns),
             ("append_left", append_left_patterns),
+            ("remove", remove_patterns),
             ("replace", replace_patterns),
         ):
             for pattern in patterns:
@@ -341,9 +348,13 @@ def _extract_all_text_replacements(instruction: str) -> List[Dict[str, str]]:
                 if not match:
                     continue
                 old = _clean_replacement_token(match.group("old") or "")
-                new = _clean_replacement_token(match.group("new") or "")
+                new = _clean_replacement_token(match.groupdict().get("new") or "")
                 key = (action, old.lower(), new.lower())
-                if old and new and old.lower() != new.lower() and key not in seen:
+                if action == "remove":
+                    if old and key not in seen:
+                        seen.add(key)
+                        results.append({"old_text": old, "new_text": "", "action": action})
+                elif old and new and old.lower() != new.lower() and key not in seen:
                     seen.add(key)
                     results.append({"old_text": old, "new_text": new, "action": action})
                 matched = True
@@ -367,6 +378,8 @@ def _extract_text_replacement(instruction: str) -> Optional[Dict[str, str]]:
     old = _clean_replacement_token(first.get("old_text") or "")
     new = _clean_replacement_token(first.get("new_text") or "")
     action = (first.get("action") or "replace").strip().lower()
+    if action == "remove":
+        return {"old_text": old, "new_text": "", "action": action} if old else None
     if old and new and old.lower() != new.lower():
         return {"old_text": old, "new_text": new, "action": action}
     return None
@@ -379,13 +392,14 @@ def extract_edit_instruction_info(text: str) -> Dict[str, Any]:
     replacement = all_replacements[0] if all_replacements else None
 
     pure_text_positive_patterns = [
-        r"\b(troque|substitua|mude|altere|corrija|edite|atualize|coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar)\b.*\b(texto|frase|headline|subheadline|bot[aã]o|cta|data|cidade|local)\b",
+        r"\b(troque|substitua|mude|altere|corrija|edite|atualize|coloque|colocar|adicione|adicionar|insira|inserir|acrescente|acrescentar|remova|remove|retire|apague|tire|exclua)\b.*\b(texto|frase|palavra|trecho|headline|subheadline|bot[aã]o|cta|data|cidade|local)\b",
         r"\b(troque|substitua|mude|altere|corrija|atualize)\b.+\bpara\b.+",
         r"\b(ao\s+lado\s+direito\s+de|ao\s+lado\s+esquerdo\s+de|antes\s+de|depois\s+de|ap[oó]s)\b",
+        r"(?:remov[a-z]*|retir[a-z]*|apag[a-z]*|tir[a-z]*|exclu[a-z]*)\s+[\"“”\']",
     ]
     broad_visual_markers = [
         "fundo", "background", "cenário", "cenario", "produto", "pessoa", "rosto", "objeto", "logo", "logotipo",
-        "marca", "remove", "remova", "troque a cor", "mudar cor", "cor do",
+        "marca", "troque a cor", "mudar cor", "cor do",
         "iluminação", "iluminacao", "sombra", "perspectiva", "composição", "composicao", "estilo", "realista",
         "fotorrealista", "avatar", "personagem", "roupa", "embalagem", "cenografia"
     ]
@@ -395,7 +409,12 @@ def extract_edit_instruction_info(text: str) -> Dict[str, Any]:
     edit_type = "generic_edit"
     if all_replacements and (positive_match or not mentions_broad_visual):
         first_action = (replacement or {}).get("action") or "replace"
-        edit_type = "text_append" if first_action in {"append_right", "append_left"} else "text_replace"
+        if first_action in {"append_right", "append_left"}:
+            edit_type = "text_append"
+        elif first_action == "remove":
+            edit_type = "text_remove"
+        else:
+            edit_type = "text_replace"
 
     target_hint = None
     if replacement:
@@ -405,7 +424,7 @@ def extract_edit_instruction_info(text: str) -> Dict[str, Any]:
         if hint_match:
             target_hint = hint_match.group(1)
 
-    is_pure_text_edit = bool(edit_type in {"text_replace", "text_append"} and all_replacements)
+    is_pure_text_edit = bool(edit_type in {"text_replace", "text_append", "text_remove"} and all_replacements)
     is_multi_replace = len(all_replacements) > 1
 
     return {
@@ -807,12 +826,12 @@ async def analyze_region_with_openai(
     requested_action = (replacement.get("action") or "replace").lower()
     system_text = """
 Você é um analista sênior de edição localizada para interfaces, anúncios e criativos.
-Sua tarefa é localizar COM PRECISÃO a região mínima que precisa ser editada quando o usuário quer trocar, acrescentar à direita ou acrescentar à esquerda um texto existente.
+Sua tarefa é localizar COM PRECISÃO a região mínima que precisa ser editada quando o usuário quer trocar, remover, acrescentar à direita ou acrescentar à esquerda um texto existente.
 
 Retorne SOMENTE JSON válido com esta estrutura:
 {
   "confidence": number,
-  "operation": "text_replace" | "button_text_replace" | "append_right" | "append_left",
+  "operation": "text_replace" | "button_text_replace" | "append_right" | "append_left" | "text_remove",
   "target_text": string,
   "replacement_text": string,
   "bbox": {"x": number, "y": number, "w": number, "h": number},
@@ -841,21 +860,32 @@ Regras:
 3. text_bbox deve cobrir somente o texto âncora existente.
 4. Se o texto estiver dentro de botão, badge ou chip, preencha container_bbox com a área completa do elemento e use operation=button_text_replace.
 5. Se a ação pedida for acrescentar à direita ou à esquerda, mantenha o texto âncora intacto e use operation=append_right ou append_left.
-6. Priorize precisão e preservação do restante da imagem.
-7. Se houver candidatos locais fornecidos, use-os como reforço de precisão. Você pode ignorar candidatos ruins.
-8. Mesmo que o texto esteja pequeno, borrado, parcialmente cortado ou com leve diferença visual, localize a região semanticamente correta.
-9. Se houver mais de um bloco parecido, escolha o que melhor combina com a instrução do usuário e com a hierarquia visual da peça.
-10. Evite caixas excessivamente grandes. Prefira a menor área segura que permita editar sem afetar o restante.
+6. Se a ação pedida for remover um texto, use operation=text_remove e retorne replacement_text como string vazia.
+7. Priorize precisão e preservação do restante da imagem.
+8. Se houver candidatos locais fornecidos, use-os como reforço de precisão. Você pode ignorar candidatos ruins.
+9. Mesmo que o texto esteja pequeno, borrado, parcialmente cortado ou com leve diferença visual, localize a região semanticamente correta.
+10. Se houver mais de um bloco parecido, escolha o que melhor combina com a instrução do usuário e com a hierarquia visual da peça.
+11. Evite caixas excessivamente grandes. Prefira a menor área segura que permita editar sem afetar o restante.
 """
+
+    replacement_text = replacement['new_text']
+    if requested_action == "remove":
+        action_detail = "Remova somente o texto âncora e preserve o fundo ao redor."
+        replacement_line = "Texto novo esperado: <remover sem substituição>\n"
+    else:
+        action_detail = "Estime também o estilo visual necessário para uma edição localizada profissional."
+        replacement_line = f"Texto novo esperado: {replacement_text}\n"
 
     user_text = (
         f"Instrução do usuário: {instruction}\n"
         f"Texto âncora esperado: {replacement['old_text']}\n"
-        f"Texto novo esperado: {replacement['new_text']}\n"
+        f"{replacement_line}"
         f"Ação textual esperada: {requested_action}\n"
         f"Dimensões da imagem: {width}x{height}\n"
         f"Candidatos locais detectados por visão computacional: {json.dumps(candidate_summary, ensure_ascii=False)}\n"
-        "Localize a região exata. Considere a semântica do pedido, a hierarquia visual e os candidatos detectados. Estime também o estilo visual necessário para uma edição localizada profissional. Para append_right/append_left, preserve a tipografia, tamanho aparente, baseline e cor do texto âncora."
+        "Localize a região exata. Considere a semântica do pedido, a hierarquia visual e os candidatos detectados. "
+        + action_detail +
+        " Para append_right/append_left, preserve a tipografia, tamanho aparente, baseline e cor do texto âncora."
     )
 
     base_messages = [
@@ -1021,6 +1051,47 @@ def should_use_local_text_render(
         return False
 
     logger.debug("Local render ativado para troca textual determinística.")
+    return True
+
+
+def should_use_local_text_erase(
+    analysis: Optional[Dict[str, Any]],
+    instruction_info: Optional[Dict[str, Any]] = None,
+) -> bool:
+    if not analysis:
+        return False
+
+    instruction_info = instruction_info or {}
+    if instruction_info.get("edit_action") != "remove":
+        return False
+
+    confidence = float(analysis.get("confidence", 0.0) or 0.0)
+    operation = (analysis.get("operation") or "text_remove").lower()
+    if operation != "text_remove":
+        return False
+
+    text_bbox_norm = analysis.get("text_bbox") or analysis.get("bbox")
+    if not text_bbox_norm:
+        logger.debug("Local erase desativado: nenhuma caixa de texto segura encontrada.")
+        return False
+
+    try:
+        box_w = float(text_bbox_norm.get("w", 0.0) or 0.0)
+        box_h = float(text_bbox_norm.get("h", 0.0) or 0.0)
+    except Exception:
+        logger.debug("Local erase desativado: caixa inválida.")
+        return False
+
+    if box_w <= 0.0 or box_h <= 0.0:
+        logger.debug("Local erase desativado: caixa sem área.")
+        return False
+
+    minimum_confidence = 0.72
+    if confidence < minimum_confidence:
+        logger.debug("Local erase desativado: confiança %.3f abaixo do mínimo %.3f.", confidence, minimum_confidence)
+        return False
+
+    logger.debug("Local erase ativado para remoção textual determinística.")
     return True
 
 
@@ -1238,13 +1309,13 @@ def render_local_text_fallback(
             image = im.convert("RGBA")
             width, height = image.size
 
-            text = (analysis.get("replacement_text") or "").strip()
-            if not text:
-                logger.warning("Nenhum texto de substituição encontrado.")
-                return None
-
             style = dict(analysis.get("style") or {})
             operation = (analysis.get("operation") or "text_replace").lower()
+            text = (analysis.get("replacement_text") or "").strip()
+
+            if operation != "text_remove" and not text:
+                logger.warning("Nenhum texto de substituição encontrado.")
+                return None
 
             bbox = _norm_box_to_px(analysis.get("bbox"), width, height)
             text_rect = _norm_box_to_px(analysis.get("text_bbox"), width, height)
@@ -1308,16 +1379,26 @@ def render_local_text_fallback(
                     )
             else:
                 if text_rect:
+                    pad_x = max(6, (text_rect[2] - text_rect[0]) // (6 if operation == "text_remove" else 8))
+                    pad_y = max(6, (text_rect[3] - text_rect[1]) // (3 if operation == "text_remove" else 5))
                     clean_rect = _inflate_rect(
                         text_rect,
-                        max(6, (text_rect[2] - text_rect[0]) // 8),
-                        max(6, (text_rect[3] - text_rect[1]) // 5),
+                        pad_x,
+                        pad_y,
                         width,
                         height,
                     )
-                    image = _inpaint_rgba(image, clean_rect, radius=3)
+                    image = _inpaint_rgba(image, clean_rect, radius=5 if operation == "text_remove" else 3)
                 elif bbox:
-                    image = _inpaint_rgba(image, _inflate_rect(bbox, 4, 4, width, height), radius=3)
+                    inflate_x = 6 if operation == "text_remove" else 4
+                    inflate_y = 6 if operation == "text_remove" else 4
+                    image = _inpaint_rgba(image, _inflate_rect(bbox, inflate_x, inflate_y, width, height), radius=5 if operation == "text_remove" else 3)
+
+                if operation == "text_remove":
+                    out = io.BytesIO()
+                    image.save(out, format="PNG")
+                    logger.info("Remoção local concluída com sucesso.")
+                    return out.getvalue()
 
                 if operation == "button_text_replace" and container_rect:
                     pad_x = max(8, int((container_rect[2] - container_rect[0]) * 0.10))

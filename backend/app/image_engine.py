@@ -19,6 +19,7 @@ from .image_local_edit import (
     extract_edit_instruction_info,
     render_all_local_text_replacements,
     render_local_text_fallback,
+    should_use_local_text_erase,
     should_use_local_text_render,
     should_use_localized_edit,
 )
@@ -771,6 +772,14 @@ async def _apply_postprocess_if_needed(
         response = await client.get(url)
         response.raise_for_status()
         source_bytes = response.content
+
+    source_width, source_height = _read_image_dimensions(source_bytes)
+    if source_width == target_width and source_height == target_height:
+        next_result = dict(result)
+        next_result["postprocessed"] = False
+        next_result["postprocess_skipped"] = "already_exact_dimensions"
+        next_result["target_dimensions"] = {"width": target_width, "height": target_height}
+        return next_result
 
     processed_bytes = _resize_image_bytes_exact(
         source_bytes,
@@ -1755,12 +1764,14 @@ def _build_localized_prompt_appendix(
 
     lines.append("\n\n--- INSTRUÇÃO LOCALIZADA DE EDIÇÃO ---")
 
-    if target and replacement:
-        if operation == "append_right":
+    if target:
+        if operation == "append_right" and replacement:
             lines.append(f'Mantenha o texto âncora "{target}" intacto e adicione exatamente "{replacement}" imediatamente à direita dele.')
-        elif operation == "append_left":
+        elif operation == "append_left" and replacement:
             lines.append(f'Mantenha o texto âncora "{target}" intacto e adicione exatamente "{replacement}" imediatamente à esquerda dele.')
-        else:
+        elif operation == "text_remove":
+            lines.append(f'Remova apenas o texto "{target}" sem criar texto substituto. Reconstrua somente o fundo imediato da região editada.')
+        elif replacement:
             lines.append(f'Substitua o texto "{target}" por "{replacement}".')
 
     if operation == "button_text_replace":
@@ -2191,18 +2202,50 @@ def _build_edit_attempt_plan(
         and operation in {"append_right", "append_left"}
         and float((localized_analysis or {}).get("confidence", 0.0) or 0.0) >= 0.74
     )
-    use_local_render_first = should_use_local_text_render(localized_analysis, instruction_info) and not use_ai_append_crop
+    use_local_remove_first = should_use_local_text_erase(localized_analysis, instruction_info) and not use_ai_append_crop
+    use_local_render_first = (
+        should_use_local_text_render(localized_analysis, instruction_info)
+        and not use_ai_append_crop
+        and not use_local_remove_first
+    )
     reason = (
         "append_text_ai_crop_composite"
         if use_ai_append_crop
-        else ("text_replace_deterministic" if use_local_render_first else ("masked_openai_edit" if localized_mode else "full_openai_edit"))
+        else (
+            "text_remove_deterministic"
+            if use_local_remove_first
+            else ("text_replace_deterministic" if use_local_render_first else ("masked_openai_edit" if localized_mode else "full_openai_edit"))
+        )
     )
     return {
         "use_ai_append_crop": use_ai_append_crop,
+        "use_local_remove_first": use_local_remove_first,
         "use_local_render_first": use_local_render_first,
-        "call_openai_edit": not use_local_render_first and not use_ai_append_crop,
+        "call_openai_edit": not use_local_render_first and not use_local_remove_first and not use_ai_append_crop,
         "reason": reason,
     }
+
+
+def _build_resolution_adaptation_warning(
+    requested_dimensions: Optional[Tuple[int, int]],
+    openai_size: Optional[str],
+    attempt_plan: Dict[str, Any],
+) -> Optional[str]:
+    if not requested_dimensions or not openai_size:
+        return None
+
+    requested_label = _size_label(requested_dimensions[0], requested_dimensions[1])
+    if requested_label == openai_size:
+        return None
+
+    if not attempt_plan.get("call_openai_edit"):
+        return None
+
+    return (
+        f"O modelo de edição não gera nativamente {requested_label}. "
+        f"Nesta tentativa ele vai editar em {openai_size} e adaptar para o tamanho final depois. "
+        "Para pedidos de texto localizado, o fluxo determinístico local continua sendo priorizado primeiro para evitar deformação e perda de nitidez."
+    )
 
 
 async def _edit_openai_image(
@@ -2641,14 +2684,34 @@ async def image_engine_edit_stream(
                     localized_mode=localized_mode,
                 ) if not all_localizable else {
                     "use_ai_append_crop": False,
+                    "use_local_remove_first": False,
                     "use_local_render_first": True,
                     "call_openai_edit": False,
                     "reason": "multi_text_replace_deterministic",
                 }
 
+                resolution_warning = _build_resolution_adaptation_warning(
+                    requested_dimensions=requested_dimensions,
+                    openai_size=openai_size,
+                    attempt_plan=attempt_plan,
+                )
+                if resolution_warning:
+                    localized_warning = (
+                        f"{localized_warning} | " if localized_warning else ""
+                    ) + resolution_warning
+
                 if attempt_plan["use_ai_append_crop"]:
                     yield _sse({
                         "status": "Texto direcional localizado com boa confiança. Gerando o novo trecho via crop com IA e recompondo localmente no original para preservar tipografia percebida, baseline e diagramação.",
+                        "progress": 62,
+                        "localized_analysis": localized_analysis,
+                        "localized_mode": localized_mode,
+                        "warning": localized_warning,
+                        "attempt_plan": attempt_plan,
+                    })
+                elif attempt_plan["use_local_remove_first"]:
+                    yield _sse({
+                        "status": "Texto localizado com boa confiança. Aplicando remoção local determinística na resolução original, sem repintura global da peça.",
                         "progress": 62,
                         "localized_analysis": localized_analysis,
                         "localized_mode": localized_mode,
@@ -2712,6 +2775,16 @@ async def image_engine_edit_stream(
                         localized_warning = (
                             f"{localized_warning} | " if localized_warning else ""
                         ) + f"Falha na composição local por crop: {str(append_exc)}"
+
+                if result is None and attempt_plan["use_local_remove_first"] and localized_analysis:
+                    local_bytes = render_local_text_fallback(image_bytes=image_bytes, analysis=localized_analysis)
+                    if local_bytes:
+                        result = {
+                            "engine_id": "local_structured_edit",
+                            "motor": "Remoção Local Estruturada",
+                            "url": _data_uri_from_b64(base64.b64encode(local_bytes).decode("utf-8"), "image/png"),
+                            "raw": {"strategy": attempt_plan["reason"]},
+                        }
 
                 if result is None and attempt_plan["use_local_render_first"] and localized_analysis:
                     local_bytes = render_local_text_fallback(image_bytes=image_bytes, analysis=localized_analysis)
