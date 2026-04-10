@@ -10,7 +10,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+import numpy as np
 from PIL import Image, ImageOps, ImageChops, ImageDraw, ImageFilter, UnidentifiedImageError
+
+try:
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover
+    cv2 = None
 
 from .image_local_edit import (
     analyze_all_regions_with_openai,
@@ -20,6 +26,7 @@ from .image_local_edit import (
     render_all_local_text_replacements,
     render_local_text_fallback,
     should_use_local_text_erase,
+    list_local_text_candidate_rects,
     should_use_local_text_render,
     should_use_localized_edit,
 )
@@ -2057,20 +2064,393 @@ def _restore_crop_from_canvas_result(
         return _encode_png_bytes(restored)
 
 
+
+def _inflate_rect_engine(
+    rect: Tuple[int, int, int, int],
+    pad_x: int,
+    pad_y: int,
+    width: int,
+    height: int,
+) -> Tuple[int, int, int, int]:
+    return (
+        _clamp_int(rect[0] - pad_x, 0, width),
+        _clamp_int(rect[1] - pad_y, 0, height),
+        _clamp_int(rect[2] + pad_x, 0, width),
+        _clamp_int(rect[3] + pad_y, 0, height),
+    )
+
+
+def _rect_iou(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> float:
+    ix1 = max(a[0], b[0])
+    iy1 = max(a[1], b[1])
+    ix2 = min(a[2], b[2])
+    iy2 = min(a[3], b[3])
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0.0
+    inter = (ix2 - ix1) * (iy2 - iy1)
+    area_a = max(1, (a[2] - a[0]) * (a[3] - a[1]))
+    area_b = max(1, (b[2] - b[0]) * (b[3] - b[1]))
+    return inter / float(area_a + area_b - inter)
+
+
+def _same_text_row(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> bool:
+    ah = max(1, a[3] - a[1])
+    bh = max(1, b[3] - b[1])
+    vertical_overlap = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    center_dy = abs(((a[1] + a[3]) / 2.0) - ((b[1] + b[3]) / 2.0))
+    min_h = min(ah, bh)
+    return vertical_overlap >= max(4, min_h * 0.46) and center_dy <= max(10.0, min_h * 0.72)
+
+
+def _build_feathered_rect_mask(
+    size: Tuple[int, int],
+    rect: Tuple[int, int, int, int],
+    feather: int = 0,
+    radius: int = 0,
+    fill: int = 255,
+) -> Image.Image:
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    if radius > 0:
+        draw.rounded_rectangle(rect, radius=radius, fill=fill)
+    else:
+        draw.rectangle(rect, fill=fill)
+    if feather > 0:
+        mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
+    return mask
+
+
+def _match_overlay_tone_to_original(
+    original: Image.Image,
+    edited: Image.Image,
+    editable_local_rect: Tuple[int, int, int, int],
+) -> Image.Image:
+    try:
+        width, height = original.size
+        ring_outer = _inflate_rect_engine(
+            editable_local_rect,
+            pad_x=max(10, int((editable_local_rect[2] - editable_local_rect[0]) * 0.10)),
+            pad_y=max(8, int((editable_local_rect[3] - editable_local_rect[1]) * 0.40)),
+            width=width,
+            height=height,
+        )
+        ring_mask = _build_feathered_rect_mask(original.size, ring_outer, feather=0, radius=max(6, int((ring_outer[3] - ring_outer[1]) * 0.12)))
+        hole_mask = _build_feathered_rect_mask(original.size, editable_local_rect, feather=0, radius=max(4, int((editable_local_rect[3] - editable_local_rect[1]) * 0.12)))
+        ring_mask = ImageChops.subtract(ring_mask, hole_mask)
+        ring_arr = np.array(ring_mask, dtype=np.uint8)
+        selector = ring_arr > 12
+        if int(selector.sum()) < 48:
+            return edited
+
+        orig_arr = np.array(original.convert("RGBA"), dtype=np.float32)
+        edit_arr = np.array(edited.convert("RGBA"), dtype=np.float32)
+
+        orig_mean = orig_arr[selector, :3].mean(axis=0)
+        edit_mean = edit_arr[selector, :3].mean(axis=0)
+        delta = np.clip(orig_mean - edit_mean, -22.0, 22.0)
+
+        apply_mask = np.array(_build_feathered_rect_mask(original.size, editable_local_rect, feather=max(3, int((editable_local_rect[3] - editable_local_rect[1]) * 0.10)), radius=max(4, int((editable_local_rect[3] - editable_local_rect[1]) * 0.12))), dtype=np.float32) / 255.0
+        for channel in range(3):
+            edit_arr[:, :, channel] = np.clip(edit_arr[:, :, channel] + (delta[channel] * apply_mask), 0.0, 255.0)
+
+        matched = Image.fromarray(edit_arr.astype(np.uint8), "RGBA")
+        return matched
+    except Exception:
+        return edited
+
+
 def _build_allowed_mask(
     size: Tuple[int, int],
     rect: Tuple[int, int, int, int],
 ) -> Image.Image:
-    mask = Image.new("L", size, 0)
-    draw = ImageDraw.Draw(mask)
-    draw.rectangle(rect, fill=255)
-    return mask
+    feather = max(3, int((rect[3] - rect[1]) * 0.08))
+    radius = max(4, int((rect[3] - rect[1]) * 0.14))
+    return _build_feathered_rect_mask(size, rect, feather=feather, radius=radius)
 
 
-def _extract_append_overlay_from_crop(
+def _erase_rects_from_mask(mask: Image.Image, rects: List[Tuple[int, int, int, int]]) -> Image.Image:
+    trimmed = mask.copy()
+    if not rects:
+        return trimmed
+    erase = Image.new("L", mask.size, 0)
+    draw = ImageDraw.Draw(erase)
+    for rect in rects:
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            continue
+        radius = max(4, int((rect[3] - rect[1]) * 0.18))
+        draw.rounded_rectangle(rect, radius=radius, fill=255)
+    erase = erase.filter(ImageFilter.GaussianBlur(radius=2.4))
+    return ImageChops.subtract(trimmed, erase)
+
+
+
+
+
+def _mask_to_uint8(mask: Image.Image) -> np.ndarray:
+    return np.array(mask.convert("L"), dtype=np.uint8)
+
+
+def _mean_abs_rgb_diff_on_mask(
+    a: Image.Image,
+    b: Image.Image,
+    mask: Image.Image,
+    threshold: int = 12,
+) -> float:
+    selector = _mask_to_uint8(mask) > threshold
+    if not bool(selector.any()):
+        return 0.0
+    arr_a = np.array(a.convert("RGB"), dtype=np.int16)
+    arr_b = np.array(b.convert("RGB"), dtype=np.int16)
+    diff = np.abs(arr_a - arr_b)
+    return float(diff[selector].mean()) if diff[selector].size else 0.0
+
+
+def _mask_bbox(mask: Image.Image, threshold: int = 12) -> Optional[Tuple[int, int, int, int]]:
+    arr = _mask_to_uint8(mask)
+    ys, xs = np.where(arr > threshold)
+    if xs.size == 0 or ys.size == 0:
+        return None
+    return (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+
+
+def _focus_mask_coverage(mask: Image.Image, rect: Tuple[int, int, int, int], threshold: int = 12) -> float:
+    x1, y1, x2, y2 = rect
+    arr = _mask_to_uint8(mask)
+    crop = arr[y1:y2, x1:x2]
+    if crop.size == 0:
+        return 0.0
+    return float((crop > threshold).sum()) / float(max(1, crop.size))
+
+
+def _build_remove_text_focus_mask(
+    original: Image.Image,
+    target_local_rect: Tuple[int, int, int, int],
+    editable_local_rect: Tuple[int, int, int, int],
+    protected_local_rects: Optional[List[Tuple[int, int, int, int]]] = None,
+) -> Optional[Image.Image]:
+    width, height = original.size
+    tw = max(1, target_local_rect[2] - target_local_rect[0])
+    th = max(1, target_local_rect[3] - target_local_rect[1])
+
+    clip_rect = _inflate_rect_engine(
+        target_local_rect,
+        pad_x=max(3, int(round(tw * 0.08))),
+        pad_y=max(2, int(round(th * 0.18))),
+        width=width,
+        height=height,
+    )
+    ring_outer = _inflate_rect_engine(
+        target_local_rect,
+        pad_x=max(12, int(round(tw * 0.20))),
+        pad_y=max(8, int(round(th * 0.70))),
+        width=width,
+        height=height,
+    )
+    ring_inner = _inflate_rect_engine(
+        target_local_rect,
+        pad_x=max(1, int(round(tw * 0.02))),
+        pad_y=max(1, int(round(th * 0.06))),
+        width=width,
+        height=height,
+    )
+
+    ring_mask = _build_feathered_rect_mask(original.size, ring_outer, feather=0, radius=max(4, int(th * 0.10)))
+    ring_hole = _build_feathered_rect_mask(original.size, ring_inner, feather=0, radius=max(2, int(th * 0.06)))
+    ring_mask = ImageChops.subtract(ring_mask, ring_hole)
+
+    clip_mask = _build_feathered_rect_mask(original.size, clip_rect, feather=0, radius=max(2, int(th * 0.08)))
+    allowed = _build_allowed_mask(original.size, editable_local_rect)
+    if protected_local_rects:
+        allowed = _erase_rects_from_mask(allowed, protected_local_rects)
+        ring_mask = _erase_rects_from_mask(ring_mask, protected_local_rects)
+        clip_mask = _erase_rects_from_mask(clip_mask, protected_local_rects)
+
+    ring_selector = _mask_to_uint8(ring_mask) > 10
+    clip_selector = _mask_to_uint8(ImageChops.multiply(clip_mask, allowed)) > 10
+    if int(ring_selector.sum()) < 48 or int(clip_selector.sum()) < 32:
+        return None
+
+    rgb = np.array(original.convert("RGB"), dtype=np.float32)
+    gray = np.array(original.convert("L"), dtype=np.float32)
+
+    bg_rgb = rgb[ring_selector].mean(axis=0)
+    bg_l = float(gray[ring_selector].mean())
+
+    color_dist = np.linalg.norm(rgb - bg_rgb[None, None, :], axis=2)
+    lum_delta = np.abs(gray - bg_l)
+
+    local_color = color_dist[clip_selector]
+    local_lum = lum_delta[clip_selector]
+    if local_color.size == 0 or local_lum.size == 0:
+        return None
+
+    color_threshold = max(12.0, float(np.percentile(local_color, 74)) * 0.72)
+    lum_threshold = max(10.0, float(np.percentile(local_lum, 74)) * 0.72)
+
+    bright_selector = gray >= (bg_l + 8.0)
+    dark_selector = gray <= (bg_l - 8.0)
+
+    candidate = clip_selector & ((color_dist >= color_threshold) | (lum_delta >= lum_threshold))
+
+    bright_votes = int((candidate & bright_selector).sum())
+    dark_votes = int((candidate & dark_selector).sum())
+    if bright_votes > max(24, int(dark_votes * 1.12)):
+        candidate &= (gray >= (bg_l - 4.0))
+    elif dark_votes > max(24, int(bright_votes * 1.12)):
+        candidate &= (gray <= (bg_l + 4.0))
+
+    mask_arr = np.zeros((height, width), dtype=np.uint8)
+    mask_arr[candidate] = 255
+
+    if cv2 is not None:
+        kernel = np.ones((3, 3), dtype=np.uint8)
+        mask_arr = cv2.morphologyEx(mask_arr, cv2.MORPH_OPEN, kernel, iterations=1)
+        mask_arr = cv2.morphologyEx(mask_arr, cv2.MORPH_CLOSE, kernel, iterations=1)
+        mask_arr = cv2.dilate(mask_arr, kernel, iterations=1)
+    else:
+        pil_mask = Image.fromarray(mask_arr, mode="L")
+        pil_mask = pil_mask.filter(ImageFilter.MaxFilter(3))
+        pil_mask = pil_mask.filter(ImageFilter.MinFilter(3))
+        mask_arr = np.array(pil_mask, dtype=np.uint8)
+
+    focus_mask = Image.fromarray(mask_arr, mode="L")
+    focus_mask = ImageChops.multiply(focus_mask, allowed)
+
+    bbox = _mask_bbox(focus_mask)
+    if not bbox:
+        return None
+
+    coverage = _focus_mask_coverage(focus_mask, editable_local_rect)
+    if coverage < 0.006 or coverage > 0.42:
+        return None
+
+    bx1, by1, bx2, by2 = bbox
+    bw = max(1, bx2 - bx1)
+    bh = max(1, by2 - by1)
+    if bw > max(12, int(tw * 1.45)) or bh > max(10, int(th * 1.75)):
+        return None
+
+    return focus_mask
+
+
+def _inpaint_remove_focus_mask(
+    original: Image.Image,
+    focus_mask: Image.Image,
+) -> Image.Image:
+    if cv2 is None:
+        softened = original.filter(ImageFilter.GaussianBlur(radius=2.2))
+        result = original.copy()
+        result.paste(softened, mask=focus_mask)
+        return result
+
+    rgba = np.array(original.convert("RGBA"), dtype=np.uint8)
+    rgb = cv2.cvtColor(rgba, cv2.COLOR_RGBA2RGB)
+    alpha = rgba[:, :, 3]
+    mask = _mask_to_uint8(focus_mask)
+    if mask.max() <= 0:
+        return original.copy()
+    mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=0.6, sigmaY=0.6)
+    _, mask = cv2.threshold(mask, 14, 255, cv2.THRESH_BINARY)
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    mask = cv2.dilate(mask, kernel, iterations=1)
+    inpainted_rgb = cv2.inpaint(rgb, mask, 3, cv2.INPAINT_TELEA)
+    merged = np.dstack([inpainted_rgb, alpha])
+    return Image.fromarray(merged, mode="RGBA")
+
+
+def _score_remove_candidate(
+    original: Image.Image,
+    candidate: Image.Image,
+    focus_mask: Image.Image,
+    editable_local_rect: Tuple[int, int, int, int],
+    protected_local_rects: Optional[List[Tuple[int, int, int, int]]] = None,
+) -> Dict[str, float]:
+    width, height = original.size
+    allowed = _build_allowed_mask(original.size, editable_local_rect)
+    if protected_local_rects:
+        allowed = _erase_rects_from_mask(allowed, protected_local_rects)
+
+    focus_soft = focus_mask.convert("L").filter(ImageFilter.MaxFilter(3))
+    focus_soft = focus_soft.filter(ImageFilter.GaussianBlur(radius=0.8))
+    allowed_without_focus = ImageChops.subtract(allowed, focus_soft)
+
+    outer_ring_rect = _inflate_rect_engine(
+        editable_local_rect,
+        pad_x=max(10, int(round((editable_local_rect[2] - editable_local_rect[0]) * 0.14))),
+        pad_y=max(8, int(round((editable_local_rect[3] - editable_local_rect[1]) * 0.62))),
+        width=width,
+        height=height,
+    )
+    outer_mask = _build_feathered_rect_mask(original.size, outer_ring_rect, feather=0, radius=max(4, int((outer_ring_rect[3] - outer_ring_rect[1]) * 0.12)))
+    ring_mask = ImageChops.subtract(outer_mask, allowed)
+    if protected_local_rects:
+        ring_mask = _erase_rects_from_mask(ring_mask, protected_local_rects)
+
+    inside_change = _mean_abs_rgb_diff_on_mask(original, candidate, focus_soft)
+    outside_change = _mean_abs_rgb_diff_on_mask(original, candidate, allowed_without_focus)
+    ring_change = _mean_abs_rgb_diff_on_mask(original, candidate, ring_mask)
+
+    penalty = 0.0
+    if inside_change < 8.0:
+        penalty += (8.0 - inside_change) * 1.9
+
+    score = (outside_change * 1.85) + (ring_change * 1.15) + penalty
+    return {
+        "score": round(float(score), 4),
+        "inside_change": round(float(inside_change), 4),
+        "outside_change": round(float(outside_change), 4),
+        "ring_change": round(float(ring_change), 4),
+    }
+
+
+def _compose_remove_overlay_mask(
+    original: Image.Image,
+    edited: Image.Image,
+    editable_local_rect: Tuple[int, int, int, int],
+    protected_local_rects: Optional[List[Tuple[int, int, int, int]]] = None,
+    focus_mask: Optional[Image.Image] = None,
+) -> Image.Image:
+    edited = _match_overlay_tone_to_original(original, edited, editable_local_rect)
+
+    diff = ImageChops.difference(original, edited).convert("L")
+    diff = diff.point(lambda p: 255 if p >= 11 else 0)
+
+    allowed = _build_allowed_mask(original.size, editable_local_rect)
+    if protected_local_rects:
+        allowed = _erase_rects_from_mask(allowed, protected_local_rects)
+
+    diff = ImageChops.multiply(diff, allowed)
+    diff = diff.filter(ImageFilter.MaxFilter(3))
+    diff = diff.filter(ImageFilter.GaussianBlur(radius=0.9))
+
+    if focus_mask is not None:
+        focus = focus_mask.convert("L")
+        focus = ImageChops.multiply(focus, allowed)
+        focus = focus.filter(ImageFilter.MaxFilter(5))
+        focus = focus.filter(ImageFilter.GaussianBlur(radius=1.0))
+        alpha = ImageChops.lighter(focus, ImageChops.multiply(diff, focus))
+    else:
+        alpha = diff
+
+    clip_rect = _inflate_rect_engine(editable_local_rect, 3, 3, original.size[0], original.size[1])
+    clip_mask = _build_feathered_rect_mask(
+        original.size,
+        clip_rect,
+        feather=1,
+        radius=max(4, int((clip_rect[3] - clip_rect[1]) * 0.10)),
+    )
+    alpha = ImageChops.multiply(alpha, clip_mask)
+    alpha = alpha.point(lambda p: 0 if p < 9 else min(255, int(round(p * 1.08))))
+    return alpha
+
+
+
+def _extract_localized_overlay_from_crop(
     original_crop_bytes: bytes,
     edited_crop_bytes: bytes,
     editable_local_rect: Tuple[int, int, int, int],
+    protected_local_rects: Optional[List[Tuple[int, int, int, int]]] = None,
+    focus_mask: Optional[Image.Image] = None,
 ) -> Tuple[Optional[bytes], Optional[Dict[str, int]]]:
     with Image.open(io.BytesIO(original_crop_bytes)) as orig_im, Image.open(io.BytesIO(edited_crop_bytes)) as edited_im:
         original = orig_im.convert("RGBA")
@@ -2078,27 +2458,28 @@ def _extract_append_overlay_from_crop(
         if original.size != edited.size:
             edited = edited.resize(original.size, Image.Resampling.LANCZOS)
 
-        diff = ImageChops.difference(original, edited).convert("L")
-        diff = diff.point(lambda p: 255 if p >= 16 else 0)
-
-        allowed = _build_allowed_mask(original.size, editable_local_rect)
-        diff = ImageChops.multiply(diff, allowed)
-        diff = diff.filter(ImageFilter.MaxFilter(3))
-        diff = diff.filter(ImageFilter.GaussianBlur(radius=0.8))
-        diff = diff.point(lambda p: 255 if p >= 18 else 0)
-
-        bbox = diff.getbbox()
+        alpha = _compose_remove_overlay_mask(
+            original=original,
+            edited=edited,
+            editable_local_rect=editable_local_rect,
+            protected_local_rects=protected_local_rects,
+            focus_mask=focus_mask,
+        )
+        bbox = _mask_bbox(alpha, threshold=9)
         if not bbox:
             return None, None
 
+        edited = _match_overlay_tone_to_original(original, edited, editable_local_rect)
         patch = edited.copy()
-        patch.putalpha(diff)
+        patch.putalpha(alpha)
         return _encode_png_bytes(patch), {
             "x1": int(bbox[0]),
             "y1": int(bbox[1]),
             "x2": int(bbox[2]),
             "y2": int(bbox[3]),
         }
+
+
 
 
 def _composite_append_overlay_into_image(
@@ -2191,37 +2572,51 @@ async def _synthesize_append_text_with_ai_crop(
     return next_result
 
 
+
 def _build_edit_attempt_plan(
     instruction_info: Dict[str, Any],
     localized_analysis: Optional[Dict[str, Any]],
     localized_mode: bool,
 ) -> Dict[str, Any]:
     operation = ((localized_analysis or {}).get("operation") or "").lower()
+    confidence = float((localized_analysis or {}).get("confidence", 0.0) or 0.0)
+
     use_ai_append_crop = bool(
         instruction_info.get("is_pure_text_edit")
         and operation in {"append_right", "append_left"}
-        and float((localized_analysis or {}).get("confidence", 0.0) or 0.0) >= 0.74
+        and confidence >= 0.74
     )
-    use_local_remove_first = should_use_local_text_erase(localized_analysis, instruction_info) and not use_ai_append_crop
+    use_ai_remove_crop = bool(
+        instruction_info.get("is_pure_text_edit")
+        and operation == "text_remove"
+        and confidence >= 0.76
+    )
+    use_local_remove_first = should_use_local_text_erase(localized_analysis, instruction_info) and not use_ai_append_crop and not use_ai_remove_crop
     use_local_render_first = (
         should_use_local_text_render(localized_analysis, instruction_info)
         and not use_ai_append_crop
+        and not use_ai_remove_crop
         and not use_local_remove_first
     )
     reason = (
         "append_text_ai_crop_composite"
         if use_ai_append_crop
         else (
-            "text_remove_deterministic"
-            if use_local_remove_first
-            else ("text_replace_deterministic" if use_local_render_first else ("masked_openai_edit" if localized_mode else "full_openai_edit"))
+            "text_remove_ai_crop_composite"
+            if use_ai_remove_crop
+            else (
+                "text_remove_deterministic"
+                if use_local_remove_first
+                else ("text_replace_deterministic" if use_local_render_first else ("masked_openai_edit" if localized_mode else "full_openai_edit"))
+            )
         )
     )
     return {
         "use_ai_append_crop": use_ai_append_crop,
+        "use_ai_remove_crop": use_ai_remove_crop,
         "use_local_remove_first": use_local_remove_first,
         "use_local_render_first": use_local_render_first,
-        "call_openai_edit": not use_local_render_first and not use_local_remove_first and not use_ai_append_crop,
+        "call_openai_edit": not use_local_render_first and not use_local_remove_first and not use_ai_append_crop and not use_ai_remove_crop,
         "reason": reason,
     }
 
@@ -2666,8 +3061,7 @@ async def image_engine_edit_stream(
                         )
                         all_localized_analyses = [localized_analysis] if localized_analysis else []
                         if should_use_localized_edit(localized_analysis):
-                            localized_mask = build_mask_from_analysis(image_bytes, localized_analysis)
-                            localized_mode = localized_mask is not None
+                            localized_mode = True
                 except Exception as region_exc:
                     localized_warning = f"Falha na detecção localizada. Seguindo com edição conservadora. Detalhe: {str(region_exc)}"
 
@@ -2730,7 +3124,7 @@ async def image_engine_edit_stream(
                     })
                 elif localized_mode:
                     yield _sse({
-                        "status": "Área localizada com sucesso. Aplicando edição mascarada para preservar o restante da imagem.",
+                        "status": "Área localizada com sucesso. Aplicando patch local para preservar o restante da imagem." if attempt_plan.get("use_ai_remove_crop") or attempt_plan.get("use_ai_append_crop") else "Área localizada com sucesso. Aplicando edição mascarada para preservar o restante da imagem.",
                         "progress": 62,
                         "localized_analysis": localized_analysis,
                         "localized_mode": True,
@@ -2776,6 +3170,20 @@ async def image_engine_edit_stream(
                             f"{localized_warning} | " if localized_warning else ""
                         ) + f"Falha na composição local por crop: {str(append_exc)}"
 
+                if result is None and attempt_plan.get("use_ai_remove_crop") and localized_analysis:
+                    try:
+                        result = await _synthesize_remove_text_with_ai_crop(
+                            client=client,
+                            image_bytes=image_bytes,
+                            analysis=localized_analysis,
+                            openai_key=openai_key,
+                            openai_quality=openai_quality,
+                        )
+                    except Exception as remove_exc:
+                        localized_warning = (
+                            f"{localized_warning} | " if localized_warning else ""
+                        ) + f"Falha no patch local por crop (remoção): {str(remove_exc)}"
+
                 if result is None and attempt_plan["use_local_remove_first"] and localized_analysis:
                     local_bytes = render_local_text_fallback(image_bytes=image_bytes, analysis=localized_analysis)
                     if local_bytes:
@@ -2798,6 +3206,15 @@ async def image_engine_edit_stream(
 
                 if result is None:
                     final_prompt_for_edit = final_prompt + _build_localized_prompt_appendix(localized_analysis, instruction_info)
+                    if localized_mode and localized_mask is None:
+                        try:
+                            localized_mask = build_mask_from_analysis(image_bytes, localized_analysis or {})
+                        except Exception as mask_exc:
+                            localized_warning = (
+                                f"{localized_warning} | " if localized_warning else ""
+                            ) + f"Falha ao montar máscara localizada. Seguindo sem máscara explícita. Detalhe: {str(mask_exc)}"
+                            localized_mask = None
+                            localized_mode = False
                     try:
                         result = await _edit_openai_image(
                             client=client,
@@ -2950,3 +3367,309 @@ async def image_engine_edit_stream(
         action_key=action.key,
     )
     return stream_response
+def _build_text_remove_crop_plan(
+    image_bytes: bytes,
+    analysis: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    operation = (analysis.get("operation") or "").lower()
+    if operation != "text_remove":
+        return None
+
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        image = im.convert("RGBA")
+        width, height = image.size
+
+    target = _norm_box_to_px_engine(
+        analysis.get("text_bbox") or analysis.get("bbox") or analysis.get("container_bbox"),
+        width,
+        height,
+    )
+    if not target:
+        return None
+
+    tw = max(1, target[2] - target[0])
+    th = max(1, target[3] - target[1])
+
+    pad_x = max(26, int(round(tw * 0.28)))
+    pad_y_top = max(18, int(round(th * 0.72)))
+    pad_y_bottom = max(12, int(round(th * 0.34)))
+
+    crop_x1 = max(0, target[0] - pad_x)
+    crop_x2 = min(width, target[2] + pad_x)
+    crop_y1 = max(0, target[1] - pad_y_top)
+    crop_y2 = min(height, target[3] + pad_y_bottom)
+
+    crop_rect = (crop_x1, crop_y1, crop_x2, crop_y2)
+    crop_w = crop_x2 - crop_x1
+    crop_h = crop_y2 - crop_y1
+    if crop_w < max(96, tw + 20) or crop_h < max(42, th + 14):
+        return None
+
+    target_local = (
+        target[0] - crop_x1,
+        target[1] - crop_y1,
+        target[2] - crop_x1,
+        target[3] - crop_y1,
+    )
+
+    editable_local_rect = (
+        max(0, target_local[0] - max(4, int(round(tw * 0.035)))),
+        max(0, target_local[1] - max(2, int(round(th * 0.08)))),
+        min(crop_w, target_local[2] + max(4, int(round(tw * 0.035)))),
+        min(crop_h, target_local[3] + max(2, int(round(th * 0.08)))),
+    )
+
+    protected_local_rects: List[Tuple[int, int, int, int]] = []
+
+    guard_gap = max(6, int(round(th * 0.18)))
+    top_guard_h = max(8, int(round(th * 0.42)))
+    bottom_guard_h = max(10, int(round(th * 0.60)))
+
+    top_guard = (
+        0,
+        max(0, editable_local_rect[1] - guard_gap - top_guard_h),
+        crop_w,
+        max(0, editable_local_rect[1] - guard_gap),
+    )
+    bottom_guard = (
+        0,
+        min(crop_h, editable_local_rect[3] + guard_gap),
+        crop_w,
+        min(crop_h, editable_local_rect[3] + guard_gap + bottom_guard_h),
+    )
+
+    if top_guard[3] > top_guard[1]:
+        protected_local_rects.append(top_guard)
+    if bottom_guard[3] > bottom_guard[1]:
+        protected_local_rects.append(bottom_guard)
+
+    for rect in list_local_text_candidate_rects(image_bytes):
+        if rect[2] <= crop_x1 or rect[0] >= crop_x2 or rect[3] <= crop_y1 or rect[1] >= crop_y2:
+            continue
+
+        iou = _rect_iou(target, rect)
+        if iou >= 0.24:
+            continue
+
+        local_rect = (
+            max(0, rect[0] - crop_x1),
+            max(0, rect[1] - crop_y1),
+            min(crop_w, rect[2] - crop_x1),
+            min(crop_h, rect[3] - crop_y1),
+        )
+        if local_rect[2] <= local_rect[0] or local_rect[3] <= local_rect[1]:
+            continue
+
+        same_row = _same_text_row(target, rect)
+        overlap_with_editable = _rect_iou(editable_local_rect, local_rect)
+
+        if same_row and overlap_with_editable >= 0.04:
+            continue
+
+        inflated = (
+            max(0, local_rect[0] - 5),
+            max(0, local_rect[1] - 4),
+            min(crop_w, local_rect[2] + 5),
+            min(crop_h, local_rect[3] + 4),
+        )
+        protected_local_rects.append(inflated)
+
+    deduped: List[Tuple[int, int, int, int]] = []
+    for rect in protected_local_rects:
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            continue
+        if rect not in deduped:
+            deduped.append(rect)
+
+    return {
+        "crop_rect": crop_rect,
+        "crop_size": (crop_w, crop_h),
+        "editable_local_rect": editable_local_rect,
+        "target_local_rect": target_local,
+        "protected_local_rects": deduped[:24],
+    }
+
+
+async def _synthesize_remove_text_with_ai_crop(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    analysis: Dict[str, Any],
+    openai_key: str,
+    openai_quality: str,
+) -> Optional[Dict[str, Any]]:
+    plan = _build_text_remove_crop_plan(image_bytes, analysis)
+    if not plan:
+        return None
+
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        full = im.convert("RGBA")
+        crop = full.crop(plan["crop_rect"])
+        crop_bytes = _encode_png_bytes(crop)
+
+    focus_mask = _build_remove_text_focus_mask(
+        crop,
+        plan["target_local_rect"],
+        plan["editable_local_rect"],
+        protected_local_rects=plan["protected_local_rects"],
+    )
+
+    deterministic_bytes: Optional[bytes] = None
+    deterministic_metrics: Optional[Dict[str, float]] = None
+    if focus_mask is not None:
+        deterministic_crop = _inpaint_remove_focus_mask(crop, focus_mask)
+        deterministic_bytes = _encode_png_bytes(deterministic_crop)
+        deterministic_metrics = _score_remove_candidate(
+            crop,
+            deterministic_crop,
+            focus_mask,
+            plan["editable_local_rect"],
+            protected_local_rects=plan["protected_local_rects"],
+        )
+
+        fast_path_ok = (
+            deterministic_metrics["inside_change"] >= 9.0
+            and deterministic_metrics["outside_change"] <= 1.35
+            and deterministic_metrics["ring_change"] <= 1.45
+            and deterministic_metrics["score"] <= 3.8
+        )
+        if fast_path_ok:
+            overlay_bytes, overlay_bbox = _extract_localized_overlay_from_crop(
+                crop_bytes,
+                deterministic_bytes,
+                plan["editable_local_rect"],
+                protected_local_rects=plan["protected_local_rects"],
+                focus_mask=focus_mask,
+            )
+            if overlay_bytes and overlay_bbox:
+                composed_bytes = _composite_append_overlay_into_image(
+                    image_bytes,
+                    overlay_bytes,
+                    plan["crop_rect"],
+                )
+                return {
+                    "engine_id": "local_remove_focus_inpaint",
+                    "motor": "Remoção Local por Patch (inpaint preciso)",
+                    "url": _result_url_from_image_bytes(composed_bytes, "image/png"),
+                    "raw": {
+                        "strategy": "deterministic_focus_inpaint",
+                        "metrics": deterministic_metrics,
+                    },
+                    "remove_crop_plan": {
+                        "crop_rect": {
+                            "x1": plan["crop_rect"][0],
+                            "y1": plan["crop_rect"][1],
+                            "x2": plan["crop_rect"][2],
+                            "y2": plan["crop_rect"][3],
+                        },
+                        "editable_local_rect": {
+                            "x1": plan["editable_local_rect"][0],
+                            "y1": plan["editable_local_rect"][1],
+                            "x2": plan["editable_local_rect"][2],
+                            "y2": plan["editable_local_rect"][3],
+                        },
+                        "overlay_bbox": overlay_bbox,
+                        "protected_rects": len(plan["protected_local_rects"]),
+                        "fast_path": True,
+                    },
+                }
+
+    canvas_bytes, mask_bytes, canvas_meta = _build_crop_canvas_for_append_edit(
+        crop_bytes,
+        plan["editable_local_rect"],
+    )
+
+    canvas_w = canvas_meta["canvas_width"]
+    canvas_h = canvas_meta["canvas_height"]
+    target = (analysis.get("target_text") or "").strip()
+    prompt = (
+        f'Remova apenas o texto "{target}" dentro da área mascarada. '
+        'Reconstrua somente o fundo imediato onde esse texto estava. '
+        'Não altere nenhum outro texto, número, data, local, logo, ícone ou elemento gráfico do recorte. '
+        'Preserve rigorosamente a tipografia, datas e o conteúdo dos demais blocos. '
+        'A saída deve parecer uma restauração local limpa do recorte original, sem glow extra, sem blur em bloco e sem reescrever a arte.'
+    )
+
+    result = await _edit_openai_image(
+        client=client,
+        image_bytes=canvas_bytes,
+        filename="localized-remove-crop.png",
+        content_type="image/png",
+        final_prompt=prompt,
+        aspect_ratio=_base_size_to_aspect_ratio(canvas_w, canvas_h),
+        quality=openai_quality,
+        openai_key=openai_key,
+        openai_size=f"{canvas_w}x{canvas_h}",
+        mask_bytes=mask_bytes,
+        input_fidelity="high",
+    )
+
+    edited_canvas_bytes, _ = _image_bytes_from_result_url(result["url"])
+    edited_crop_bytes = _restore_crop_from_canvas_result(edited_canvas_bytes, canvas_meta)
+
+    selected_crop_bytes = edited_crop_bytes
+    selection_meta: Dict[str, Any] = {"source": "ai_crop"}
+
+    if focus_mask is not None:
+        with Image.open(io.BytesIO(edited_crop_bytes)) as ai_im:
+            ai_crop = ai_im.convert("RGBA")
+        ai_metrics = _score_remove_candidate(
+            crop,
+            ai_crop,
+            focus_mask,
+            plan["editable_local_rect"],
+            protected_local_rects=plan["protected_local_rects"],
+        )
+        selection_meta["ai_metrics"] = ai_metrics
+
+        if deterministic_bytes is not None and deterministic_metrics is not None:
+            selection_meta["deterministic_metrics"] = deterministic_metrics
+            if deterministic_metrics["score"] <= ai_metrics["score"] + 0.9:
+                selected_crop_bytes = deterministic_bytes
+                selection_meta["source"] = "deterministic_fallback"
+
+    overlay_bytes, overlay_bbox = _extract_localized_overlay_from_crop(
+        crop_bytes,
+        selected_crop_bytes,
+        plan["editable_local_rect"],
+        protected_local_rects=plan["protected_local_rects"],
+        focus_mask=focus_mask,
+    )
+    if not overlay_bytes or not overlay_bbox:
+        return None
+
+    composed_bytes = _composite_append_overlay_into_image(
+        image_bytes,
+        overlay_bytes,
+        plan["crop_rect"],
+    )
+
+    next_result = dict(result)
+    next_result["engine_id"] = "openai_remove_crop_composite"
+    next_result["motor"] = "Remoção Local por Patch (crop híbrido)"
+    next_result["url"] = _result_url_from_image_bytes(composed_bytes, "image/png")
+    next_result["raw"] = {
+        **(next_result.get("raw") or {}),
+        "selection": selection_meta,
+    }
+    next_result["remove_crop_plan"] = {
+        "crop_rect": {
+            "x1": plan["crop_rect"][0],
+            "y1": plan["crop_rect"][1],
+            "x2": plan["crop_rect"][2],
+            "y2": plan["crop_rect"][3],
+        },
+        "editable_local_rect": {
+            "x1": plan["editable_local_rect"][0],
+            "y1": plan["editable_local_rect"][1],
+            "x2": plan["editable_local_rect"][2],
+            "y2": plan["editable_local_rect"][3],
+        },
+        "overlay_bbox": overlay_bbox,
+        "protected_rects": len(plan["protected_local_rects"]),
+        "focus_mask": bool(focus_mask),
+    }
+    return next_result
+
+
+
+

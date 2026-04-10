@@ -259,6 +259,53 @@ def _rect_center_distance(a: Tuple[int, int, int, int], b: Tuple[int, int, int, 
     return math.hypot(acx - bcx, acy - bcy)
 
 
+def _rect_intersection(
+    a: Tuple[int, int, int, int],
+    b: Tuple[int, int, int, int],
+) -> Optional[Tuple[int, int, int, int]]:
+    ix1 = max(a[0], b[0])
+    iy1 = max(a[1], b[1])
+    ix2 = min(a[2], b[2])
+    iy2 = min(a[3], b[3])
+    if ix2 <= ix1 or iy2 <= iy1:
+        return None
+    return (ix1, iy1, ix2, iy2)
+
+
+def _rect_area(rect: Tuple[int, int, int, int]) -> int:
+    return max(0, rect[2] - rect[0]) * max(0, rect[3] - rect[1])
+
+
+def _same_text_row(
+    a: Tuple[int, int, int, int],
+    b: Tuple[int, int, int, int],
+) -> bool:
+    ah = max(1, a[3] - a[1])
+    bh = max(1, b[3] - b[1])
+    vertical_overlap = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    center_dy = abs(((a[1] + a[3]) / 2.0) - ((b[1] + b[3]) / 2.0))
+    min_h = min(ah, bh)
+    return (
+        vertical_overlap >= max(4, min_h * 0.48)
+        and center_dy <= max(10.0, min_h * 0.70)
+    )
+
+
+def list_local_text_candidate_rects(image_bytes: bytes) -> List[Tuple[int, int, int, int]]:
+    rects: List[Tuple[int, int, int, int]] = []
+    for item in _local_text_candidates(image_bytes):
+        px = item.get("px_bbox") or {}
+        rect = (
+            int(px.get("x1", 0)),
+            int(px.get("y1", 0)),
+            int(px.get("x2", 0)),
+            int(px.get("y2", 0)),
+        )
+        if rect[2] > rect[0] and rect[3] > rect[1]:
+            rects.append(rect)
+    return rects
+
+
 def _load_font(
     size: int,
     bold: bool = False,
@@ -631,6 +678,7 @@ def _sanitize_analysis(data: Dict[str, Any], replacement: Dict[str, str], width:
     return payload
 
 
+
 def _merge_analysis_with_candidates(
     analysis: Dict[str, Any],
     candidates: List[Dict[str, Any]],
@@ -643,6 +691,76 @@ def _merge_analysis_with_candidates(
     anchor = text_bbox or bbox or container_bbox
     if not anchor:
         return analysis
+
+    operation = (analysis.get("operation") or "text_replace").lower()
+    anchor_area = max(1, _rect_area(anchor))
+    diag = math.hypot(width, height)
+
+    best_rect = None
+    best_score = -999.0
+    for item in candidates:
+        px = item.get("px_bbox") or {}
+        rect = (int(px.get("x1", 0)), int(px.get("y1", 0)), int(px.get("x2", 0)), int(px.get("y2", 0)))
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            continue
+
+        rect_area = max(1, _rect_area(rect))
+        iou = _rect_iou(anchor, rect)
+        proximity = 1.0 - min(1.0, _rect_center_distance(anchor, rect) / max(1.0, diag * 0.18))
+        candidate_score = float(item.get("score", 0.5) or 0.5)
+        row_bonus = 0.22 if _same_text_row(anchor, rect) else -0.12
+        size_ratio = min(anchor_area, rect_area) / float(max(anchor_area, rect_area))
+        size_bonus = 0.18 * size_ratio
+        vertical_center_penalty = abs(((anchor[1] + anchor[3]) / 2.0) - ((rect[1] + rect[3]) / 2.0)) / max(1.0, height)
+        score = (iou * 2.15) + (proximity * 0.62) + (candidate_score * 0.34) + row_bonus + size_bonus - (vertical_center_penalty * 0.9)
+
+        if score > best_score:
+            best_rect = rect
+            best_score = score
+
+    if best_rect is None:
+        return analysis
+
+    same_row = _same_text_row(anchor, best_rect)
+    intersection = _rect_intersection(anchor, best_rect)
+    best_iou = _rect_iou(anchor, best_rect)
+
+    if operation in {"append_right", "append_left"}:
+        refined_text = best_rect if same_row or best_iou >= 0.12 else anchor
+    elif operation == "text_remove":
+        if same_row and (best_iou >= 0.10 or _rect_center_distance(anchor, best_rect) <= max(8.0, diag * 0.02)):
+            if intersection and _rect_area(intersection) >= anchor_area * 0.28:
+                refined_text = intersection
+            else:
+                refined_text = best_rect if _rect_area(best_rect) <= anchor_area * 1.18 else anchor
+        else:
+            refined_text = anchor
+    else:
+        if same_row and best_iou >= 0.08:
+            if intersection and _rect_area(intersection) >= anchor_area * 0.25:
+                refined_text = intersection
+            else:
+                refined_text = _rect_union([anchor, best_rect]) or anchor
+        else:
+            refined_text = anchor
+
+    if refined_text:
+        if operation == "text_remove":
+            pad_x = max(4, int((refined_text[2] - refined_text[0]) * 0.05))
+            pad_y = max(4, int((refined_text[3] - refined_text[1]) * 0.14))
+        else:
+            pad_x = 8
+            pad_y = 8
+        analysis["text_bbox"] = _px_box_to_norm(refined_text, width, height)
+        analysis["bbox"] = _px_box_to_norm(_inflate_rect(refined_text, pad_x, pad_y, width, height), width, height)
+
+    if operation == "button_text_replace":
+        container = container_bbox or _inflate_rect(refined_text, 24, 16, width, height)
+        analysis["container_bbox"] = _px_box_to_norm(container, width, height)
+
+    analysis["confidence"] = round(min(0.99, max(float(analysis.get("confidence", 0.0) or 0.0), 0.56 + max(0.0, best_score * 0.08))), 4)
+    analysis["candidate_refined"] = True
+    return analysis
 
     operation = (analysis.get("operation") or "text_replace").lower()
     best_rect = None
