@@ -158,6 +158,34 @@ const QUALITY_OPTIONS = [
   },
 ] as const;
 
+type EditScope = "auto" | "local_patch" | "global";
+
+const EDIT_SCOPE_OPTIONS: Array<{
+  value: EditScope;
+  label: string;
+  hint: string;
+  badge: string;
+}> = [
+  {
+    value: "auto",
+    label: "Auto inteligente",
+    badge: "Recomendado",
+    hint: "Usa patch local para texto/regiões pequenas e só abre para edição ampla quando necessário.",
+  },
+  {
+    value: "local_patch",
+    label: "Patch local",
+    badge: "Mais preservação",
+    hint: "Recorta só a área detectada, edita esse patch e recompõe sobre a base original.",
+  },
+  {
+    value: "global",
+    label: "Generativa ampla",
+    badge: "Mais liberdade",
+    hint: "Envia a peça inteira para edição quando a mudança é estrutural ou visualmente ampla.",
+  },
+];
+
 const BASE_CANVAS_ITEM_ID = "active-base-reference";
 const MAX_ACTIVE_JOBS = 2;
 
@@ -535,6 +563,7 @@ type ProjectSnapshot = {
   customHeight: string;
   preserveOriginalFrame: boolean;
   allowResizeCrop: boolean;
+  editScope: EditScope;
   promptInput: string;
   statusText: string;
   messages: ChatMessage[];
@@ -619,6 +648,7 @@ function createDefaultProjectSnapshot(): ProjectSnapshot {
     customHeight: "1280",
     preserveOriginalFrame: true,
     allowResizeCrop: false,
+    editScope: "auto",
     promptInput: "",
     statusText: "Carregue uma base e descreva a alteração.",
     messages: createInitialAssistantMessages(),
@@ -758,6 +788,7 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const [customHeight, setCustomHeight] = useState<string>(projectSeed.snapshot.customHeight);
   const [preserveOriginalFrame, setPreserveOriginalFrame] = useState(projectSeed.snapshot.preserveOriginalFrame);
   const [allowResizeCrop, setAllowResizeCrop] = useState(projectSeed.snapshot.allowResizeCrop);
+  const [editScope, setEditScope] = useState<EditScope>(projectSeed.snapshot.editScope);
   const [promptInput, setPromptInput] = useState(projectSeed.snapshot.promptInput);
   const [statusText, setStatusText] = useState(projectSeed.snapshot.statusText);
   const [dragActive, setDragActive] = useState(false);
@@ -929,6 +960,7 @@ const applyProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
   setCustomHeight(snapshot.customHeight);
   setPreserveOriginalFrame(snapshot.preserveOriginalFrame);
   setAllowResizeCrop(snapshot.allowResizeCrop);
+  setEditScope(snapshot.editScope ?? "auto");
   setPromptInput(snapshot.promptInput);
   setStatusText(snapshot.statusText);
   setMessages(snapshot.messages);
@@ -954,6 +986,7 @@ const buildProjectSnapshot = useCallback(
     customHeight,
     preserveOriginalFrame,
     allowResizeCrop,
+    editScope,
     promptInput,
     statusText,
     messages,
@@ -966,6 +999,7 @@ const buildProjectSnapshot = useCallback(
   [
     allowResizeCrop,
     baseReference,
+    editScope,
     canvasItems,
     customHeight,
     customWidth,
@@ -1264,6 +1298,12 @@ const handleDeleteProject = useCallback(
     if (!allowResizeCrop) return "Sem resize exato";
     return "Crop exato";
   }, [allowResizeCrop, hasValidCustomDimensions, preserveOriginalFrame, resolutionMode]);
+
+
+  const currentEditScopeLabel = useMemo(
+    () => EDIT_SCOPE_OPTIONS.find((option) => option.value === editScope)?.label ?? "Auto inteligente",
+    [editScope]
+  );
 
 
   const previewAspectRatio = getPreviewAspectRatio(
@@ -1703,6 +1743,7 @@ const handleDeleteProject = useCallback(
       formData.append("instrucoes_edicao", instruction);
       formData.append("preserve_original_frame", String(preserveOriginalFrame));
       formData.append("allow_resize_crop", String(allowResizeCrop));
+      formData.append("edit_scope", editScope);
 
       if (resolutionMode === "custom" && hasValidCustomDimensions) {
         formData.append("width", String(parsedCustomWidth));
@@ -2450,15 +2491,20 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               placeholder="Descreva exatamente o que deve mudar, o que deve ser preservado e o resultado esperado."
             />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  className="h-10 rounded-xl bg-white/5 px-4 text-slate-200 hover:bg-white/10"
-                  onClick={() => baseInputRef.current?.click()}
-                >
-                  <Upload className="h-4 w-4" />
-                  Base
-                </Button>
+              <div className="space-y-2">
+                <div className="text-[11px] leading-5 text-slate-400">
+                  Dica: para texto localizado, use algo como <span className="text-slate-200">Remova "13 de Abril - Barra da Tijuca"</span> e deixe o fluxo em <span className="text-slate-200">Patch local</span> ou <span className="text-slate-200">Auto inteligente</span>.
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    className="h-10 rounded-xl bg-white/5 px-4 text-slate-200 hover:bg-white/10"
+                    onClick={() => baseInputRef.current?.click()}
+                  >
+                    <Upload className="h-4 w-4" />
+                    Base
+                  </Button>
+                </div>
               </div>
 
               <Button
@@ -2619,6 +2665,34 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
 
               <div className="space-y-4">
                 <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-sm font-semibold text-white">Estratégia de edição</div>
+                  <div className="mt-4 space-y-3">
+                    {EDIT_SCOPE_OPTIONS.map((option) => {
+                      const active = editScope === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setEditScope(option.value)}
+                          className={cn(
+                            "w-full rounded-2xl border px-4 py-3 text-left transition-all",
+                            active ? "border-cyan-400/30 bg-cyan-500/10" : "border-white/10 bg-slate-950/50 hover:bg-white/[0.04]"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm text-white">{option.label}</div>
+                            <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                              {option.badge}
+                            </div>
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-slate-400">{option.hint}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-sm font-semibold text-white">Automação do fluxo</div>
                   <div className="mt-4 space-y-3">
                     {[
@@ -2690,6 +2764,10 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                     <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                       <span>Resize final</span>
                       <span className="font-semibold text-white">{currentResizeBehaviorLabel}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+                      <span>Fluxo de edição</span>
+                      <span className="font-semibold text-white">{currentEditScopeLabel}</span>
                     </div>
                     <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                       <span>Canvas</span>
