@@ -38,6 +38,14 @@ from .image_canvas_smart_expand import (
     build_smart_expand_prompt,
     overlay_hard_preserve_regions,
 )
+from .image_canvas_exact_size import (
+    build_exact_size_expand_assets,
+    choose_exact_size_canvas_plan,
+    build_exact_size_expand_prompt,
+    finalize_exact_size_expand,
+    is_native_supported_exact_size,
+    resolve_exact_dimensions_request,
+)
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -1384,6 +1392,73 @@ async def _expand_image_to_supported_canvas_smart(
         "strength": strength,
     }
     next_result["motor"] = f"{result.get('motor', 'Imagem')} + Recompose sem crop"
+    return next_result
+
+
+async def _expand_image_to_exact_size_non_native(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    openai_key: str,
+    openai_quality: str,
+    requested_width: int,
+    requested_height: int,
+) -> Dict[str, Any]:
+    text_rects = list_local_text_candidate_rects(image_bytes)
+    assets = build_exact_size_expand_assets(
+        image_bytes=image_bytes,
+        target_width=requested_width,
+        target_height=requested_height,
+        supported_sizes=SUPPORTED_BASE_SIZES,
+        text_rects=text_rects,
+        strength="medium",
+    )
+    plan = assets["plan"]
+
+    result = await _edit_openai_image(
+        client=client,
+        image_bytes=assets["canvas_bytes"],
+        filename="exact-size-expand.png",
+        content_type="image/png",
+        final_prompt=build_exact_size_expand_prompt(
+            target_width=requested_width,
+            target_height=requested_height,
+            plan=plan,
+            placement=assets["placement"],
+            preserve_union=assets.get("preserve_union"),
+            strength=assets.get("strength", "medium"),
+        ),
+        aspect_ratio=_base_size_to_aspect_ratio(plan["base_width"], plan["base_height"]),
+        quality=openai_quality,
+        openai_key=openai_key,
+        openai_size=f"{plan['base_width']}x{plan['base_height']}",
+        mask_bytes=assets["mask_bytes"],
+        input_fidelity="high",
+    )
+
+    expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
+    finalized_bytes = finalize_exact_size_expand(
+        expanded_bytes=expanded_bytes,
+        source_canvas_bytes=assets["canvas_bytes"],
+        plan=plan,
+        hard_preserve_boxes=assets.get("hard_preserve_boxes"),
+        hard_feather=int(assets.get("hard_feather") or 8),
+    )
+
+    next_result = dict(result)
+    next_result["url"] = _result_url_from_image_bytes(finalized_bytes, "image/png")
+    next_result["expanded_canvas"] = {
+        "width": int(plan["base_width"]),
+        "height": int(plan["base_height"]),
+        "working_width": int(plan["working_width"]),
+        "working_height": int(plan["working_height"]),
+        "crop_rect": plan["crop_rect"],
+        "placement": assets["placement"],
+        "preserve_union": assets.get("preserve_union"),
+        "hard_preserve_boxes": assets.get("hard_preserve_boxes"),
+        "strategy": "exact_size_non_native_smart_crop",
+        "needs_upscale_after_crop": bool(plan.get("needs_upscale_after_crop")),
+    }
+    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Exact Size"
     return next_result
 
 
@@ -3729,13 +3804,26 @@ async def image_engine_edit_stream(
             raise ValueError("As instruções de edição são obrigatórias.")
         source_width, source_height = _read_image_dimensions(image_bytes)
         requested_dimensions = _resolve_target_dimensions(body.width, body.height)
-        final_target_dimensions = _resolve_edit_target_dimensions(body)
+        exact_request_dimensions = resolve_exact_dimensions_request(
+            body.width,
+            body.height,
+            body.instrucoes_edicao,
+        )
+        final_target_dimensions = exact_request_dimensions or _resolve_edit_target_dimensions(body)
         aspect_ratio = _normalize_aspect_ratio(body.formato)
         openai_quality = _normalize_quality(body.qualidade)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     instruction_info = extract_edit_instruction_info(body.instrucoes_edicao)
+    exact_size_non_native = bool(
+        exact_request_dimensions
+        and not is_native_supported_exact_size(
+            exact_request_dimensions[0],
+            exact_request_dimensions[1],
+            supported_sizes=SUPPORTED_BASE_SIZES,
+        )
+    )
     canvas_only_edit = bool(
         final_target_dimensions and _is_canvas_only_edit_request(body, instruction_info)
     )
@@ -3752,7 +3840,15 @@ async def image_engine_edit_stream(
     )
 
     if final_target_dimensions and preserve_expand_needed and canvas_only_edit:
-        base_width, base_height = _choose_best_supported_base_size(*final_target_dimensions)
+        if exact_size_non_native:
+            exact_plan = choose_exact_size_canvas_plan(
+                target_width=final_target_dimensions[0],
+                target_height=final_target_dimensions[1],
+                supported_sizes=SUPPORTED_BASE_SIZES,
+            )
+            base_width, base_height = exact_plan["base_width"], exact_plan["base_height"]
+        else:
+            base_width, base_height = _choose_best_supported_base_size(*final_target_dimensions)
         engine_aspect_ratio = _base_size_to_aspect_ratio(base_width, base_height)
         openai_size = f"{base_width}x{base_height}"
     elif final_target_dimensions and preserve_expand_needed:
@@ -3791,6 +3887,8 @@ async def image_engine_edit_stream(
                         "edit_scope": body.edit_scope,
                         "preserve_expand_needed": preserve_expand_needed,
                         "target_dimensions": {"width": final_target_dimensions[0], "height": final_target_dimensions[1]} if final_target_dimensions else None,
+                        "exact_request_dimensions": {"width": exact_request_dimensions[0], "height": exact_request_dimensions[1]} if exact_request_dimensions else None,
+                        "exact_size_non_native": exact_size_non_native,
                         "canvas_only_edit": canvas_only_edit,
                     },
                 })
@@ -3813,12 +3911,20 @@ async def image_engine_edit_stream(
                     )
 
                     if preserve_expand_needed:
+                        expand_reason = (
+                            "canvas_only_exact_size_non_native"
+                            if exact_size_non_native
+                            else ("canvas_only_smart_recompose" if expand_strategy == "smart_recompose" else "canvas_only_expand_exact")
+                        )
                         yield _sse({
                             "status": (
-                                "Pedido identificado como adaptação de formato/canvas. "
-                                "Aplicando recomposição inteligente em uma única chamada de IA para ocupar melhor a largura e reduzir seams."
-                                if expand_strategy == "smart_recompose"
-                                else "Pedido identificado como adaptação de formato/canvas sem crop. Expandindo a peça com IA em uma única chamada."
+                                "Pedido identificado como resolução exata não nativa do endpoint. Expandindo o canvas suportado em uma única chamada de IA e aplicando crop técnico final para entregar o tamanho exato solicitado."
+                                if exact_size_non_native
+                                else (
+                                    "Pedido identificado como adaptação de formato/canvas. Aplicando recomposição inteligente em uma única chamada de IA para ocupar melhor a largura e reduzir seams."
+                                    if expand_strategy == "smart_recompose"
+                                    else "Pedido identificado como adaptação de formato/canvas sem crop. Expandindo a peça com IA em uma única chamada."
+                                )
                             ),
                             "progress": 58,
                             "localized_mode": False,
@@ -3829,20 +3935,30 @@ async def image_engine_edit_stream(
                                 "use_local_remove_first": False,
                                 "use_local_render_first": False,
                                 "call_openai_edit": True,
-                                "reason": "canvas_only_smart_recompose" if expand_strategy == "smart_recompose" else "canvas_only_expand_exact",
+                                "reason": expand_reason,
                             },
                         })
 
                         try:
-                            result = await _expand_image_to_supported_canvas(
-                                client=client,
-                                image_bytes=image_bytes,
-                                openai_key=openai_key,
-                                openai_quality=openai_quality,
-                                requested_width=final_target_dimensions[0],
-                                requested_height=final_target_dimensions[1],
-                                strategy="smart" if expand_strategy == "smart_recompose" else "preserve",
-                            )
+                            if exact_size_non_native:
+                                result = await _expand_image_to_exact_size_non_native(
+                                    client=client,
+                                    image_bytes=image_bytes,
+                                    openai_key=openai_key,
+                                    openai_quality=openai_quality,
+                                    requested_width=final_target_dimensions[0],
+                                    requested_height=final_target_dimensions[1],
+                                )
+                            else:
+                                result = await _expand_image_to_supported_canvas(
+                                    client=client,
+                                    image_bytes=image_bytes,
+                                    openai_key=openai_key,
+                                    openai_quality=openai_quality,
+                                    requested_width=final_target_dimensions[0],
+                                    requested_height=final_target_dimensions[1],
+                                    strategy="smart" if expand_strategy == "smart_recompose" else "preserve",
+                                )
                         except Exception as expand_exc:
                             raise RuntimeError(
                                 "Falha ao adaptar o canvas para o tamanho exato solicitado sem crop. "
@@ -4234,9 +4350,13 @@ async def image_engine_edit_stream(
                     )
                     yield _sse({
                         "status": (
-                            "Edição aplicada. Recomponto o canvas final com recomposição inteligente para preencher o formato solicitado sem seams aparentes."
-                            if expand_strategy == "smart"
-                            else "Edição aplicada. Expandindo o canvas final sem crop para preencher o formato solicitado."
+                            "Edição aplicada. Expandindo em canvas suportado com uma única chamada de IA e aplicando crop técnico final para entregar a resolução exata solicitada."
+                            if exact_size_non_native
+                            else (
+                                "Edição aplicada. Recomponto o canvas final com recomposição inteligente para preencher o formato solicitado sem seams aparentes."
+                                if expand_strategy == "smart"
+                                else "Edição aplicada. Expandindo o canvas final sem crop para preencher o formato solicitado."
+                            )
                         ),
                         "progress": 76,
                         "localized_mode": localized_mode,
@@ -4256,15 +4376,25 @@ async def image_engine_edit_stream(
                         edited_bytes = fetched.content
 
                     try:
-                        result = await _expand_image_to_supported_canvas(
-                            client=client,
-                            image_bytes=edited_bytes,
-                            openai_key=openai_key,
-                            openai_quality=openai_quality,
-                            requested_width=final_target_dimensions[0],
-                            requested_height=final_target_dimensions[1],
-                            strategy=expand_strategy,
-                        )
+                        if exact_size_non_native:
+                            result = await _expand_image_to_exact_size_non_native(
+                                client=client,
+                                image_bytes=edited_bytes,
+                                openai_key=openai_key,
+                                openai_quality=openai_quality,
+                                requested_width=final_target_dimensions[0],
+                                requested_height=final_target_dimensions[1],
+                            )
+                        else:
+                            result = await _expand_image_to_supported_canvas(
+                                client=client,
+                                image_bytes=edited_bytes,
+                                openai_key=openai_key,
+                                openai_quality=openai_quality,
+                                requested_width=final_target_dimensions[0],
+                                requested_height=final_target_dimensions[1],
+                                strategy=expand_strategy,
+                            )
                     except Exception as expand_exc:
                         raise RuntimeError(
                             "Falha ao expandir o canvas final para o tamanho exato solicitado sem crop. "
