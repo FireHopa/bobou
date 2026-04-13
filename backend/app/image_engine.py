@@ -5,6 +5,7 @@ import base64
 import io
 import json
 import logging
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -31,6 +32,11 @@ from .image_local_edit import (
     list_local_text_candidate_rects,
     should_use_local_text_render,
     should_use_localized_edit,
+)
+from .image_canvas_smart_expand import (
+    build_smart_expand_assets,
+    build_smart_expand_prompt,
+    overlay_hard_preserve_regions,
 )
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException, Response
 from fastapi.responses import StreamingResponse
@@ -699,32 +705,48 @@ def _resolve_edit_target_dimensions(payload: ImageEditRequest) -> Optional[Tuple
     return _preset_dimensions_from_formato(payload.formato)
 
 
+
 def _normalize_instruction_text(value: str) -> str:
     normalized = (value or "").strip().lower()
+    normalized = re.sub(r"[_\-]+", " ", normalized)
     normalized = re.sub(r"\s+", " ", normalized)
     return normalized
 
 
-def _is_canvas_only_edit_request(
-    payload: ImageEditRequest,
-    instruction_info: Optional[Dict[str, Any]] = None,
-) -> bool:
-    instruction_info = instruction_info or {}
-    normalized = _normalize_instruction_text(payload.instrucoes_edicao)
+def _contains_instruction_phrase(normalized_text: str, phrases: List[str]) -> bool:
+    padded = f" {normalized_text} "
+    for phrase in phrases:
+        candidate = f" {(phrase or '').strip().lower()} "
+        if candidate.strip() and candidate in padded:
+            return True
+    return False
 
-    destructive_keywords = [
+
+def _has_explicit_destructive_edit_intent(normalized_text: str) -> bool:
+    edit_verbs = [
         "trocar",
         "substituir",
-        "mudar texto",
-        "alterar texto",
-        "remover texto",
-        "apagar texto",
-        "corrigir texto",
+        "mudar",
+        "alterar",
+        "remover",
+        "apagar",
+        "corrigir",
         "reescrever",
         "traduzir",
-        "botão",
+        "adicionar",
+        "inserir",
+        "retirar",
+        "deletar",
+    ]
+    edit_targets = [
+        "texto",
         "headline",
         "subheadline",
+        "titulo",
+        "título",
+        "cta",
+        "botão",
+        "botao",
         "logo",
         "marca",
         "produto",
@@ -735,21 +757,61 @@ def _is_canvas_only_edit_request(
         "moto",
         "bike",
         "céu",
+        "céu",
         "cor",
         "sombra",
         "luz",
         "iluminação",
+        "iluminacao",
         "fundo",
-        "elemento",
-        "adicionar",
-        "inserir",
-        "retirar",
-        "deletar",
+        "personagem",
     ]
-    if any(token in normalized for token in destructive_keywords):
-        return False
+
+    has_verb = _contains_instruction_phrase(normalized_text, edit_verbs)
+    has_target = _contains_instruction_phrase(normalized_text, edit_targets)
+    return bool(has_verb and has_target)
+
+
+def _is_canvas_only_edit_request(
+    payload: ImageEditRequest,
+    instruction_info: Optional[Dict[str, Any]] = None,
+) -> bool:
+    instruction_info = instruction_info or {}
+    normalized = _normalize_instruction_text(payload.instrucoes_edicao)
 
     if instruction_info.get("is_pure_text_edit"):
+        return False
+
+    if _has_explicit_destructive_edit_intent(normalized):
+        return False
+
+    negative_phrases = [
+        "trocar o texto",
+        "trocar texto",
+        "mudar o texto",
+        "alterar o texto",
+        "remover o texto",
+        "apagar o texto",
+        "corrigir o texto",
+        "reescrever o texto",
+        "traduzir o texto",
+        "adicionar texto",
+        "inserir texto",
+        "mudar a cor",
+        "alterar a cor",
+        "trocar o logo",
+        "mudar o logo",
+        "alterar o logo",
+        "remover logo",
+        "tirar logo",
+        "trocar a logo",
+        "trocar a marca",
+        "alterar a marca",
+        "trocar produto",
+        "mudar produto",
+        "alterar produto",
+    ]
+    if _contains_instruction_phrase(normalized, negative_phrases):
         return False
 
     canvas_keywords = [
@@ -758,30 +820,79 @@ def _is_canvas_only_edit_request(
         "1:1",
         "formato",
         "proporção",
+        "proporcao",
         "aspect ratio",
         "canvas",
         "expandir",
         "estender",
         "aumentar área",
+        "aumentar area",
         "sem crop",
         "sem cortar",
         "reencaixar",
         "reenquadrar",
         "ajustar tamanho",
         "mudar tamanho",
-        "converter para stories",
-        "converter para reels",
-        "adaptar para stories",
-        "adaptar para reels",
-        "adaptar para shorts",
+        "banner",
         "stories",
+        "story",
         "reels",
+        "reel",
         "shorts",
+        "short",
         "vertical",
         "horizontal",
         "quadrado",
+        "adaptar para",
+        "transforme essa imagem em",
+        "transformar essa imagem em",
+        "converter para",
     ]
-    return any(token in normalized for token in canvas_keywords)
+
+    preserve_only_phrases = [
+        "mantenha todos os elementos",
+        "mantendo todos os elementos",
+        "preserve todos os elementos",
+        "mantendo os elementos visuais",
+        "preserve os elementos visuais",
+        "fazendo somente as adaptações necessárias",
+        "fazendo apenas as adaptações necessárias",
+        "somente as adaptações necessárias",
+        "apenas as adaptações necessárias",
+        "sem alterar o conteúdo",
+        "sem mudar o conteúdo",
+    ]
+
+    return _contains_instruction_phrase(normalized, canvas_keywords) or _contains_instruction_phrase(normalized, preserve_only_phrases)
+
+
+def _is_strong_canvas_recompose_case(
+    source_width: int,
+    source_height: int,
+    target_width: int,
+    target_height: int,
+) -> bool:
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = target_width / max(1.0, float(target_height))
+    orientation_changed = (source_width >= source_height) != (target_width >= target_height)
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    return bool(orientation_changed or ratio_delta >= 0.32)
+
+
+def _smart_expand_strength_from_geometry(
+    source_width: int,
+    source_height: int,
+    target_width: int,
+    target_height: int,
+) -> str:
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = target_width / max(1.0, float(target_height))
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    if ratio_delta >= 0.72:
+        return "high"
+    if ratio_delta >= 0.36:
+        return "medium"
+    return "low"
 
 
 def _build_local_result_from_bytes(
@@ -1150,6 +1261,7 @@ def _overlay_preserved_region(
         return _encode_png_bytes(blended)
 
 
+
 def _build_preserve_frame_expand_prompt(
     requested_width: int,
     requested_height: int,
@@ -1172,7 +1284,7 @@ def _build_preserve_frame_expand_prompt(
     )
 
 
-async def _expand_image_to_supported_canvas(
+async def _expand_image_to_supported_canvas_preserve(
     client: httpx.AsyncClient,
     image_bytes: bytes,
     openai_key: str,
@@ -1206,9 +1318,130 @@ async def _expand_image_to_supported_canvas(
         "height": expand_height,
         "placement": placement,
         "sides": _expand_sides_from_placement(placement),
+        "strategy": "preserve",
     }
-    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Expand sem crop"
+    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Expand preservado"
     return next_result
+
+
+async def _expand_image_to_supported_canvas_smart(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    openai_key: str,
+    openai_quality: str,
+    requested_width: int,
+    requested_height: int,
+    strength: str,
+) -> Dict[str, Any]:
+    expand_width, expand_height = _choose_best_supported_base_size(requested_width, requested_height)
+
+    text_rects = list_local_text_candidate_rects(image_bytes)
+    assets = build_smart_expand_assets(
+        image_bytes=image_bytes,
+        target_width=expand_width,
+        target_height=expand_height,
+        text_rects=text_rects,
+        strength=strength,
+    )
+
+    result = await _edit_openai_image(
+        client=client,
+        image_bytes=assets["canvas_bytes"],
+        filename="smart-canvas-expand.png",
+        content_type="image/png",
+        final_prompt=build_smart_expand_prompt(
+            requested_width=requested_width,
+            requested_height=requested_height,
+            placement=assets["placement"],
+            preserve_union=assets["preserve_union"],
+            strength=strength,
+        ),
+        aspect_ratio=_base_size_to_aspect_ratio(expand_width, expand_height),
+        quality=openai_quality,
+        openai_key=openai_key,
+        openai_size=f"{expand_width}x{expand_height}",
+        mask_bytes=assets["mask_bytes"],
+        input_fidelity="high",
+    )
+
+    expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
+    finalized_bytes = overlay_hard_preserve_regions(
+        expanded_bytes=expanded_bytes,
+        source_canvas_bytes=assets["canvas_bytes"],
+        hard_boxes=assets["hard_preserve_boxes"],
+        feather_px=assets["hard_feather"],
+    )
+
+    next_result = dict(result)
+    next_result["url"] = _result_url_from_image_bytes(finalized_bytes, "image/png")
+    next_result["expanded_canvas"] = {
+        "width": expand_width,
+        "height": expand_height,
+        "placement": assets["placement"],
+        "preserve_union": assets["preserve_union"],
+        "hard_preserve_boxes": assets["hard_preserve_boxes"],
+        "strategy": "smart_recompose",
+        "strength": strength,
+    }
+    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Recompose sem crop"
+    return next_result
+
+
+async def _expand_image_to_supported_canvas(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    openai_key: str,
+    openai_quality: str,
+    requested_width: int,
+    requested_height: int,
+    strategy: str = "auto",
+) -> Dict[str, Any]:
+    source_width, source_height = _read_image_dimensions(image_bytes)
+    normalized_strategy = (strategy or "auto").strip().lower()
+
+    if normalized_strategy == "preserve":
+        return await _expand_image_to_supported_canvas_preserve(
+            client=client,
+            image_bytes=image_bytes,
+            openai_key=openai_key,
+            openai_quality=openai_quality,
+            requested_width=requested_width,
+            requested_height=requested_height,
+        )
+
+    use_smart = normalized_strategy == "smart"
+    if normalized_strategy == "auto":
+        use_smart = _is_strong_canvas_recompose_case(
+            source_width=source_width,
+            source_height=source_height,
+            target_width=requested_width,
+            target_height=requested_height,
+        )
+
+    if use_smart:
+        return await _expand_image_to_supported_canvas_smart(
+            client=client,
+            image_bytes=image_bytes,
+            openai_key=openai_key,
+            openai_quality=openai_quality,
+            requested_width=requested_width,
+            requested_height=requested_height,
+            strength=_smart_expand_strength_from_geometry(
+                source_width=source_width,
+                source_height=source_height,
+                target_width=requested_width,
+                target_height=requested_height,
+            ),
+        )
+
+    return await _expand_image_to_supported_canvas_preserve(
+        client=client,
+        image_bytes=image_bytes,
+        openai_key=openai_key,
+        openai_quality=openai_quality,
+        requested_width=requested_width,
+        requested_height=requested_height,
+    )
 
 
 def _build_change_mask_from_original(
@@ -3518,7 +3751,11 @@ async def image_engine_edit_stream(
         )
     )
 
-    if final_target_dimensions and preserve_expand_needed:
+    if final_target_dimensions and preserve_expand_needed and canvas_only_edit:
+        base_width, base_height = _choose_best_supported_base_size(*final_target_dimensions)
+        engine_aspect_ratio = _base_size_to_aspect_ratio(base_width, base_height)
+        openai_size = f"{base_width}x{base_height}"
+    elif final_target_dimensions and preserve_expand_needed:
         base_width, base_height = _choose_best_supported_base_size(source_width, source_height)
         engine_aspect_ratio = _base_size_to_aspect_ratio(base_width, base_height)
         openai_size = f"{base_width}x{base_height}"
@@ -3564,9 +3801,25 @@ async def image_engine_edit_stream(
                         expand_without_crop_needed=preserve_expand_needed,
                     )
                     final_prompt = ""
+                    expand_strategy = (
+                        "smart_recompose"
+                        if preserve_expand_needed and _is_strong_canvas_recompose_case(
+                            source_width=source_width,
+                            source_height=source_height,
+                            target_width=final_target_dimensions[0],
+                            target_height=final_target_dimensions[1],
+                        )
+                        else "preserve"
+                    )
+
                     if preserve_expand_needed:
                         yield _sse({
-                            "status": "Pedido identificado como adaptação de formato/canvas sem crop. Expandindo a peça com IA para chegar ao tamanho exato sem blur, espelhamento ou duplicação.",
+                            "status": (
+                                "Pedido identificado como adaptação de formato/canvas. "
+                                "Aplicando recomposição inteligente em uma única chamada de IA para ocupar melhor a largura e reduzir seams."
+                                if expand_strategy == "smart_recompose"
+                                else "Pedido identificado como adaptação de formato/canvas sem crop. Expandindo a peça com IA em uma única chamada."
+                            ),
                             "progress": 58,
                             "localized_mode": False,
                             "localized_analysis": None,
@@ -3576,7 +3829,7 @@ async def image_engine_edit_stream(
                                 "use_local_remove_first": False,
                                 "use_local_render_first": False,
                                 "call_openai_edit": True,
-                                "reason": "canvas_only_expand_exact",
+                                "reason": "canvas_only_smart_recompose" if expand_strategy == "smart_recompose" else "canvas_only_expand_exact",
                             },
                         })
 
@@ -3588,10 +3841,11 @@ async def image_engine_edit_stream(
                                 openai_quality=openai_quality,
                                 requested_width=final_target_dimensions[0],
                                 requested_height=final_target_dimensions[1],
+                                strategy="smart" if expand_strategy == "smart_recompose" else "preserve",
                             )
                         except Exception as expand_exc:
                             raise RuntimeError(
-                                "Falha ao expandir o canvas para o tamanho exato solicitado sem crop. "
+                                "Falha ao adaptar o canvas para o tamanho exato solicitado sem crop. "
                                 "O sistema não aplicou blur, espelhamento ou duplicação como fallback. "
                                 f"Detalhe: {str(expand_exc)}"
                             )
@@ -3968,8 +4222,22 @@ async def image_engine_edit_stream(
                             raise
 
                 if preserve_expand_needed and final_target_dimensions:
+                    expand_strategy = (
+                        "smart"
+                        if _is_strong_canvas_recompose_case(
+                            source_width=source_width,
+                            source_height=source_height,
+                            target_width=final_target_dimensions[0],
+                            target_height=final_target_dimensions[1],
+                        )
+                        else "auto"
+                    )
                     yield _sse({
-                        "status": "Edição aplicada. Expandindo o canvas final sem crop para preencher o formato solicitado.",
+                        "status": (
+                            "Edição aplicada. Recomponto o canvas final com recomposição inteligente para preencher o formato solicitado sem seams aparentes."
+                            if expand_strategy == "smart"
+                            else "Edição aplicada. Expandindo o canvas final sem crop para preencher o formato solicitado."
+                        ),
                         "progress": 76,
                         "localized_mode": localized_mode,
                         "localized_analysis": localized_analysis,
@@ -3995,6 +4263,7 @@ async def image_engine_edit_stream(
                             openai_quality=openai_quality,
                             requested_width=final_target_dimensions[0],
                             requested_height=final_target_dimensions[1],
+                            strategy=expand_strategy,
                         )
                     except Exception as expand_exc:
                         raise RuntimeError(
