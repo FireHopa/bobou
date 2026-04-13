@@ -639,6 +639,19 @@ function createInitialAssistantMessages(): ChatMessage[] {
   ];
 }
 
+function normalizeResizeOptions(options: {
+  preserveOriginalFrame: boolean;
+  allowResizeCrop: boolean;
+}) {
+  const preserveOriginalFrame = Boolean(options.preserveOriginalFrame);
+  const allowResizeCrop = preserveOriginalFrame ? false : Boolean(options.allowResizeCrop);
+
+  return {
+    preserveOriginalFrame,
+    allowResizeCrop,
+  };
+}
+
 function createDefaultProjectSnapshot(): ProjectSnapshot {
   return {
     formato: "quadrado_1_1",
@@ -758,9 +771,15 @@ async function deserializeProjectSnapshot(snapshot?: PersistedProjectSnapshot | 
         })
     : [];
 
+  const normalizedResizeOptions = normalizeResizeOptions({
+    preserveOriginalFrame: snapshot.preserveOriginalFrame ?? fallback.preserveOriginalFrame,
+    allowResizeCrop: snapshot.allowResizeCrop ?? fallback.allowResizeCrop,
+  });
+
   return {
     ...fallback,
     ...snapshot,
+    ...normalizedResizeOptions,
     messages:
       Array.isArray(snapshot.messages) && snapshot.messages.length > 0
         ? snapshot.messages
@@ -806,6 +825,21 @@ export default function ImageEditReferenceView({ onBack }: Props) {
     width: typeof window !== "undefined" ? window.innerWidth : 1600,
     height: typeof window !== "undefined" ? window.innerHeight : 900,
   });
+
+  const handleTogglePreserveOriginalFrame = useCallback(() => {
+    setPreserveOriginalFrame((current) => {
+      const next = !current;
+      if (next) {
+        setAllowResizeCrop(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleAllowResizeCrop = useCallback(() => {
+    if (preserveOriginalFrame) return;
+    setAllowResizeCrop((current) => !current);
+  }, [preserveOriginalFrame]);
 
   const baseInputRef = useRef<HTMLInputElement | null>(null);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
@@ -953,13 +987,18 @@ const persistProjectsToServer = useCallback(
 const applyProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
   projectHydratingRef.current = true;
 
+  const normalizedResizeOptions = normalizeResizeOptions({
+    preserveOriginalFrame: snapshot.preserveOriginalFrame,
+    allowResizeCrop: snapshot.allowResizeCrop,
+  });
+
   setFormato(snapshot.formato);
   setQualidade(snapshot.qualidade);
   setResolutionMode(snapshot.resolutionMode);
   setCustomWidth(snapshot.customWidth);
   setCustomHeight(snapshot.customHeight);
-  setPreserveOriginalFrame(snapshot.preserveOriginalFrame);
-  setAllowResizeCrop(snapshot.allowResizeCrop);
+  setPreserveOriginalFrame(normalizedResizeOptions.preserveOriginalFrame);
+  setAllowResizeCrop(normalizedResizeOptions.allowResizeCrop);
   setEditScope(snapshot.editScope ?? "auto");
   setPromptInput(snapshot.promptInput);
   setStatusText(snapshot.statusText);
@@ -978,24 +1017,31 @@ const applyProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
 }, []);
 
 const buildProjectSnapshot = useCallback(
-  (): ProjectSnapshot => ({
-    formato,
-    qualidade,
-    resolutionMode,
-    customWidth,
-    customHeight,
-    preserveOriginalFrame,
-    allowResizeCrop,
-    editScope,
-    promptInput,
-    statusText,
-    messages,
-    baseReference,
-    canvasItems,
-    selectedItemId,
-    viewport,
-    hasManualViewport,
-  }),
+  (): ProjectSnapshot => {
+    const normalizedResizeOptions = normalizeResizeOptions({
+      preserveOriginalFrame,
+      allowResizeCrop,
+    });
+
+    return {
+      formato,
+      qualidade,
+      resolutionMode,
+      customWidth,
+      customHeight,
+      preserveOriginalFrame: normalizedResizeOptions.preserveOriginalFrame,
+      allowResizeCrop: normalizedResizeOptions.allowResizeCrop,
+      editScope,
+      promptInput,
+      statusText,
+      messages,
+      baseReference,
+      canvasItems,
+      selectedItemId,
+      viewport,
+      hasManualViewport,
+    };
+  },
   [
     allowResizeCrop,
     baseReference,
@@ -1736,13 +1782,18 @@ const handleDeleteProject = useCallback(
       ]);
       setSelectedItemId(pendingCanvasItemId);
 
+      const resizeOptions = normalizeResizeOptions({
+        preserveOriginalFrame,
+        allowResizeCrop,
+      });
+
       const formData = new FormData();
       formData.append("reference_image", baseReference.file);
       formData.append("formato", effectiveFormato);
       formData.append("qualidade", qualidade);
       formData.append("instrucoes_edicao", instruction);
-      formData.append("preserve_original_frame", String(preserveOriginalFrame));
-      formData.append("allow_resize_crop", String(allowResizeCrop));
+      formData.append("preserve_original_frame", String(resizeOptions.preserveOriginalFrame));
+      formData.append("allow_resize_crop", String(resizeOptions.allowResizeCrop));
       formData.append("edit_scope", editScope);
 
       if (resolutionMode === "custom" && hasValidCustomDimensions) {
@@ -2698,24 +2749,30 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                     {[
                       {
                         label: "Preservar enquadramento original",
-                        description: "Mantém todo o conteúdo já visível da base. Se a proporção mudar, o sistema tenta expandir o canvas com IA antes de recorrer a fallback sem crop.",
+                        description: "Mantém tudo que já está visível. Se a proporção mudar e crop estiver desligado, o sistema tenta expandir a peça com IA. Se falhar, ele interrompe em vez de inventar blur, espelhamento ou duplicação.",
                         value: preserveOriginalFrame,
-                        setValue: setPreserveOriginalFrame,
+                        disabled: false,
+                        onToggle: handleTogglePreserveOriginalFrame,
                       },
                       {
                         label: "Permitir crop para preencher 100%",
-                        description: "Quando ligado, o arquivo final pode cortar as sobras para ocupar todo o width/height. Quando desligado, o sistema mantém o tamanho exato sem distorcer e sem crop agressivo.",
+                        description: preserveOriginalFrame
+                          ? "Indisponível enquanto a preservação integral do enquadramento estiver ativa."
+                          : "Quando ligado, o arquivo final pode cortar as sobras para ocupar todo o width/height. Quando desligado, o sistema usa expansão com IA quando a proporção muda, sem inventar borda artificial.",
                         value: allowResizeCrop,
-                        setValue: setAllowResizeCrop,
+                        disabled: preserveOriginalFrame,
+                        onToggle: handleToggleAllowResizeCrop,
                       },
                     ].map((toggle) => (
                       <button
                         key={toggle.label}
                         type="button"
-                        onClick={() => toggle.setValue((current: boolean) => !current)}
+                        onClick={toggle.disabled ? undefined : toggle.onToggle}
+                        disabled={toggle.disabled}
                         className={cn(
                           "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-all",
-                          toggle.value ? "border-blue-400/25 bg-blue-500/10" : "border-white/10 bg-slate-950/50 hover:bg-white/[0.04]"
+                          toggle.value ? "border-blue-400/25 bg-blue-500/10" : "border-white/10 bg-slate-950/50 hover:bg-white/[0.04]",
+                          toggle.disabled && "cursor-not-allowed opacity-60 hover:bg-slate-950/50"
                         )}
                       >
                         <div className="pr-4">
