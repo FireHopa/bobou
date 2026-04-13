@@ -306,6 +306,267 @@ def list_local_text_candidate_rects(image_bytes: bytes) -> List[Tuple[int, int, 
     return rects
 
 
+
+def _rank_local_text_candidates(
+    candidates: List[Dict[str, Any]],
+    width: int,
+    height: int,
+    base_analysis: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    if not candidates:
+        return []
+
+    anchor = None
+    if base_analysis:
+        anchor = _norm_box_to_px(
+            base_analysis.get("text_bbox") or base_analysis.get("bbox") or base_analysis.get("container_bbox"),
+            width,
+            height,
+        )
+
+    diag = max(1.0, math.hypot(width, height))
+    ranked: List[Tuple[float, Dict[str, Any]]] = []
+
+    for item in candidates:
+        px = item.get("px_bbox") or {}
+        rect = (
+            int(px.get("x1", 0)),
+            int(px.get("y1", 0)),
+            int(px.get("x2", 0)),
+            int(px.get("y2", 0)),
+        )
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            continue
+
+        score = float(item.get("score", 0.0) or 0.0)
+        rect_w = max(1, rect[2] - rect[0])
+        rect_h = max(1, rect[3] - rect[1])
+        aspect = rect_w / max(1.0, rect_h)
+        area_ratio = (rect_w * rect_h) / float(max(1, width * height))
+
+        score += min(0.22, max(0.0, aspect - 1.0) * 0.03)
+        if area_ratio < 0.00008 or area_ratio > 0.16:
+            score -= 0.18
+
+        if anchor:
+            iou = _rect_iou(anchor, rect)
+            proximity = 1.0 - min(1.0, _rect_center_distance(anchor, rect) / max(1.0, diag * 0.20))
+            row_bonus = 0.20 if _same_text_row(anchor, rect) else -0.08
+            score += (iou * 1.25) + (proximity * 0.42) + row_bonus
+
+        ranked.append((score, item))
+
+    ranked.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in ranked]
+
+
+def _build_candidate_recovery_sheet(
+    image_bytes: bytes,
+    candidates: List[Dict[str, Any]],
+    width: int,
+    height: int,
+) -> Tuple[bytes, List[Dict[str, Any]]]:
+    if not candidates:
+        raise ValueError("Nenhum candidato disponível para montar o painel de recuperação.")
+
+    items = candidates[:8]
+    tile_w = 320
+    tile_h = 180
+    cols = 2
+    rows = math.ceil(len(items) / cols)
+    header_h = 54
+    gap = 14
+    sheet_w = cols * tile_w + (cols + 1) * gap
+    sheet_h = header_h + rows * tile_h + (rows + 1) * gap
+
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        original = im.convert("RGBA")
+        sheet = Image.new("RGBA", (sheet_w, sheet_h), (13, 18, 29, 255))
+        draw = ImageDraw.Draw(sheet)
+        label_font = ImageFont.load_default()
+
+        draw.text(
+            (gap, 14),
+            "Seleção de candidato local — cada painel mostra um recorte ampliado da região textual detectada.",
+            fill=(245, 248, 255, 255),
+            font=label_font,
+        )
+
+        manifest: List[Dict[str, Any]] = []
+        for idx, item in enumerate(items, start=1):
+            px = item.get("px_bbox") or {}
+            rect = (
+                int(px.get("x1", 0)),
+                int(px.get("y1", 0)),
+                int(px.get("x2", 0)),
+                int(px.get("y2", 0)),
+            )
+            if rect[2] <= rect[0] or rect[3] <= rect[1]:
+                continue
+
+            pad_x = max(20, int((rect[2] - rect[0]) * 0.45))
+            pad_y = max(18, int((rect[3] - rect[1]) * 0.90))
+            crop_rect = _inflate_rect(rect, pad_x, pad_y, width, height)
+            crop = original.crop(crop_rect)
+
+            thumb = crop.copy()
+            thumb.thumbnail((tile_w - 26, tile_h - 44), Image.Resampling.LANCZOS)
+
+            row = (idx - 1) // cols
+            col = (idx - 1) % cols
+            origin_x = gap + col * (tile_w + gap)
+            origin_y = header_h + gap + row * (tile_h + gap)
+
+            draw.rounded_rectangle(
+                (origin_x, origin_y, origin_x + tile_w, origin_y + tile_h),
+                radius=16,
+                fill=(20, 26, 42, 255),
+                outline=(56, 79, 126, 255),
+                width=2,
+            )
+
+            thumb_x = origin_x + ((tile_w - thumb.width) // 2)
+            thumb_y = origin_y + 32 + ((tile_h - 42 - thumb.height) // 2)
+            sheet.alpha_composite(thumb, (thumb_x, thumb_y))
+
+            draw.rounded_rectangle(
+                (origin_x + 10, origin_y + 8, origin_x + 42, origin_y + 28),
+                radius=10,
+                fill=(44, 108, 255, 255),
+            )
+            draw.text((origin_x + 19, origin_y + 13), str(idx), fill=(255, 255, 255, 255), font=label_font)
+
+            bbox_norm = item.get("bbox")
+            manifest.append(
+                {
+                    "index": idx,
+                    "bbox": bbox_norm,
+                    "score": round(float(item.get("score", 0.0) or 0.0), 4),
+                }
+            )
+
+        out = io.BytesIO()
+        sheet.save(out, format="PNG")
+        return out.getvalue(), manifest
+
+
+async def recover_localized_analysis_from_candidates(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    content_type: str,
+    instruction: str,
+    model: str,
+    api_key: str,
+    base_analysis: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    replacement = _extract_text_replacement(instruction)
+    if not replacement:
+        return None
+
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        width, height = im.size
+
+    candidates = _rank_local_text_candidates(
+        _local_text_candidates(image_bytes),
+        width,
+        height,
+        base_analysis=base_analysis,
+    )
+    if not candidates:
+        return None
+
+    sheet_bytes, manifest = _build_candidate_recovery_sheet(image_bytes, candidates, width, height)
+    sheet_data_url = _data_uri_from_bytes(sheet_bytes, "image/png")
+    image_data_url = _data_uri_from_bytes(image_bytes, content_type)
+
+    expected_operation = _operation_from_action(replacement.get("action"), "text_replace")
+    payload = await _ask_openai_for_json(
+        client,
+        api_key,
+        model,
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Você seleciona o melhor candidato visual para uma edição textual localizada. "
+                    "Responda somente JSON válido com {"
+                    '"candidate_index": number | null, '
+                    '"confidence": number, '
+                    '"reason": string}. '
+                    "Escolha apenas um índice se o recorte realmente contiver o texto-alvo pedido ou a região exata mais provável. "
+                    "Se nenhum candidato servir, retorne candidate_index=null e confidence baixa."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Instrução: {instruction}\n"
+                            f"Texto alvo: {replacement.get('old_text') or ''}\n"
+                            f"Operação esperada: {expected_operation}\n"
+                            f"Candidatos disponíveis: {json.dumps(manifest, ensure_ascii=False)}\n"
+                            "A primeira imagem é a arte completa. A segunda imagem mostra os recortes numerados. "
+                            "Escolha o índice do recorte que melhor representa a região exata a editar."
+                        ),
+                    },
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                    {"type": "image_url", "image_url": {"url": sheet_data_url}},
+                ],
+            },
+        ],
+    )
+
+    try:
+        candidate_index = int(payload.get("candidate_index")) if payload.get("candidate_index") is not None else None
+    except Exception:
+        candidate_index = None
+
+    confidence = float(payload.get("confidence", 0.0) or 0.0)
+    if candidate_index is None or confidence < 0.40:
+        return None
+
+    selected = next((item for item in manifest if int(item["index"]) == candidate_index), None)
+    if not selected:
+        return None
+
+    rect = _norm_box_to_px(selected.get("bbox"), width, height)
+    if not rect:
+        return None
+
+    rw = max(1, rect[2] - rect[0])
+    rh = max(1, rect[3] - rect[1])
+    if expected_operation == "text_remove":
+        pad_x = max(4, int(round(rw * 0.10)))
+        pad_y = max(4, int(round(rh * 0.18)))
+    else:
+        pad_x = max(8, int(round(rw * 0.16)))
+        pad_y = max(8, int(round(rh * 0.26)))
+
+    analysis: Dict[str, Any] = {
+        "confidence": round(min(0.92, max(0.54, confidence)), 4),
+        "operation": expected_operation,
+        "target_text": replacement["old_text"],
+        "replacement_text": replacement["new_text"],
+        "bbox": _px_box_to_norm(_inflate_rect(rect, pad_x, pad_y, width, height), width, height),
+        "text_bbox": _px_box_to_norm(rect, width, height),
+        "reason": f"candidate-recovery:{payload.get('reason') or 'visual-match'}",
+        "style": {},
+        "candidate_recovered": True,
+        "candidate_index": candidate_index,
+        "detection_mode": "candidate_panel_recovery",
+    }
+
+    if base_analysis and expected_operation == "button_text_replace":
+        container_rect = _norm_box_to_px(base_analysis.get("container_bbox"), width, height)
+        if container_rect:
+            analysis["container_bbox"] = _px_box_to_norm(container_rect, width, height)
+
+    analysis = _estimate_style_from_pixels(image_bytes, analysis)
+    return analysis
+
+
 def _load_font(
     size: int,
     bold: bool = False,
@@ -660,6 +921,11 @@ def _sanitize_analysis(data: Dict[str, Any], replacement: Dict[str, str], width:
             "border_color": style.get("border_color"),
             "border_radius": float(style.get("border_radius") or 0.0),
             "shadow": bool(style.get("shadow", False)),
+            "shadow_alpha": _safe_float(style.get("shadow_alpha"), 0.0),
+            "shadow_offset_x": _safe_float(style.get("shadow_offset_x"), 0.0),
+            "shadow_offset_y": _safe_float(style.get("shadow_offset_y"), 0.0),
+            "shadow_blur": _safe_float(style.get("shadow_blur"), 0.0),
+            "shadow_color": style.get("shadow_color"),
             "glow": bool(style.get("glow", False)),
             "font_weight": (style.get("font_weight") or ("regular" if operation in {"append_right", "append_left"} else "regular")).lower(),
             "font_family_hint": (style.get("font_family_hint") or "sans").lower(),
@@ -667,6 +933,7 @@ def _sanitize_analysis(data: Dict[str, Any], replacement: Dict[str, str], width:
             "baseline_mode": (style.get("baseline_mode") or ("anchor_top" if operation in {"append_right", "append_left"} else "center")).lower(),
             "append_gap": _safe_float(style.get("append_gap"), 0.0),
             "stroke_width": int(_safe_float(style.get("stroke_width"), 0.0)),
+            "stroke_fill": style.get("stroke_fill"),
         },
     }
     if bbox:
@@ -840,6 +1107,7 @@ def _sample_region_mean(image: Image.Image, rect: Tuple[int, int, int, int]) -> 
     return tuple(int(v) for v in vals)
 
 
+
 def _estimate_style_from_pixels(
     image_bytes: bytes,
     analysis: Dict[str, Any],
@@ -869,15 +1137,50 @@ def _estimate_style_from_pixels(
 
             inner = image.crop(anchor).convert("RGB")
             arr = np.array(inner)
-            if arr.size and "glow" not in style:
+            if arr.size:
                 luminance = 0.2126 * arr[:, :, 0] + 0.7152 * arr[:, :, 1] + 0.0722 * arr[:, :, 2]
                 flat = arr.reshape(-1, 3)
                 top_n = max(8, len(flat) // 7)
+
                 dark = flat[np.argsort(luminance.reshape(-1))[:top_n]]
                 light = flat[np.argsort(luminance.reshape(-1))[-top_n:]]
                 dark_mean = tuple(int(x) for x in dark.mean(axis=0)) if len(dark) else (20, 20, 20)
                 light_mean = tuple(int(x) for x in light.mean(axis=0)) if len(light) else (235, 235, 235)
-                style["glow"] = operation == "button_text_replace" and abs(sum(light_mean) - sum(dark_mean)) > 360 and max(abs(light_mean[i] - dark_mean[i]) for i in range(3)) > 90
+
+                text_rgb = ImageColor.getrgb(_hex_or_default(style.get("text_color"), "#FFFFFF"))
+                text_lum = 0.2126 * text_rgb[0] + 0.7152 * text_rgb[1] + 0.0722 * text_rgb[2]
+                dark_lum = 0.2126 * dark_mean[0] + 0.7152 * dark_mean[1] + 0.0722 * dark_mean[2]
+                light_lum = 0.2126 * light_mean[0] + 0.7152 * light_mean[1] + 0.0722 * light_mean[2]
+
+                inferred_glow = (
+                    operation == "button_text_replace"
+                    and abs(sum(light_mean) - sum(dark_mean)) > 360
+                    and max(abs(light_mean[i] - dark_mean[i]) for i in range(3)) > 90
+                )
+                inferred_shadow = (
+                    text_lum >= 145
+                    and dark_lum <= 110
+                    and max(abs(text_rgb[i] - dark_mean[i]) for i in range(3)) >= 70
+                )
+
+                if "glow" not in style:
+                    style["glow"] = inferred_glow
+                if "shadow" not in style:
+                    style["shadow"] = inferred_shadow
+
+                style.setdefault("shadow_alpha", 110.0 if not style.get("glow") else 74.0)
+                style.setdefault("shadow_offset_x", round(max(1.0, text_h * 0.045), 2))
+                style.setdefault("shadow_offset_y", round(max(1.0, text_h * 0.055), 2))
+                style.setdefault("shadow_blur", round(max(0.6, text_h * 0.025), 2))
+                style.setdefault("shadow_color", _rgb_to_hex(dark_mean))
+
+                if style.get("shadow") and not style.get("stroke_fill") and text_lum >= 145:
+                    style["stroke_fill"] = _rgb_to_hex(dark_mean)
+                    style["stroke_width"] = max(int(_safe_float(style.get("stroke_width"), 0.0)), 1)
+
+                if style.get("glow") and not style.get("stroke_fill"):
+                    style["stroke_fill"] = _rgb_to_hex(light_mean)
+                    style["stroke_width"] = max(int(_safe_float(style.get("stroke_width"), 0.0)), 1)
 
         if container_rect:
             if not style.get("background_color"):
@@ -895,6 +1198,7 @@ def _estimate_style_from_pixels(
         style.setdefault("font_family_hint", "sans")
         analysis["style"] = style
         return analysis
+
 
 
 async def _ask_openai_for_json(
@@ -1079,12 +1383,123 @@ def should_use_localized_edit(analysis: Optional[Dict[str, Any]]) -> bool:
     text_bbox = analysis.get("text_bbox")
     bbox = analysis.get("bbox")
     mode = analysis.get("detection_mode")
-    refined = bool(analysis.get("candidate_refined") or analysis.get("refined_pass"))
+    refined = bool(analysis.get("candidate_refined") or analysis.get("refined_pass") or analysis.get("candidate_recovered"))
     if confidence >= 0.58:
         return bool(text_bbox or bbox)
-    if confidence >= 0.48 and refined and mode == "two_pass_localized":
+    if confidence >= 0.52 and analysis.get("candidate_recovered"):
+        return bool(text_bbox or bbox)
+    if confidence >= 0.48 and refined and mode in {"two_pass_localized", "candidate_panel_recovery"}:
         return bool(text_bbox or bbox)
     return False
+
+
+
+
+
+def should_use_local_text_erase(
+    analysis: Optional[Dict[str, Any]],
+    instruction_info: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """
+    Remove texto localmente apenas quando a detecção estiver forte o suficiente.
+    Isso evita apagar regiões erradas em layouts densos.
+    """
+    if not analysis:
+        return False
+
+    instruction_info = instruction_info or {}
+    if instruction_info.get("edit_action") != "remove":
+        return False
+
+    confidence = float(analysis.get("confidence", 0.0) or 0.0)
+    operation = (analysis.get("operation") or "text_remove").lower()
+    if operation != "text_remove":
+        return False
+
+    text_bbox_norm = analysis.get("text_bbox") or analysis.get("bbox")
+    if not text_bbox_norm:
+        logger.debug("Local erase desativado: nenhuma caixa de texto segura encontrada.")
+        return False
+
+    try:
+        box_w = float(text_bbox_norm.get("w", 0.0) or 0.0)
+        box_h = float(text_bbox_norm.get("h", 0.0) or 0.0)
+    except Exception:
+        logger.debug("Local erase desativado: caixa inválida.")
+        return False
+
+    if box_w <= 0.0 or box_h <= 0.0:
+        logger.debug("Local erase desativado: caixa sem área.")
+        return False
+
+    minimum_confidence = 0.72
+    if analysis.get("candidate_recovered"):
+        minimum_confidence = 0.60
+    elif analysis.get("candidate_refined") or analysis.get("refined_pass"):
+        minimum_confidence = 0.66
+
+    if confidence < minimum_confidence:
+        logger.debug(
+            "Local erase desativado: confiança %.3f abaixo do mínimo %.3f.",
+            confidence,
+            minimum_confidence,
+        )
+        return False
+
+    logger.debug("Local erase ativado para remoção textual determinística.")
+    return True
+
+
+def build_mask_from_analysis(
+    image_bytes: bytes,
+    analysis: Dict[str, Any],
+) -> Optional[bytes]:
+    """
+    Constrói uma máscara conservadora para edição localizada.
+    Branco preserva a imagem; preto libera a região editável.
+    """
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        rgba = im.convert("RGBA")
+        width, height = rgba.size
+
+        base_rect = _norm_box_to_px(analysis.get("bbox"), width, height)
+        text_rect = _norm_box_to_px(analysis.get("text_bbox"), width, height)
+        container_rect = _norm_box_to_px(analysis.get("container_bbox"), width, height)
+        operation = analysis.get("operation") or "text_replace"
+        edit_rect = text_rect or base_rect or container_rect
+        if not edit_rect:
+            return None
+
+        if operation == "button_text_replace" and container_rect and text_rect:
+            bw = container_rect[2] - container_rect[0]
+            pad_x = max(12, int(bw * 0.09))
+            pad_y = max(8, int((text_rect[3] - text_rect[1]) * 0.55))
+            edit_rect = _inflate_rect(text_rect, pad_x, pad_y, width, height)
+        elif text_rect:
+            if operation == "text_remove":
+                pad_x = max(4, int((text_rect[2] - text_rect[0]) * 0.10))
+                pad_y = max(4, int((text_rect[3] - text_rect[1]) * 0.22))
+            else:
+                pad_x = max(8, int((text_rect[2] - text_rect[0]) * 0.22))
+                pad_y = max(8, int((text_rect[3] - text_rect[1]) * 0.38))
+            edit_rect = _inflate_rect(text_rect, pad_x, pad_y, width, height)
+        else:
+            pad_x = max(12, int((edit_rect[2] - edit_rect[0]) * 0.16))
+            pad_y = max(10, int((edit_rect[3] - edit_rect[1]) * 0.24))
+            edit_rect = _inflate_rect(edit_rect, pad_x, pad_y, width, height)
+
+        mask = Image.new("RGBA", (width, height), (255, 255, 255, 255))
+        draw = ImageDraw.Draw(mask)
+        radius = int(float((analysis.get("style") or {}).get("border_radius") or 0.0))
+        draw.rounded_rectangle(
+            edit_rect,
+            radius=max(6, radius // 2 if radius else 10),
+            fill=(0, 0, 0, 0),
+        )
+
+        out = io.BytesIO()
+        mask.save(out, format="PNG")
+        return out.getvalue()
 
 
 
@@ -1120,9 +1535,13 @@ def should_use_local_text_render(
         logger.debug("Local render desativado: nenhuma caixa útil encontrada.")
         return False
 
-    minimum_confidence = 0.72 if operation == "button_text_replace" else 0.76
+    minimum_confidence = 0.68 if operation == "button_text_replace" else 0.72
     if operation in {"append_right", "append_left"}:
-        minimum_confidence = 0.78
+        minimum_confidence = 0.76
+    if analysis.get("candidate_recovered"):
+        minimum_confidence -= 0.10
+    elif analysis.get("candidate_refined") or analysis.get("refined_pass"):
+        minimum_confidence -= 0.06
     if confidence < minimum_confidence:
         logger.debug("Local render desativado: confiança %.3f abaixo do mínimo %.3f.", confidence, minimum_confidence)
         return False
@@ -1144,7 +1563,7 @@ def should_use_local_text_render(
         logger.debug("Local render desativado: operações append agora preferem composição local via crop com IA.")
         return False
 
-    if len(replacement_text) > 64:
+    if len(replacement_text) > 96:
         logger.debug("Local render desativado: replacement_text longo demais (%s chars).", len(replacement_text))
         return False
 
@@ -1152,105 +1571,19 @@ def should_use_local_text_render(
         old_len = max(1, len(target_text))
         new_len = len(replacement_text)
         ratio = new_len / float(old_len)
-        if operation in {"append_right", "append_left"}:
-            if ratio > 2.6:
-                logger.debug("Local render desativado: append muito longo para o texto âncora (ratio=%.3f).", ratio)
-                return False
-        elif ratio < 0.45 or ratio > 2.25:
+        max_ratio = 4.0 if container_bbox_norm else 3.2
+        if ratio < 0.28 or ratio > max_ratio:
             logger.debug("Local render desativado: delta de comprimento inseguro (ratio=%.3f).", ratio)
             return False
 
-    if operation == "button_text_replace" and aspect < 1.5:
+    if operation == "button_text_replace" and aspect < 1.35:
         logger.debug("Local render desativado: botão/chip estreito demais (aspect=%.3f).", aspect)
-        return False
-
-    if style.get("glow") and operation not in {"button_text_replace"}:
-        logger.debug("Local render desativado: glow em texto livre aumenta risco de artefato.")
         return False
 
     logger.debug("Local render ativado para troca textual determinística.")
     return True
 
 
-def should_use_local_text_erase(
-    analysis: Optional[Dict[str, Any]],
-    instruction_info: Optional[Dict[str, Any]] = None,
-) -> bool:
-    if not analysis:
-        return False
-
-    instruction_info = instruction_info or {}
-    if instruction_info.get("edit_action") != "remove":
-        return False
-
-    confidence = float(analysis.get("confidence", 0.0) or 0.0)
-    operation = (analysis.get("operation") or "text_remove").lower()
-    if operation != "text_remove":
-        return False
-
-    text_bbox_norm = analysis.get("text_bbox") or analysis.get("bbox")
-    if not text_bbox_norm:
-        logger.debug("Local erase desativado: nenhuma caixa de texto segura encontrada.")
-        return False
-
-    try:
-        box_w = float(text_bbox_norm.get("w", 0.0) or 0.0)
-        box_h = float(text_bbox_norm.get("h", 0.0) or 0.0)
-    except Exception:
-        logger.debug("Local erase desativado: caixa inválida.")
-        return False
-
-    if box_w <= 0.0 or box_h <= 0.0:
-        logger.debug("Local erase desativado: caixa sem área.")
-        return False
-
-    minimum_confidence = 0.72
-    if confidence < minimum_confidence:
-        logger.debug("Local erase desativado: confiança %.3f abaixo do mínimo %.3f.", confidence, minimum_confidence)
-        return False
-
-    logger.debug("Local erase ativado para remoção textual determinística.")
-    return True
-
-
-def build_mask_from_analysis(
-    image_bytes: bytes,
-    analysis: Dict[str, Any],
-) -> Optional[bytes]:
-    with Image.open(io.BytesIO(image_bytes)) as im:
-        rgba = im.convert("RGBA")
-        width, height = rgba.size
-
-        base_rect = _norm_box_to_px(analysis.get("bbox"), width, height)
-        text_rect = _norm_box_to_px(analysis.get("text_bbox"), width, height)
-        container_rect = _norm_box_to_px(analysis.get("container_bbox"), width, height)
-        operation = analysis.get("operation") or "text_replace"
-        edit_rect = text_rect or base_rect or container_rect
-        if not edit_rect:
-            return None
-
-        if operation == "button_text_replace" and container_rect and text_rect:
-            bw = container_rect[2] - container_rect[0]
-            pad_x = max(12, int(bw * 0.09))
-            pad_y = max(8, int((text_rect[3] - text_rect[1]) * 0.55))
-            edit_rect = _inflate_rect(text_rect, pad_x, pad_y, width, height)
-        elif text_rect:
-            pad_x = max(8, int((text_rect[2] - text_rect[0]) * 0.30))
-            pad_y = max(8, int((text_rect[3] - text_rect[1]) * 0.50))
-            edit_rect = _inflate_rect(text_rect, pad_x, pad_y, width, height)
-        else:
-            pad_x = max(12, int((edit_rect[2] - edit_rect[0]) * 0.16))
-            pad_y = max(10, int((edit_rect[3] - edit_rect[1]) * 0.24))
-            edit_rect = _inflate_rect(edit_rect, pad_x, pad_y, width, height)
-
-        mask = Image.new("RGBA", (width, height), (255, 255, 255, 255))
-        draw = ImageDraw.Draw(mask)
-        radius = int(float(analysis.get("style", {}).get("border_radius") or 0.0))
-        draw.rounded_rectangle(edit_rect, radius=max(6, radius // 2 if radius else 10), fill=(0, 0, 0, 0))
-
-        out = io.BytesIO()
-        mask.save(out, format="PNG")
-        return out.getvalue()
 
 
 def _inpaint_rgba(
@@ -1270,7 +1603,6 @@ def _inpaint_rgba(
     inpainted_rgb = cv2.inpaint(rgb, mask, radius, cv2.INPAINT_TELEA)
     merged = np.dstack([inpainted_rgb, alpha])
     return Image.fromarray(merged, mode="RGBA")
-
 
 def _fit_text(
     text: str,
@@ -1343,6 +1675,7 @@ def _fit_text(
         raise
 
 
+
 def _draw_text_with_effects(
     overlay: Image.Image,
     text: str,
@@ -1392,15 +1725,41 @@ def _draw_text_with_effects(
         if style.get("glow"):
             glow = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
             glow_draw = ImageDraw.Draw(glow)
-            glow_draw.multiline_text((tx, ty), content, font=font, fill=(255, 255, 255, 120), spacing=spacing, align=text_align)
-            glow_radius = max(3, int(getattr(font, 'size', 24) * 0.12))
+            glow_draw.multiline_text(
+                (tx, ty),
+                content,
+                font=font,
+                fill=(255, 255, 255, 120),
+                spacing=spacing,
+                align=text_align,
+                stroke_width=stroke_width,
+                stroke_fill=stroke_fill,
+            )
+            glow_radius = max(3, int(getattr(font, "size", 24) * 0.12))
             glow = glow.filter(ImageFilter.GaussianBlur(radius=glow_radius))
             overlay.alpha_composite(glow)
             draw = ImageDraw.Draw(overlay)
 
         if style.get("shadow"):
-            shadow_alpha = 110 if not style.get("glow") else 70
-            draw.multiline_text((tx + 1.5, ty + 1.5), content, font=font, fill=(0, 0, 0, shadow_alpha), spacing=spacing, align=text_align)
+            shadow_layer = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
+            shadow_draw = ImageDraw.Draw(shadow_layer)
+            shadow_offset_x = _safe_float(style.get("shadow_offset_x"), 1.5)
+            shadow_offset_y = _safe_float(style.get("shadow_offset_y"), 1.5)
+            shadow_alpha = int(max(0, min(255, round(_safe_float(style.get("shadow_alpha"), 110.0)))))
+            shadow_blur = max(0.0, _safe_float(style.get("shadow_blur"), max(0.6, getattr(font, "size", 24) * 0.03)))
+            shadow_color = ImageColor.getrgb(_hex_or_default(style.get("shadow_color"), "#000000"))
+            shadow_draw.multiline_text(
+                (tx + shadow_offset_x, ty + shadow_offset_y),
+                content,
+                font=font,
+                fill=(shadow_color[0], shadow_color[1], shadow_color[2], shadow_alpha),
+                spacing=spacing,
+                align=text_align,
+            )
+            if shadow_blur > 0.35:
+                shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=shadow_blur))
+            overlay.alpha_composite(shadow_layer)
+            draw = ImageDraw.Draw(overlay)
 
         draw.multiline_text(
             (tx, ty),
@@ -1415,6 +1774,7 @@ def _draw_text_with_effects(
     except Exception as e:
         logger.error(f"Erro CRÍTICO em _draw_text_with_effects: {e}", exc_info=True)
         raise
+
 
 
 def render_local_text_fallback(
