@@ -611,9 +611,31 @@ def detect_exact_size_recompose_profile(
     if intent["strict_preservation"] and resolved_strength == "high":
         resolved_strength = "medium"
 
+    text_bands = _group_text_rects_by_bands(preserve_text_rects, source_width, source_height)
+    top_text_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "top"]
+    bottom_text_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "bottom"]
+    multi_zone_text = bool(len(text_bands) >= 3 or (top_text_bands and bottom_text_bands))
+
     allow_assisted = bool(text_meta["reliable"] and sanitized_text_rects)
-    prefer_layout_preserve = bool(
+    prefer_fragmented_preserve = bool(
         intent["strict_preservation"]
+        and not intent["allow_layout_recompose"]
+        and strong_geometry_change
+        and (
+            multi_zone_text
+            or (preserve_text_rects and title_pressure and footer_pressure)
+        )
+        and (
+            center_compression
+            or dense_foreground
+            or background_meta["plain"]
+            or score >= 4
+        )
+    )
+
+    prefer_layout_preserve = bool(
+        not prefer_fragmented_preserve
+        and intent["strict_preservation"]
         and not intent["allow_layout_recompose"]
         and orientation_changed
         and (
@@ -631,11 +653,14 @@ def detect_exact_size_recompose_profile(
             or intent["allow_layout_recompose"]
         )
         and not prefer_layout_preserve
+        and not prefer_fragmented_preserve
     )
 
     strategy = "assisted_recompose" if use_assisted_recompose else "simple_expand"
     if prefer_layout_preserve:
         strategy = "layout_preserve"
+    if prefer_fragmented_preserve:
+        strategy = "fragmented_preserve"
 
     return {
         "strategy": strategy,
@@ -656,6 +681,7 @@ def detect_exact_size_recompose_profile(
         "text_rects_reliable": bool(text_meta["reliable"]),
         "text_rects_meta": text_meta,
         "preserve_text_rects": preserve_text_rects,
+        "text_bands": text_bands,
         "background_meta": background_meta,
         "intent": intent,
     }
@@ -898,6 +924,359 @@ def _compute_text_union_for_placement(
         mapped_text_rects.append(_inflate_rect(mapped, pad_x, pad_y, target_width, target_height))
     return mapped_text_rects, _merge_rects(mapped_text_rects)
 
+
+
+
+def _group_text_rects_by_bands(
+    text_rects: Optional[Sequence[Rect]],
+    source_width: int,
+    source_height: int,
+) -> List[Rect]:
+    prepared = _prepare_text_preserve_rects(text_rects, source_width, source_height)
+    if not prepared:
+        return []
+
+    gap_y = max(28, int(round(source_height * 0.045)))
+    groups: List[Rect] = []
+
+    for rect in sorted(prepared, key=lambda item: (item[1], item[0])):
+        attached = False
+        for idx, existing in enumerate(groups):
+            vertical_overlap = max(0, min(existing[3], rect[3]) - max(existing[1], rect[1]))
+            same_band = vertical_overlap > 0 or rect[1] <= existing[3] + gap_y
+            if same_band:
+                groups[idx] = (
+                    min(existing[0], rect[0]),
+                    min(existing[1], rect[1]),
+                    max(existing[2], rect[2]),
+                    max(existing[3], rect[3]),
+                )
+                attached = True
+                break
+        if not attached:
+            groups.append(rect)
+
+    return _dedupe_rects(groups, iou_threshold=0.86)
+
+
+def _extract_padded_patch(
+    source: Image.Image,
+    rect: Rect,
+    pad_x_ratio: float,
+    pad_y_ratio: float,
+) -> Tuple[Image.Image, Rect]:
+    source_width, source_height = source.size
+    rect_width = max(1, rect[2] - rect[0])
+    rect_height = max(1, rect[3] - rect[1])
+    pad_x = max(10, int(round(rect_width * max(0.0, pad_x_ratio))))
+    pad_y = max(10, int(round(rect_height * max(0.0, pad_y_ratio))))
+    crop_rect = _inflate_rect(rect, pad_x, pad_y, source_width, source_height)
+    return source.crop(crop_rect), crop_rect
+
+
+def _resize_patch_to_fit(
+    patch: Image.Image,
+    max_width: int,
+    max_height: int,
+    max_upscale: float = 1.22,
+) -> Image.Image:
+    max_width = max(1, int(max_width))
+    max_height = max(1, int(max_height))
+    patch_width, patch_height = patch.size
+    if patch_width <= 0 or patch_height <= 0:
+        return patch
+
+    scale = min(
+        max_width / max(1.0, float(patch_width)),
+        max_height / max(1.0, float(patch_height)),
+    )
+    scale = max(0.20, min(float(max_upscale), float(scale)))
+    resized_width = max(1, int(round(patch_width * scale)))
+    resized_height = max(1, int(round(patch_height * scale)))
+    if (resized_width, resized_height) == patch.size:
+        return patch
+    return patch.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
+
+
+def _paste_patch_with_feather(
+    canvas: Image.Image,
+    patch: Image.Image,
+    x: int,
+    y: int,
+    feather_px: int,
+) -> Rect:
+    patch_rgba = patch.convert("RGBA")
+    patch_width, patch_height = patch_rgba.size
+    x = _clamp_int(x, 0, max(0, canvas.width - patch_width))
+    y = _clamp_int(y, 0, max(0, canvas.height - patch_height))
+
+    if feather_px <= 0:
+        canvas.alpha_composite(patch_rgba, (x, y))
+        return (x, y, x + patch_width, y + patch_height)
+
+    alpha = Image.new("L", (patch_width, patch_height), 255)
+    alpha = alpha.filter(ImageFilter.GaussianBlur(radius=max(1, int(feather_px))))
+    canvas.paste(patch_rgba, (x, y), alpha)
+    return (x, y, x + patch_width, y + patch_height)
+
+
+def _classify_text_band(rect: Rect, source_height: int) -> str:
+    center_y = (rect[1] + rect[3]) * 0.5
+    normalized = center_y / max(1.0, float(source_height))
+    if normalized <= 0.36:
+        return "top"
+    if normalized >= 0.64:
+        return "bottom"
+    return "middle"
+
+
+def build_exact_size_fragmented_preserve_assets(
+    image_bytes: bytes,
+    plan: Dict[str, Any],
+    profile_info: Dict[str, Any],
+) -> Dict[str, Any]:
+    with Image.open(io.BytesIO(image_bytes)) as image_file:
+        source = image_file.convert("RGBA")
+
+    source_width, source_height = source.size
+    base_width = int(plan["base_width"])
+    base_height = int(plan["base_height"])
+    crop_rect = tuple(int(v) for v in plan["crop_rect"])
+    crop_safe_rect = tuple(int(v) for v in profile_info.get("crop_safe_rect") or crop_rect)
+
+    background = _build_seed_background(source, base_width, base_height, profile_info)
+    canvas = background.copy()
+
+    safe_x1, safe_y1, safe_x2, safe_y2 = crop_safe_rect
+    safe_width = max(1, safe_x2 - safe_x1)
+    safe_height = max(1, safe_y2 - safe_y1)
+
+    margin_x = max(18, int(round(safe_width * 0.038)))
+    margin_y = max(16, int(round(safe_height * 0.038)))
+    inner_x1 = min(safe_x2 - 1, safe_x1 + margin_x)
+    inner_y1 = min(safe_y2 - 1, safe_y1 + margin_y)
+    inner_x2 = max(inner_x1 + 1, safe_x2 - margin_x)
+    inner_y2 = max(inner_y1 + 1, safe_y2 - margin_y)
+
+    text_bands = _group_text_rects_by_bands(
+        profile_info.get("preserve_text_rects"),
+        source_width,
+        source_height,
+    )
+
+    top_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "top"]
+    bottom_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "bottom"]
+    middle_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "middle"]
+
+    if not top_bands and text_bands:
+        top_bands = [text_bands[0]]
+    if not bottom_bands and len(text_bands) >= 2:
+        candidate = text_bands[-1]
+        if candidate not in top_bands:
+            bottom_bands = [candidate]
+    middle_bands = [rect for rect in text_bands if rect not in top_bands and rect not in bottom_bands]
+
+    placed_boxes: List[Rect] = []
+    placed_transition_boxes: List[Rect] = []
+
+    cursor_top = inner_y1
+    cursor_bottom = inner_y2
+    vertical_gap = max(10, int(round(safe_height * 0.020)))
+
+    def _place_text_band(rect: Rect, zone: str) -> None:
+        nonlocal cursor_top, cursor_bottom
+        width_ratio = (rect[2] - rect[0]) / max(1.0, float(source_width))
+
+        patch, _ = _extract_padded_patch(
+            source=source,
+            rect=rect,
+            pad_x_ratio=0.04 if width_ratio >= 0.58 else 0.12,
+            pad_y_ratio=0.34 if zone != "middle" else 0.28,
+        )
+
+        if zone == "top":
+            max_w = int(round((inner_x2 - inner_x1) * 0.94))
+            max_h = int(round(safe_height * (0.18 if len(top_bands) <= 1 else 0.14)))
+        elif zone == "bottom":
+            max_w = int(round((inner_x2 - inner_x1) * 0.94))
+            max_h = int(round(safe_height * (0.16 if len(bottom_bands) <= 1 else 0.13)))
+        else:
+            max_w = int(round((inner_x2 - inner_x1) * 0.24))
+            max_h = int(round(safe_height * 0.11))
+
+        patch = _resize_patch_to_fit(patch, max_width=max_w, max_height=max_h, max_upscale=1.18)
+
+        rect_center_x = ((rect[0] + rect[2]) * 0.5) / max(1.0, float(source_width))
+        if zone == "middle":
+            pass
+        elif rect_center_x <= 0.26:
+            place_x = inner_x1
+        elif rect_center_x >= 0.74:
+            place_x = inner_x2 - patch.width
+        else:
+            place_x = inner_x1 + max(0, ((inner_x2 - inner_x1) - patch.width) // 2)
+
+        if zone == "top":
+            place_y = cursor_top
+            cursor_top = place_y + patch.height + vertical_gap
+        elif zone == "bottom":
+            place_y = cursor_bottom - patch.height
+            cursor_bottom = place_y - vertical_gap
+        else:
+            return
+
+        place_x = _clamp_int(place_x, inner_x1, max(inner_x1, inner_x2 - patch.width))
+        place_y = _clamp_int(place_y, inner_y1, max(inner_y1, inner_y2 - patch.height))
+        box = _paste_patch_with_feather(canvas, patch, place_x, place_y, feather_px=12)
+        placed_boxes.append(box)
+        placed_transition_boxes.append(_inflate_rect(box, 10, 10, base_width, base_height))
+
+    for rect in top_bands:
+        _place_text_band(rect, "top")
+    for rect in reversed(bottom_bands):
+        _place_text_band(rect, "bottom")
+
+    if cursor_bottom <= cursor_top + max(80, int(round(safe_height * 0.18))):
+        cursor_top = inner_y1 + max(12, int(round(safe_height * 0.18)))
+        cursor_bottom = inner_y2 - max(12, int(round(safe_height * 0.18)))
+
+    center_y1 = _clamp_int(cursor_top, inner_y1, inner_y2)
+    center_y2 = _clamp_int(cursor_bottom, center_y1 + 1, inner_y2)
+    if center_y2 - center_y1 < max(120, int(round(safe_height * 0.24))):
+        fallback_pad = max(14, int(round(safe_height * 0.22)))
+        center_y1 = inner_y1 + fallback_pad
+        center_y2 = inner_y2 - fallback_pad
+
+    saliency_source = tuple(int(v) for v in profile_info.get("saliency_source") or _estimate_saliency_bbox(source))
+    saliency_patch, _ = _extract_padded_patch(
+        source=source,
+        rect=saliency_source,
+        pad_x_ratio=0.16,
+        pad_y_ratio=0.18,
+    )
+
+    center_available_width = max(1, inner_x2 - inner_x1)
+    center_available_height = max(1, center_y2 - center_y1)
+    middle_count = len(middle_bands)
+    if middle_count >= 2:
+        center_max_width = int(round(center_available_width * 0.52))
+    elif middle_count == 1:
+        center_max_width = int(round(center_available_width * 0.60))
+    else:
+        center_max_width = int(round(center_available_width * 0.74))
+    center_max_width = max(120, center_max_width)
+    center_max_height = max(120, int(round(center_available_height * 0.94)))
+
+    saliency_patch = _resize_patch_to_fit(
+        saliency_patch,
+        max_width=center_max_width,
+        max_height=center_max_height,
+        max_upscale=1.26,
+    )
+
+    saliency_x = inner_x1 + max(0, (center_available_width - saliency_patch.width) // 2)
+    saliency_y = center_y1 + max(0, (center_available_height - saliency_patch.height) // 2)
+    saliency_box = _paste_patch_with_feather(canvas, saliency_patch, saliency_x, saliency_y, feather_px=14)
+    placed_boxes.append(saliency_box)
+    placed_transition_boxes.append(_inflate_rect(saliency_box, 16, 16, base_width, base_height))
+
+    center_cx = (saliency_box[0] + saliency_box[2]) // 2
+    center_cy = (saliency_box[1] + saliency_box[3]) // 2
+
+    for rect in middle_bands:
+        patch, _ = _extract_padded_patch(
+            source=source,
+            rect=rect,
+            pad_x_ratio=0.18,
+            pad_y_ratio=0.40,
+        )
+        patch = _resize_patch_to_fit(
+            patch,
+            max_width=max(64, int(round(center_available_width * 0.20))),
+            max_height=max(48, int(round(center_available_height * 0.16))),
+            max_upscale=1.18,
+        )
+
+        rect_center_x = ((rect[0] + rect[2]) * 0.5) / max(1.0, float(source_width))
+        rect_center_y = ((rect[1] + rect[3]) * 0.5) / max(1.0, float(source_height))
+        prefer_left = rect_center_x < 0.50
+        side_gap = max(16, int(round(center_available_width * 0.04)))
+
+        if prefer_left:
+            place_x = max(inner_x1, saliency_box[0] - side_gap - patch.width)
+        else:
+            place_x = min(inner_x2 - patch.width, saliency_box[2] + side_gap)
+
+        vertical_offset = int(round((rect_center_y - 0.5) * max(60.0, (saliency_box[3] - saliency_box[1]) * 0.56)))
+        place_y = center_cy - (patch.height // 2) + vertical_offset
+
+        place_x = _clamp_int(place_x, inner_x1, max(inner_x1, inner_x2 - patch.width))
+        place_y = _clamp_int(place_y, center_y1, max(center_y1, center_y2 - patch.height))
+
+        box = _paste_patch_with_feather(canvas, patch, place_x, place_y, feather_px=10)
+        placed_boxes.append(box)
+        placed_transition_boxes.append(_inflate_rect(box, 10, 10, base_width, base_height))
+
+    preserve_union = _merge_rects(placed_boxes) or crop_safe_rect
+
+    mask_alpha = Image.new("L", (base_width, base_height), 0)
+    draw = ImageDraw.Draw(mask_alpha)
+
+    transition_union = _merge_rects(placed_transition_boxes) or preserve_union
+    draw.rounded_rectangle(
+        transition_union,
+        radius=max(10, int(round(min(base_width, base_height) * 0.018))),
+        fill=192,
+    )
+
+    for rect in placed_transition_boxes:
+        draw.rounded_rectangle(
+            rect,
+            radius=max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.12))),
+            fill=224,
+        )
+
+    for rect in placed_boxes:
+        draw.rounded_rectangle(
+            rect,
+            radius=max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.12))),
+            fill=255,
+        )
+
+    mask_alpha = mask_alpha.filter(ImageFilter.GaussianBlur(radius=3.0))
+    redraw = ImageDraw.Draw(mask_alpha)
+    for rect in placed_boxes:
+        redraw.rounded_rectangle(
+            rect,
+            radius=max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.12))),
+            fill=255,
+        )
+
+    mask = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+    mask.putalpha(mask_alpha)
+
+    placement = {
+        "x": int(preserve_union[0]),
+        "y": int(preserve_union[1]),
+        "width": int(max(1, preserve_union[2] - preserve_union[0])),
+        "height": int(max(1, preserve_union[3] - preserve_union[1])),
+        "target_width": int(base_width),
+        "target_height": int(base_height),
+    }
+
+    return {
+        "canvas_bytes": _encode_png_bytes(canvas),
+        "mask_bytes": _encode_png_bytes(mask),
+        "placement": placement,
+        "visible_rect": preserve_union,
+        "preserve_union": preserve_union,
+        "crop_safe_rect": crop_safe_rect,
+        "hard_preserve_boxes": _dedupe_rects(placed_boxes, iou_threshold=0.82),
+        "hard_feather": 12,
+        "strategy": "fragmented_preserve",
+        "strength": "low",
+        "profile_info": profile_info,
+    }
 
 
 
@@ -1226,6 +1605,58 @@ def build_exact_size_assisted_recompose_assets(
         "strength": strength,
         "profile_info": profile_info,
     }
+
+
+def build_exact_size_fragmented_preserve_prompt(
+    target_width: int,
+    target_height: int,
+    plan: Dict[str, Any],
+    placement: Dict[str, int],
+    preserve_union: Optional[Rect],
+    crop_safe_rect: Optional[Rect],
+    profile_info: Optional[Dict[str, Any]] = None,
+) -> str:
+    crop_x1, crop_y1, crop_x2, crop_y2 = tuple(int(v) for v in plan["crop_rect"])
+    crop_safe_rect = tuple(int(v) for v in (crop_safe_rect or plan.get("crop_safe_rect") or plan["crop_rect"]))
+    preserve_box = preserve_union or (
+        int(placement.get("x", 0)),
+        int(placement.get("y", 0)),
+        int(placement.get("x", 0)) + int(placement.get("width", 0)),
+        int(placement.get("y", 0)) + int(placement.get("height", 0)),
+    )
+
+    preserve_width = max(1, preserve_box[2] - preserve_box[0])
+    preserve_height = max(1, preserve_box[3] - preserve_box[1])
+    safe_width = max(1, crop_safe_rect[2] - crop_safe_rect[0])
+    safe_height = max(1, crop_safe_rect[3] - crop_safe_rect[1])
+
+    reasons = list((profile_info or {}).get("reasons") or [])
+    reason_text = ", ".join(reasons[:5]) if reasons else "preservação fragmentada do layout"
+    background_meta = dict((profile_info or {}).get("background_meta") or {})
+    plain_background_text = (
+        "O fundo original é simples, abstrato ou pouco semântico. Nas áreas novas, mantenha apenas o mesmo fundo, gradiente, glow, textura leve, iluminação e paleta já existentes. "
+        "Não invente prédios, estrada, montanha, cidade, arquitetura, paisagem ou elementos cênicos novos. "
+        if background_meta.get("plain")
+        else
+        "Nas áreas novas, faça somente continuidade coerente do fundo e dos elementos de cena já existentes, sem trocar a linguagem visual da peça e sem criar cenário novo não presente na arte base. "
+    )
+
+    return (
+        "Adapte a peça como uma recomposição fiel com blocos preservados, e não como um poster vertical encolhido no centro. "
+        "Os blocos já posicionados no canvas com textos, CTA, badge, datas, locais e elementos principais são obrigatórios e devem permanecer exatamente como estão. "
+        "Você pode trabalhar apenas nas áreas não preservadas e nas transições entre esses blocos para integrar o layout ao novo formato. "
+        "Mantenha exatamente os textos existentes, sem reescrever, traduzir, resumir, remover, deformar ou cortar qualquer elemento textual. "
+        "Não redesenhe o título, o CTA, o badge, os chips, os selos, os labels, as datas, os locais nem o elemento principal. "
+        f"{plain_background_text}"
+        "Ajuste apenas o necessário para o banner horizontal parecer uma adaptação fiel da mesma peça, sem costuras, sem colagem artificial e sem shrink agressivo da arte original. "
+        "É proibido blur destrutivo, espelhamento, duplicação artificial de botões, repetição de blocos, texto novo ou fundo inventado. "
+        f"A janela final obrigatória fica em x={crop_x1}, y={crop_y1}, w={crop_x2 - crop_x1}, h={crop_y2 - crop_y1} dentro de um canvas {plan['base_width']}x{plan['base_height']}. "
+        f"A safe area útil mede aproximadamente {safe_width}x{safe_height}. "
+        f"A área preservada atual mede aproximadamente {preserve_width}x{preserve_height}. "
+        f"Sinais detectados: {reason_text}. "
+        f"A entrega final precisa sair pronta para crop técnico exato em {target_width}x{target_height}, preservando todos os elementos obrigatórios visíveis."
+    )
+
 
 
 def build_exact_size_layout_preserve_prompt(

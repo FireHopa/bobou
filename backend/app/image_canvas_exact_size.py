@@ -11,6 +11,8 @@ from PIL import Image
 from .image_canvas_exact_size_strategy import (
     build_exact_size_assisted_prompt,
     build_exact_size_assisted_recompose_assets,
+    build_exact_size_fragmented_preserve_assets,
+    build_exact_size_fragmented_preserve_prompt,
     build_exact_size_layout_preserve_assets,
     build_exact_size_layout_preserve_prompt,
     detect_exact_size_recompose_profile,
@@ -199,6 +201,26 @@ def build_exact_size_expand_assets(
 
     effective_text_rects = profile.get("text_rects") or text_rects
 
+    if profile["strategy"] == "fragmented_preserve":
+        fragmented_assets = build_exact_size_fragmented_preserve_assets(
+            image_bytes=image_bytes,
+            plan=plan,
+            profile_info=profile,
+        )
+        return {
+            "canvas_bytes": fragmented_assets["canvas_bytes"],
+            "mask_bytes": fragmented_assets["mask_bytes"],
+            "plan": plan,
+            "placement": fragmented_assets["placement"],
+            "preserve_union": fragmented_assets["preserve_union"],
+            "hard_preserve_boxes": list(fragmented_assets.get("hard_preserve_boxes") or []),
+            "hard_feather": int(fragmented_assets.get("hard_feather") or 12),
+            "strength": fragmented_assets.get("strength", "low"),
+            "strategy": fragmented_assets.get("strategy", "fragmented_preserve"),
+            "profile": profile,
+            "crop_safe_rect": fragmented_assets.get("crop_safe_rect"),
+        }
+
     if profile["strategy"] == "layout_preserve":
         preserved_assets = build_exact_size_layout_preserve_assets(
             image_bytes=image_bytes,
@@ -290,6 +312,17 @@ def build_exact_size_expand_prompt(
     prompt_profile = profile_info or {
         "reasons": plan.get("exact_recompose_reasons") or [],
     }
+
+    if strategy == "fragmented_preserve":
+        return build_exact_size_fragmented_preserve_prompt(
+            target_width=target_width,
+            target_height=target_height,
+            plan=plan,
+            placement=placement,
+            preserve_union=preserve_union,
+            crop_safe_rect=crop_safe_rect,
+            profile_info=prompt_profile,
+        )
 
     if strategy == "layout_preserve":
         return build_exact_size_layout_preserve_prompt(
