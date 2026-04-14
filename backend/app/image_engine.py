@@ -1402,6 +1402,7 @@ async def _expand_image_to_exact_size_non_native(
     openai_quality: str,
     requested_width: int,
     requested_height: int,
+    instruction_text: str = "",
 ) -> Dict[str, Any]:
     text_rects = list_local_text_candidate_rects(image_bytes)
     assets = build_exact_size_expand_assets(
@@ -1411,6 +1412,7 @@ async def _expand_image_to_exact_size_non_native(
         supported_sizes=SUPPORTED_BASE_SIZES,
         text_rects=text_rects,
         strength="medium",
+        instruction_text=instruction_text,
     )
     plan = assets["plan"]
 
@@ -1426,6 +1428,7 @@ async def _expand_image_to_exact_size_non_native(
             placement=assets["placement"],
             preserve_union=assets.get("preserve_union"),
             strength=assets.get("strength", "medium"),
+            profile_info=assets.get("profile"),
         ),
         aspect_ratio=_base_size_to_aspect_ratio(plan["base_width"], plan["base_height"]),
         quality=openai_quality,
@@ -3948,6 +3951,7 @@ async def image_engine_edit_stream(
                                     openai_quality=openai_quality,
                                     requested_width=final_target_dimensions[0],
                                     requested_height=final_target_dimensions[1],
+                                    instruction_text=body.instrucoes_edicao,
                                 )
                             else:
                                 result = await _expand_image_to_supported_canvas(
@@ -4384,6 +4388,7 @@ async def image_engine_edit_stream(
                                 openai_quality=openai_quality,
                                 requested_width=final_target_dimensions[0],
                                 requested_height=final_target_dimensions[1],
+                                instruction_text=body.instrucoes_edicao,
                             )
                         else:
                             result = await _expand_image_to_supported_canvas(

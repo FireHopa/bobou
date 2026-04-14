@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import io
@@ -5,8 +6,15 @@ import math
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
+from .image_canvas_exact_size_strategy import (
+    build_exact_size_assisted_prompt,
+    build_exact_size_assisted_recompose_assets,
+    build_exact_size_layout_preserve_assets,
+    build_exact_size_layout_preserve_prompt,
+    detect_exact_size_recompose_profile,
+)
 from .image_canvas_smart_expand import build_smart_expand_assets, overlay_hard_preserve_regions
 
 SUPPORTED_BASE_SIZES: List[Tuple[int, int]] = [
@@ -36,7 +44,6 @@ def _normalize_dimension(value: Any) -> Optional[int]:
     return None
 
 
-
 def extract_exact_dimensions_from_text(text: str) -> Optional[Tuple[int, int]]:
     raw = (text or "").strip()
     if not raw:
@@ -53,7 +60,6 @@ def extract_exact_dimensions_from_text(text: str) -> Optional[Tuple[int, int]]:
     return None
 
 
-
 def resolve_exact_dimensions_request(
     payload_width: Optional[int],
     payload_height: Optional[int],
@@ -68,7 +74,6 @@ def resolve_exact_dimensions_request(
     return extract_exact_dimensions_from_text(instruction_text)
 
 
-
 def is_native_supported_exact_size(
     target_width: int,
     target_height: int,
@@ -78,12 +83,10 @@ def is_native_supported_exact_size(
     return (int(target_width), int(target_height)) in {(w, h) for w, h in candidates}
 
 
-
 def _encode_png_bytes(image: Image.Image) -> bytes:
     output = io.BytesIO()
     image.save(output, format="PNG", optimize=True)
     return output.getvalue()
-
 
 
 def _resize_to_contain(image: Image.Image, target_width: int, target_height: int) -> Tuple[Image.Image, Tuple[int, int, int, int]]:
@@ -99,7 +102,6 @@ def _resize_to_contain(image: Image.Image, target_width: int, target_height: int
     x = max(0, (target_width - fitted_width) // 2)
     y = max(0, (target_height - fitted_height) // 2)
     return fitted, (x, y, x + fitted_width, y + fitted_height)
-
 
 
 def choose_exact_size_canvas_plan(
@@ -120,7 +122,11 @@ def choose_exact_size_canvas_plan(
         if (target_width >= target_height) != (base_width >= base_height):
             orientation_penalty = 1.0
 
-        working_scale = min(1.0, base_width / max(1.0, float(target_width)), base_height / max(1.0, float(target_height)))
+        working_scale = min(
+            1.0,
+            base_width / max(1.0, float(target_width)),
+            base_height / max(1.0, float(target_height)),
+        )
         working_width = max(1, int(round(target_width * working_scale)))
         working_height = max(1, int(round(target_height * working_scale)))
         working_width = min(base_width, working_width)
@@ -128,7 +134,11 @@ def choose_exact_size_canvas_plan(
 
         waste = float((base_width * base_height) - (working_width * working_height))
         downscale_penalty = 1.0 - working_scale
-        ratio_penalty = abs(math.log(max(1e-6, (base_width / max(1.0, float(base_height))) / max(1e-6, target_ratio))))
+        ratio_penalty = abs(
+            math.log(
+                max(1e-6, (base_width / max(1.0, float(base_height))) / max(1e-6, target_ratio))
+            )
+        )
         score = (orientation_penalty, downscale_penalty, waste, ratio_penalty)
 
         if best_score is None or score < best_score:
@@ -148,13 +158,14 @@ def choose_exact_size_canvas_plan(
                 ),
                 "target_width": int(target_width),
                 "target_height": int(target_height),
-                "needs_upscale_after_crop": bool(working_width != target_width or working_height != target_height),
+                "needs_upscale_after_crop": bool(
+                    working_width != target_width or working_height != target_height
+                ),
             }
 
     if not best_plan:
         raise ValueError("Não foi possível montar um plano de canvas para o tamanho exato.")
     return best_plan
-
 
 
 def build_exact_size_expand_assets(
@@ -164,6 +175,7 @@ def build_exact_size_expand_assets(
     supported_sizes: Optional[List[Tuple[int, int]]] = None,
     text_rects: Optional[Sequence[Tuple[int, int, int, int]]] = None,
     strength: str = "medium",
+    instruction_text: str = "",
 ) -> Dict[str, Any]:
     plan = choose_exact_size_canvas_plan(
         target_width=target_width,
@@ -171,12 +183,69 @@ def build_exact_size_expand_assets(
         supported_sizes=supported_sizes,
     )
 
+    profile = detect_exact_size_recompose_profile(
+        image_bytes=image_bytes,
+        target_width=target_width,
+        target_height=target_height,
+        plan=plan,
+        text_rects=text_rects,
+        requested_strength=strength,
+        instruction_text=instruction_text,
+    )
+
+    plan["exact_strategy"] = profile["strategy"]
+    plan["crop_safe_rect"] = tuple(int(v) for v in profile.get("crop_safe_rect") or plan["crop_rect"])
+    plan["exact_recompose_reasons"] = list(profile.get("reasons") or [])
+
+    effective_text_rects = profile.get("text_rects") or text_rects
+
+    if profile["strategy"] == "layout_preserve":
+        preserved_assets = build_exact_size_layout_preserve_assets(
+            image_bytes=image_bytes,
+            plan=plan,
+            profile_info=profile,
+        )
+        return {
+            "canvas_bytes": preserved_assets["canvas_bytes"],
+            "mask_bytes": preserved_assets["mask_bytes"],
+            "plan": plan,
+            "placement": preserved_assets["placement"],
+            "preserve_union": preserved_assets["preserve_union"],
+            "hard_preserve_boxes": list(preserved_assets.get("hard_preserve_boxes") or []),
+            "hard_feather": int(preserved_assets.get("hard_feather") or 14),
+            "strength": preserved_assets.get("strength", "low"),
+            "strategy": preserved_assets.get("strategy", "layout_preserve"),
+            "profile": profile,
+            "crop_safe_rect": preserved_assets.get("crop_safe_rect"),
+        }
+
+    if profile["strategy"] == "assisted_recompose":
+        assisted_assets = build_exact_size_assisted_recompose_assets(
+            image_bytes=image_bytes,
+            plan=plan,
+            profile_info=profile,
+            text_rects=effective_text_rects,
+        )
+        return {
+            "canvas_bytes": assisted_assets["canvas_bytes"],
+            "mask_bytes": assisted_assets["mask_bytes"],
+            "plan": plan,
+            "placement": assisted_assets["placement"],
+            "preserve_union": assisted_assets["preserve_union"],
+            "hard_preserve_boxes": list(assisted_assets.get("hard_preserve_boxes") or []),
+            "hard_feather": int(assisted_assets.get("hard_feather") or 8),
+            "strength": assisted_assets.get("strength", profile.get("strength", strength)),
+            "strategy": assisted_assets.get("strategy", "assisted_recompose"),
+            "profile": profile,
+            "crop_safe_rect": assisted_assets.get("crop_safe_rect"),
+        }
+
     smart_assets = build_smart_expand_assets(
         image_bytes=image_bytes,
         target_width=int(plan["base_width"]),
         target_height=int(plan["base_height"]),
-        text_rects=text_rects,
-        strength=strength,
+        text_rects=effective_text_rects,
+        strength=profile.get("strength", strength),
     )
 
     return {
@@ -187,7 +256,10 @@ def build_exact_size_expand_assets(
         "preserve_union": smart_assets["preserve_union"],
         "hard_preserve_boxes": list(smart_assets.get("hard_preserve_boxes") or []),
         "hard_feather": int(smart_assets.get("hard_feather") or 8),
-        "strength": (strength or "medium").strip().lower() or "medium",
+        "strength": profile.get("strength", strength),
+        "strategy": "simple_expand",
+        "profile": profile,
+        "crop_safe_rect": profile.get("crop_safe_rect"),
     }
 
 
@@ -198,8 +270,11 @@ def build_exact_size_expand_prompt(
     placement: Dict[str, int],
     preserve_union: Optional[Tuple[int, int, int, int]] = None,
     strength: str = "medium",
+    profile_info: Optional[Dict[str, Any]] = None,
 ) -> str:
-    crop_x1, crop_y1, crop_x2, crop_y2 = plan["crop_rect"]
+    strategy = (plan.get("exact_strategy") or "simple_expand").strip().lower()
+    crop_x1, crop_y1, crop_x2, crop_y2 = tuple(int(v) for v in plan["crop_rect"])
+    crop_safe_rect = tuple(int(v) for v in plan.get("crop_safe_rect") or plan["crop_rect"])
     normalized_strength = (strength or "medium").strip().lower() or "medium"
     union = preserve_union or (
         int(placement.get("x", 0)),
@@ -209,14 +284,45 @@ def build_exact_size_expand_prompt(
     )
     preserve_width = max(1, int(union[2]) - int(union[0]))
     preserve_height = max(1, int(union[3]) - int(union[1]))
+    safe_width = max(1, crop_safe_rect[2] - crop_safe_rect[0])
+    safe_height = max(1, crop_safe_rect[3] - crop_safe_rect[1])
+
+    prompt_profile = profile_info or {
+        "reasons": plan.get("exact_recompose_reasons") or [],
+    }
+
+    if strategy == "layout_preserve":
+        return build_exact_size_layout_preserve_prompt(
+            target_width=target_width,
+            target_height=target_height,
+            plan=plan,
+            placement=placement,
+            crop_safe_rect=crop_safe_rect,
+            profile_info=prompt_profile,
+        )
+
+    if strategy == "assisted_recompose":
+        return build_exact_size_assisted_prompt(
+            target_width=target_width,
+            target_height=target_height,
+            plan=plan,
+            placement=placement,
+            preserve_union=preserve_union,
+            crop_safe_rect=crop_safe_rect,
+            strength=normalized_strength,
+            profile_info=prompt_profile,
+        )
+
     return (
         "Adapte a arte para o novo formato como uma recomposição premium, e não como um simples expand automático. "
         "A referência enviada continua sendo a base dominante da identidade visual, da cena, da paleta e da hierarquia. "
         "Preserve integralmente o conteúdo principal dentro da área protegida e use as regiões externas e de transição para redistribuir com sutileza cenário, profundidade, vegetação, céu, iluminação, trilhas, reflexos, HUDs e respiros laterais. "
+        "Estenda estruturas, fachadas, linhas arquitetônicas e perspectiva com continuidade real, sem cortes secos e sem costuras visíveis nas áreas novas. "
         "Permita apenas reposicionamento leve de elementos periféricos e decorativos para ocupar melhor a largura final, sem deformar nem redesenhar o miolo principal. "
         "Não altere textos existentes, datas, CTA, logotipos, títulos, nomes de cidades ou tipografia principal. "
         "É proibido blur, espelhamento, duplicação artificial, faixas repetidas, botões duplicados, veículos duplicados, clusters duplicados ou costuras visíveis. "
-        f"A recomposição deve priorizar a janela útil central x={crop_x1}, y={crop_y1}, w={crop_x2 - crop_x1}, h={crop_y2 - crop_y1} dentro de um canvas {plan['base_width']}x{plan['base_height']}. "
+        f"A recomposição deve priorizar a janela útil final x={crop_x1}, y={crop_y1}, w={crop_x2 - crop_x1}, h={crop_y2 - crop_y1} dentro de um canvas {plan['base_width']}x{plan['base_height']}. "
+        f"A safe area interna útil mede aproximadamente {safe_width}x{safe_height}. "
         f"A área principal protegida mede aproximadamente {preserve_width}x{preserve_height}. "
         f"Use intensidade de recomposição {normalized_strength}. "
         f"A entrega final precisa ficar pronta para crop técnico exato em {target_width}x{target_height}."
