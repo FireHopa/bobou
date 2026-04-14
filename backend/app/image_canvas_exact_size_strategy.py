@@ -122,6 +122,15 @@ def _map_source_rect_to_canvas(rect: Rect, placement: Dict[str, int], source_wid
     )
 
 
+def _rect_outside_safe(rect: Rect, safe_rect: Rect) -> bool:
+    return (
+        rect[0] < safe_rect[0]
+        or rect[1] < safe_rect[1]
+        or rect[2] > safe_rect[2]
+        or rect[3] > safe_rect[3]
+    )
+
+
 def _estimate_saliency_bbox(source: Image.Image) -> Rect:
     rgba = source.convert("RGBA")
     width, height = rgba.size
@@ -304,6 +313,14 @@ def infer_exact_size_request_intent(instruction_text: Optional[str]) -> Dict[str
         "mude o minimo possivel",
         "mude o mínimo",
         "mude o minimo",
+        "preservar enquadramento original",
+        "preserve o enquadramento original",
+        "manter enquadramento original",
+        "mantenha o enquadramento original",
+        "preserve original framing",
+        "preserve the original framing",
+        "keep original framing",
+        "keep the original framing",
         "only the necessary adaptations",
         "only the needed adaptations",
         "minimal changes",
@@ -439,6 +456,7 @@ def detect_exact_size_recompose_profile(
     raw_text_rects = [tuple(int(v) for v in rect) for rect in list(text_rects or []) if len(rect) == 4]
     sanitized_text_rects, text_meta = _sanitize_exact_size_text_rects(raw_text_rects, source_width, source_height)
     preserve_text_rects = _prepare_text_preserve_rects(raw_text_rects, source_width, source_height)
+    mandatory_source_rects = _build_mandatory_source_rects(preserve_text_rects, source_width, source_height)
     background_meta = _analyze_edge_background(source)
 
     source_ratio = source_width / max(1.0, float(source_height))
@@ -463,6 +481,7 @@ def detect_exact_size_recompose_profile(
     )
 
     mapped_text_rects: List[Rect] = []
+    mapped_mandatory_rects: List[Rect] = []
     edge_flags = {
         "top": False,
         "bottom": False,
@@ -495,7 +514,7 @@ def detect_exact_size_recompose_profile(
         ):
             edge_flags["crop_pressure"] = True
 
-    for rect in preserve_text_rects:
+    for rect in mandatory_source_rects or preserve_text_rects:
         if rect[1] <= source_edge_margin_y:
             edge_flags["top"] = True
         if rect[3] >= source_height - source_edge_margin_y:
@@ -505,9 +524,14 @@ def detect_exact_size_recompose_profile(
         if rect[2] >= source_width - source_edge_margin_x:
             edge_flags["right"] = True
 
+    for rect in mandatory_source_rects:
+        mapped = _map_source_rect_to_canvas(rect, default_placement, source_width, source_height)
+        mapped_mandatory_rects.append(mapped)
+
     text_union_source = _merge_rects(sanitized_text_rects)
     text_union_canvas = _merge_rects(mapped_text_rects)
     preserve_text_union_source = _merge_rects(preserve_text_rects)
+    mandatory_union_source = _merge_rects(mandatory_source_rects)
 
     saliency_source = _estimate_saliency_bbox(source)
     saliency_canvas = _map_source_rect_to_canvas(
@@ -564,6 +588,7 @@ def detect_exact_size_recompose_profile(
     )
 
     strong_geometry_change = bool(orientation_changed or ratio_delta >= 0.42)
+    mandatory_pressure = any(_rect_outside_safe(rect, crop_safe_rect) for rect in mapped_mandatory_rects)
 
     score = 0
     reasons: List[str] = []
@@ -583,6 +608,9 @@ def detect_exact_size_recompose_profile(
     if center_compression:
         score += 1
         reasons.append("center_compression")
+    if mandatory_pressure:
+        score += 3
+        reasons.append("mandatory_pressure")
     if dense_foreground:
         score += 1
         reasons.append("dense_foreground")
@@ -615,19 +643,20 @@ def detect_exact_size_recompose_profile(
     top_text_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "top"]
     bottom_text_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "bottom"]
     multi_zone_text = bool(len(text_bands) >= 3 or (top_text_bands and bottom_text_bands))
+    commercial_layout_lock = bool(top_text_bands and bottom_text_bands)
 
     allow_assisted = bool(text_meta["reliable"] and sanitized_text_rects)
     prefer_fragmented_preserve = bool(
-        intent["strict_preservation"]
-        and not intent["allow_layout_recompose"]
+        not intent["allow_layout_recompose"]
         and strong_geometry_change
-        and (
-            multi_zone_text
-            or (preserve_text_rects and title_pressure and footer_pressure)
-        )
+        and mandatory_pressure
+        and text_meta["reliable"]
+        and (commercial_layout_lock or multi_zone_text)
         and (
             center_compression
             or dense_foreground
+            or footer_pressure
+            or title_pressure
             or background_meta["plain"]
             or score >= 4
         )
@@ -635,12 +664,14 @@ def detect_exact_size_recompose_profile(
 
     prefer_layout_preserve = bool(
         not prefer_fragmented_preserve
-        and intent["strict_preservation"]
         and not intent["allow_layout_recompose"]
         and orientation_changed
+        and (mandatory_pressure or (preserve_text_rects and (title_pressure or footer_pressure)))
         and (
-            ratio_delta >= 0.72
-            or (preserve_text_rects and (title_pressure or footer_pressure))
+            not text_meta["reliable"]
+            or ratio_delta >= 0.72
+            or score >= 4
+            or intent["strict_preservation"]
         )
     )
 
@@ -681,6 +712,10 @@ def detect_exact_size_recompose_profile(
         "text_rects_reliable": bool(text_meta["reliable"]),
         "text_rects_meta": text_meta,
         "preserve_text_rects": preserve_text_rects,
+        "mandatory_source_rects": mandatory_source_rects,
+        "mandatory_union_source": mandatory_union_source,
+        "mapped_mandatory_rects": mapped_mandatory_rects,
+        "mandatory_pressure": bool(mandatory_pressure),
         "text_bands": text_bands,
         "background_meta": background_meta,
         "intent": intent,
@@ -770,6 +805,54 @@ def _prepare_text_preserve_rects(
             row_groups.append(rect)
 
     return _dedupe_rects(prepared + row_groups, iou_threshold=0.82)
+
+
+
+def _build_mandatory_source_rects(
+    text_rects: Optional[Sequence[Rect]],
+    source_width: int,
+    source_height: int,
+) -> List[Rect]:
+    prepared = _prepare_text_preserve_rects(text_rects, source_width, source_height)
+    if not prepared:
+        return []
+
+    bands = _group_text_rects_by_bands(prepared, source_width, source_height)
+    top_bands = [rect for rect in bands if _classify_text_band(rect, source_height) == "top"]
+    bottom_bands = [rect for rect in bands if _classify_text_band(rect, source_height) == "bottom"]
+    middle_bands = [rect for rect in bands if _classify_text_band(rect, source_height) == "middle"]
+
+    result: List[Rect] = list(prepared)
+
+    top_union = _merge_rects(top_bands)
+    if top_union is not None:
+        top_strip_bottom = max(
+            top_union[3] + max(18, int(round(source_height * 0.020))),
+            int(round(source_height * 0.14)),
+        )
+        result.append((0, 0, source_width, _clamp_int(top_strip_bottom, 1, source_height)))
+
+    bottom_union = _merge_rects(bottom_bands)
+    if bottom_union is not None:
+        bottom_strip_top = min(
+            bottom_union[1] - max(18, int(round(source_height * 0.020))),
+            int(round(source_height * 0.76)),
+        )
+        result.append((0, _clamp_int(bottom_strip_top, 0, source_height - 1), source_width, source_height))
+
+    middle_union = _merge_rects(middle_bands)
+    if middle_union is not None:
+        result.append(
+            _inflate_rect(
+                middle_union,
+                max(16, int(round(source_width * 0.035))),
+                max(14, int(round(source_height * 0.024))),
+                source_width,
+                source_height,
+            )
+        )
+
+    return _dedupe_rects(result, iou_threshold=0.78)
 
 
 
@@ -902,6 +985,32 @@ def _compute_exact_text_preserve_boxes(
             boxes.append(_inflate_rect(mapped, band_pad_x, band_pad_y, target_width, target_height))
 
     return _dedupe_rects(boxes, iou_threshold=0.78)
+
+
+def _map_raw_source_preserve_boxes(
+    source_rects: Optional[Sequence[Rect]],
+    placement: Dict[str, int],
+    source_width: int,
+    source_height: int,
+    target_width: int,
+    target_height: int,
+) -> List[Rect]:
+    boxes: List[Rect] = []
+
+    for rect in list(source_rects or []):
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            continue
+
+        mapped = _map_source_rect_to_canvas(rect, placement, source_width, source_height)
+        rect_width = max(1, mapped[2] - mapped[0])
+        rect_height = max(1, mapped[3] - mapped[1])
+
+        pad_x = max(10, int(round(rect_width * 0.04)))
+        pad_y = max(10, int(round(rect_height * 0.06)))
+        boxes.append(_inflate_rect(mapped, pad_x, pad_y, target_width, target_height))
+
+    return _dedupe_rects(boxes, iou_threshold=0.80)
+
 
 def _compute_text_union_for_placement(
     text_rects: Sequence[Rect],
@@ -1330,6 +1439,14 @@ def build_exact_size_layout_preserve_assets(
         target_width=base_width,
         target_height=base_height,
     )
+    raw_mandatory_boxes = _map_raw_source_preserve_boxes(
+        source_rects=profile_info.get("mandatory_source_rects"),
+        placement=placement,
+        source_width=source.width,
+        source_height=source.height,
+        target_width=base_width,
+        target_height=base_height,
+    )
 
     transition_box = _inflate_rect(
         preserve_union,
@@ -1351,7 +1468,7 @@ def build_exact_size_layout_preserve_assets(
         radius=max(8, int(round(min(placed_width, placed_height) * 0.018))),
         fill=255,
     )
-    for rect in text_preserve_boxes:
+    for rect in _dedupe_rects(text_preserve_boxes + raw_mandatory_boxes, iou_threshold=0.80):
         rect_width = max(1, rect[2] - rect[0])
         rect_height = max(1, rect[3] - rect[1])
         draw.rounded_rectangle(
@@ -1367,7 +1484,7 @@ def build_exact_size_layout_preserve_assets(
         radius=max(8, int(round(min(placed_width, placed_height) * 0.018))),
         fill=255,
     )
-    for rect in text_preserve_boxes:
+    for rect in _dedupe_rects(text_preserve_boxes + raw_mandatory_boxes, iou_threshold=0.80):
         rect_width = max(1, rect[2] - rect[0])
         rect_height = max(1, rect[3] - rect[1])
         final_draw.rounded_rectangle(
@@ -1386,7 +1503,7 @@ def build_exact_size_layout_preserve_assets(
         "visible_rect": preserve_union,
         "preserve_union": preserve_union,
         "crop_safe_rect": crop_safe_rect,
-        "hard_preserve_boxes": _dedupe_rects([preserve_union] + text_preserve_boxes, iou_threshold=0.80),
+        "hard_preserve_boxes": _dedupe_rects([preserve_union] + text_preserve_boxes + raw_mandatory_boxes, iou_threshold=0.80),
         "hard_feather": 14,
         "strategy": "layout_preserve",
         "strength": "low",
@@ -1430,7 +1547,12 @@ def build_exact_size_assisted_recompose_assets(
     )
 
     working_text_rects = list(profile_info.get("text_rects") or text_rects or [])
-    preserve_text_source_rects = list(profile_info.get("preserve_text_rects") or working_text_rects or [])
+    preserve_text_source_rects = list(
+        profile_info.get("mandatory_source_rects")
+        or profile_info.get("preserve_text_rects")
+        or working_text_rects
+        or []
+    )
 
     placement: Dict[str, int] = {
         "x": 0,
@@ -1545,6 +1667,14 @@ def build_exact_size_assisted_recompose_assets(
         target_width=base_width,
         target_height=base_height,
     )
+    raw_mandatory_boxes = _map_raw_source_preserve_boxes(
+        source_rects=profile_info.get("mandatory_source_rects"),
+        placement=placement,
+        source_width=source_width,
+        source_height=source_height,
+        target_width=base_width,
+        target_height=base_height,
+    )
 
     visible_rect = (
         max(0, placement["x"]),
@@ -1578,14 +1708,14 @@ def build_exact_size_assisted_recompose_assets(
         fill=max(int(profile["saliency_alpha"]), int(profile["core_alpha"])),
     )
 
-    for rect in _dedupe_rects(mapped_text_rects + text_preserve_boxes, iou_threshold=0.78):
+    for rect in _dedupe_rects(mapped_text_rects + text_preserve_boxes + raw_mandatory_boxes, iou_threshold=0.78):
         radius = max(6, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * profile["text_radius_ratio"])))
         alpha_draw.rounded_rectangle(rect, radius=radius, fill=255)
 
     mask_alpha = mask_alpha.filter(ImageFilter.GaussianBlur(radius=float(profile["mask_blur"])))
 
     redraw = ImageDraw.Draw(mask_alpha)
-    for rect in _dedupe_rects(mapped_text_rects + text_preserve_boxes, iou_threshold=0.78):
+    for rect in _dedupe_rects(mapped_text_rects + text_preserve_boxes + raw_mandatory_boxes, iou_threshold=0.78):
         radius = max(6, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * profile["text_radius_ratio"])))
         redraw.rounded_rectangle(rect, radius=radius, fill=255)
 
@@ -1599,7 +1729,7 @@ def build_exact_size_assisted_recompose_assets(
         "visible_rect": visible_rect,
         "preserve_union": preserve_union,
         "crop_safe_rect": crop_safe_rect,
-        "hard_preserve_boxes": _dedupe_rects(mapped_text_rects + text_preserve_boxes, iou_threshold=0.78),
+        "hard_preserve_boxes": _dedupe_rects(mapped_text_rects + text_preserve_boxes + raw_mandatory_boxes, iou_threshold=0.78),
         "hard_feather": int(profile["hard_feather"]),
         "strategy": "assisted_recompose",
         "strength": strength,
