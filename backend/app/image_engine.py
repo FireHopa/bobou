@@ -1429,6 +1429,7 @@ async def _expand_image_to_exact_size_non_native(
             preserve_union=assets.get("preserve_union"),
             strength=assets.get("strength", "medium"),
             profile_info=assets.get("profile"),
+            instruction_text=instruction_text,
         ),
         aspect_ratio=_base_size_to_aspect_ratio(plan["base_width"], plan["base_height"]),
         quality=openai_quality,

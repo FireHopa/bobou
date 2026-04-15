@@ -343,6 +343,11 @@ def infer_exact_size_request_intent(instruction_text: Optional[str]) -> Dict[str
         "reposicionar",
         "reposicione",
         "reorganizar",
+        "reorganização",
+        "reorganizacao",
+        "reorganização inteligente",
+        "reorganizacao inteligente",
+        "layout inteligente",
         "reequilibrar",
         "adaptar a diagramação",
         "adaptar a diagramacao",
@@ -351,14 +356,36 @@ def infer_exact_size_request_intent(instruction_text: Optional[str]) -> Dict[str
         "recompose",
         "layout",
     ))
+    commercial_preservation = has_any((
+        "função comercial",
+        "funcao comercial",
+        "badge",
+        "cta",
+        "call to action",
+        "datas e locais",
+        "blocos informativos",
+        "nenhum elemento importante pode sumir",
+        "nenhum elemento obrigatório pode sumir",
+        "nenhum elemento obrigatorio pode sumir",
+        "nenhum elemento importante pode ser cortado",
+        "nenhum elemento obrigatório pode ser cortado",
+        "nenhum elemento obrigatorio pode ser cortado",
+        "não trate isso como crop simples",
+        "nao trate isso como crop simples",
+        "não quero apenas crop",
+        "nao quero apenas crop",
+        "reorganização inteligente de layout",
+        "reorganizacao inteligente de layout",
+    ))
 
-    strict_preservation = bool(preserve_all_visuals or minimal_change)
+    strict_preservation = bool(preserve_all_visuals or minimal_change or commercial_preservation)
     return {
         "strict_preservation": strict_preservation,
         "preserve_all_visuals": bool(preserve_all_visuals),
         "minimal_change": bool(minimal_change),
         "avoid_background_rewrite": bool(avoid_background_rewrite),
         "allow_layout_recompose": bool(allow_layout_recompose),
+        "commercial_preservation": bool(commercial_preservation),
     }
 
 
@@ -647,11 +674,10 @@ def detect_exact_size_recompose_profile(
 
     allow_assisted = bool(text_meta["reliable"] and sanitized_text_rects)
     prefer_fragmented_preserve = bool(
-        not intent["allow_layout_recompose"]
-        and strong_geometry_change
+        strong_geometry_change
         and mandatory_pressure
         and text_meta["reliable"]
-        and (commercial_layout_lock or multi_zone_text)
+        and (commercial_layout_lock or multi_zone_text or intent.get("commercial_preservation"))
         and (
             center_compression
             or dense_foreground
@@ -659,19 +685,20 @@ def detect_exact_size_recompose_profile(
             or title_pressure
             or background_meta["plain"]
             or score >= 4
+            or intent.get("commercial_preservation")
         )
     )
 
     prefer_layout_preserve = bool(
         not prefer_fragmented_preserve
-        and not intent["allow_layout_recompose"]
         and orientation_changed
-        and (mandatory_pressure or (preserve_text_rects and (title_pressure or footer_pressure)))
+        and (mandatory_pressure or (preserve_text_rects and (title_pressure or footer_pressure)) or intent.get("commercial_preservation"))
         and (
             not text_meta["reliable"]
             or ratio_delta >= 0.72
             or score >= 4
             or intent["strict_preservation"]
+            or intent.get("commercial_preservation")
         )
     )
 
@@ -1737,6 +1764,19 @@ def build_exact_size_assisted_recompose_assets(
     }
 
 
+def _compact_user_exact_size_requirements(instruction_text: Optional[str], max_len: int = 480) -> str:
+    raw = " ".join((instruction_text or "").replace("\n", " ").split())
+    if not raw:
+        return ""
+    raw = raw.strip()
+    if len(raw) <= max_len:
+        return raw
+    clipped = raw[: max(40, max_len - 1)].rsplit(" ", 1)[0].strip()
+    if not clipped:
+        clipped = raw[:max_len].strip()
+    return f"{clipped}…"
+
+
 def build_exact_size_fragmented_preserve_prompt(
     target_width: int,
     target_height: int,
@@ -1745,6 +1785,7 @@ def build_exact_size_fragmented_preserve_prompt(
     preserve_union: Optional[Rect],
     crop_safe_rect: Optional[Rect],
     profile_info: Optional[Dict[str, Any]] = None,
+    instruction_text: str = "",
 ) -> str:
     crop_x1, crop_y1, crop_x2, crop_y2 = tuple(int(v) for v in plan["crop_rect"])
     crop_safe_rect = tuple(int(v) for v in (crop_safe_rect or plan.get("crop_safe_rect") or plan["crop_rect"]))
@@ -1762,6 +1803,7 @@ def build_exact_size_fragmented_preserve_prompt(
 
     reasons = list((profile_info or {}).get("reasons") or [])
     reason_text = ", ".join(reasons[:5]) if reasons else "preservação fragmentada do layout"
+    user_requirements = _compact_user_exact_size_requirements(instruction_text)
     background_meta = dict((profile_info or {}).get("background_meta") or {})
     plain_background_text = (
         "O fundo original é simples, abstrato ou pouco semântico. Nas áreas novas, mantenha apenas o mesmo fundo, gradiente, glow, textura leve, iluminação e paleta já existentes. "
@@ -1770,6 +1812,7 @@ def build_exact_size_fragmented_preserve_prompt(
         else
         "Nas áreas novas, faça somente continuidade coerente do fundo e dos elementos de cena já existentes, sem trocar a linguagem visual da peça e sem criar cenário novo não presente na arte base. "
     )
+    user_clause = f"Requisitos explícitos do usuário: {user_requirements}. " if user_requirements else ""
 
     return (
         "Adapte a peça como uma recomposição fiel com blocos preservados, e não como um poster vertical encolhido no centro. "
@@ -1784,6 +1827,7 @@ def build_exact_size_fragmented_preserve_prompt(
         f"A safe area útil mede aproximadamente {safe_width}x{safe_height}. "
         f"A área preservada atual mede aproximadamente {preserve_width}x{preserve_height}. "
         f"Sinais detectados: {reason_text}. "
+        f"{user_clause}"
         f"A entrega final precisa sair pronta para crop técnico exato em {target_width}x{target_height}, preservando todos os elementos obrigatórios visíveis."
     )
 
@@ -1796,6 +1840,7 @@ def build_exact_size_layout_preserve_prompt(
     placement: Dict[str, int],
     crop_safe_rect: Optional[Rect],
     profile_info: Optional[Dict[str, Any]] = None,
+    instruction_text: str = "",
 ) -> str:
     crop_x1, crop_y1, crop_x2, crop_y2 = tuple(int(v) for v in plan["crop_rect"])
     crop_safe_rect = tuple(int(v) for v in (crop_safe_rect or plan.get("crop_safe_rect") or plan["crop_rect"]))
@@ -1806,6 +1851,7 @@ def build_exact_size_layout_preserve_prompt(
 
     reasons = list((profile_info or {}).get("reasons") or [])
     reason_text = ", ".join(reasons[:4]) if reasons else "preservação integral"
+    user_requirements = _compact_user_exact_size_requirements(instruction_text)
     background_meta = dict((profile_info or {}).get("background_meta") or {})
     plain_background_text = (
         "O fundo original é liso ou pouco semântico. Nas áreas novas, continue apenas o mesmo fundo abstrato, gradiente, textura suave, luz e cor base já existentes. "
@@ -1814,6 +1860,7 @@ def build_exact_size_layout_preserve_prompt(
         else
         "Crie continuidade estrutural real ao redor da peça: prolongue céu, vegetação, estrada, iluminação, perspectiva, sombras e profundidade sem costuras, sem cortes secos, sem blur, sem espelhamento e sem duplicação artificial. "
     )
+    user_clause = f"Requisitos explícitos do usuário: {user_requirements}. " if user_requirements else ""
 
     return (
         "Adapte a arte para o novo formato preservando integralmente todos os elementos visuais originais já presentes na peça. "
@@ -1827,6 +1874,7 @@ def build_exact_size_layout_preserve_prompt(
         f"A safe area útil mede aproximadamente {safe_width}x{safe_height}. "
         f"A área preservada atual mede aproximadamente {placed_width}x{placed_height}. "
         f"Sinais detectados: {reason_text}. "
+        f"{user_clause}"
         f"A entrega final precisa sair pronta para crop técnico exato em {target_width}x{target_height}, mantendo todos os elementos visuais originais visíveis."
     )
 
@@ -1840,6 +1888,7 @@ def build_exact_size_assisted_prompt(
     crop_safe_rect: Optional[Rect],
     strength: str,
     profile_info: Optional[Dict[str, Any]] = None,
+    instruction_text: str = "",
 ) -> str:
     crop_x1, crop_y1, crop_x2, crop_y2 = tuple(int(v) for v in plan["crop_rect"])
     crop_safe_rect = tuple(int(v) for v in (crop_safe_rect or plan.get("crop_safe_rect") or plan["crop_rect"]))
@@ -1857,6 +1906,7 @@ def build_exact_size_assisted_prompt(
 
     reasons = list((profile_info or {}).get("reasons") or [])
     reason_text = ", ".join(reasons[:4]) if reasons else "recomposição assistida"
+    user_requirements = _compact_user_exact_size_requirements(instruction_text)
     background_meta = dict((profile_info or {}).get("background_meta") or {})
     plain_background_text = (
         "O fundo original é liso ou pouco semântico. Nas áreas expandidas, mantenha apenas o mesmo fundo abstrato, gradiente, textura suave, luz e cor base. "
@@ -1865,6 +1915,7 @@ def build_exact_size_assisted_prompt(
         else
         "Crie continuidade estrutural real nas áreas expandidas: prolongue arquitetura, linhas de perspectiva, iluminação, céu, sombras, reflexos e profundidade de forma coerente, sem prédios cortados, sem remendos secos e sem costuras. "
     )
+    user_clause = f"Requisitos explícitos do usuário: {user_requirements}. " if user_requirements else ""
 
     return (
         "Adapte a peça como uma recomposição assistida de layout, e não como um simples expand lateral. "
@@ -1881,5 +1932,6 @@ def build_exact_size_assisted_prompt(
         f"A área principal protegida mede aproximadamente {preserve_width}x{preserve_height}. "
         f"Use intensidade de recomposição {strength}. "
         f"Sinais detectados: {reason_text}. "
+        f"{user_clause}"
         f"A entrega final precisa sair pronta para crop técnico exato em {target_width}x{target_height}, com distribuição visual equilibrada e sem cortes de informação importante."
     )

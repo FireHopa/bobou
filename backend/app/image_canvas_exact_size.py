@@ -293,6 +293,7 @@ def build_exact_size_expand_prompt(
     preserve_union: Optional[Tuple[int, int, int, int]] = None,
     strength: str = "medium",
     profile_info: Optional[Dict[str, Any]] = None,
+    instruction_text: str = "",
 ) -> str:
     strategy = (plan.get("exact_strategy") or "simple_expand").strip().lower()
     crop_x1, crop_y1, crop_x2, crop_y2 = tuple(int(v) for v in plan["crop_rect"])
@@ -312,6 +313,10 @@ def build_exact_size_expand_prompt(
     prompt_profile = profile_info or {
         "reasons": plan.get("exact_recompose_reasons") or [],
     }
+    user_requirements = " ".join((instruction_text or "").replace("\n", " ").split()).strip()
+    if len(user_requirements) > 480:
+        user_requirements = user_requirements[:479].rsplit(" ", 1)[0].strip() + "…"
+    user_clause = f"Requisitos explícitos do usuário: {user_requirements}. " if user_requirements else ""
 
     if strategy == "fragmented_preserve":
         return build_exact_size_fragmented_preserve_prompt(
@@ -322,6 +327,7 @@ def build_exact_size_expand_prompt(
             preserve_union=preserve_union,
             crop_safe_rect=crop_safe_rect,
             profile_info=prompt_profile,
+            instruction_text=instruction_text,
         )
 
     if strategy == "layout_preserve":
@@ -332,6 +338,7 @@ def build_exact_size_expand_prompt(
             placement=placement,
             crop_safe_rect=crop_safe_rect,
             profile_info=prompt_profile,
+            instruction_text=instruction_text,
         )
 
     if strategy == "assisted_recompose":
@@ -344,6 +351,7 @@ def build_exact_size_expand_prompt(
             crop_safe_rect=crop_safe_rect,
             strength=normalized_strength,
             profile_info=prompt_profile,
+            instruction_text=instruction_text,
         )
 
     return (
@@ -358,6 +366,7 @@ def build_exact_size_expand_prompt(
         f"A safe area interna útil mede aproximadamente {safe_width}x{safe_height}. "
         f"A área principal protegida mede aproximadamente {preserve_width}x{preserve_height}. "
         f"Use intensidade de recomposição {normalized_strength}. "
+        f"{user_clause}"
         f"A entrega final precisa ficar pronta para crop técnico exato em {target_width}x{target_height}."
     )
 
