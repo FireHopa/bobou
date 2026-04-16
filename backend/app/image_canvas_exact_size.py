@@ -218,6 +218,7 @@ def build_exact_size_expand_assets(
             "preserve_union": deterministic_assets.get("preserve_union"),
             "hard_preserve_boxes": list(deterministic_assets.get("hard_preserve_boxes") or []),
             "hard_feather": int(deterministic_assets.get("hard_feather") or 8),
+            "hard_preserve_limits": deterministic_assets.get("hard_preserve_limits"),
             "strength": deterministic_assets.get("strength", "none"),
             "strategy": deterministic_assets.get("strategy", "commercial_layout_deterministic"),
             "profile": {**profile, "layout_first_non_native": True, "deterministic_only": True},
@@ -398,17 +399,20 @@ def build_exact_size_expand_prompt(
             instruction_text=instruction_text,
         )
 
-    if strategy == "assisted_recompose":
-        return build_exact_size_assisted_prompt(
-            target_width=target_width,
-            target_height=target_height,
-            plan=plan,
-            placement=placement,
-            preserve_union=preserve_union,
-            crop_safe_rect=crop_safe_rect,
-            strength=normalized_strength,
-            profile_info=prompt_profile,
-            instruction_text=instruction_text,
+    if strategy == "commercial_layout_deterministic":
+        return (
+            "Use a composição enviada como um layout comercial já pré-organizado dentro do canvas final. "
+            "A tarefa agora é harmonizar esse layout com acabamento premium, preservando obrigatoriamente a faixa superior, o hero principal, o box de cidade, as datas e o CTA. "
+            "Não trate a peça como crop, zoom, stretch, expansão simples de fundo ou geração de cenário novo. "
+            "Mantenha os blocos principais nas posições já sugeridas e trabalhe apenas integração visual, respiros, continuidade de fundo, costuras, brilho, profundidade e transições. "
+            "É permitido somente microajuste visual para unir os blocos à composição final, sem reescrever, redesenhar, traduzir ou deformar textos, datas, CTA, logotipos e tipografia. "
+            "Conecte hero e stack inferior ao fundo com acabamento natural, sem ilhas recortadas, sem retângulos aparentes, sem caixas flutuando e sem mock intermediário. "
+            "Não invente elementos novos e não mude a identidade visual original. "
+            f"A janela final prioritária é x={crop_x1}, y={crop_y1}, w={crop_x2 - crop_x1}, h={crop_y2 - crop_y1} dentro de um canvas {plan['base_width']}x{plan['base_height']}. "
+            f"A safe area útil mede aproximadamente {safe_width}x{safe_height}. "
+            f"A área principal protegida mede aproximadamente {preserve_width}x{preserve_height}. "
+            + f"{user_clause}"
+            + f"A entrega final precisa ficar pronta para crop técnico exato em {target_width}x{target_height}."
         )
 
     return (

@@ -1482,6 +1482,14 @@ async def _expand_image_to_exact_size_non_native(
     )
     plan = assets["plan"]
 
+    if assets.get("strategy") == "commercial_layout_deterministic" and not assets.get("direct_result_bytes"):
+        reason = assets.get("composition_reason") or "deterministic_composition_incomplete"
+        raise RuntimeError(
+            "A recomposição determinística do layout não atingiu confiança suficiente para entrega final. "
+            "Nenhum preview intermediário foi devolvido e o fluxo não pode cair em generativa ampla nesse modo. "
+            f"Motivo: {reason}"
+        )
+
     if assets.get("direct_result_bytes"):
         direct_bytes = bytes(assets["direct_result_bytes"])
         next_result = {
@@ -1501,6 +1509,8 @@ async def _expand_image_to_exact_size_non_native(
                 "exact_strategy": assets.get("strategy") or plan.get("exact_strategy"),
                 "layout_first_non_native": True,
                 "needs_upscale_after_crop": False,
+                "composition_ok": bool(assets.get("composition_ok", True)),
+                "composition_reason": assets.get("composition_reason") or "ok",
             },
         }
         return next_result

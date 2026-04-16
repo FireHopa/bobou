@@ -1057,32 +1057,81 @@ def _build_soft_cover_background(
     target_width: int,
     target_height: int,
     background_meta: Optional[Dict[str, Any]] = None,
+    source_region: Optional[Rect] = None,
 ) -> Image.Image:
+    """
+    Monta um fundo final e íntegro para o layout-first determinístico.
+
+    Importante: aqui não pode nascer um preview/proto com cantos soltos.
+    O canvas precisa sair preenchido e coerente para já poder ser entregue
+    como composição final sem depender de etapa generativa.
+    """
     meta = background_meta or _analyze_edge_background(source)
-    canvas = _build_edge_gradient_background(target_width, target_height, meta).convert("RGBA")
 
-    corner_specs = [
-        ((0, 0, int(source.width * 0.22), int(source.height * 0.14)), (-int(target_width * 0.03), -int(target_height * 0.02)), 0.22, 0.18),
-        ((int(source.width * 0.78), 0, source.width, int(source.height * 0.15)), (int(target_width * 0.83), -int(target_height * 0.02)), 0.20, 0.18),
-        ((0, int(source.height * 0.84), int(source.width * 0.24), source.height), (-int(target_width * 0.04), int(target_height * 0.74)), 0.24, 0.24),
-        ((int(source.width * 0.80), int(source.height * 0.86), source.width, source.height), (int(target_width * 0.84), int(target_height * 0.77)), 0.18, 0.18),
-    ]
-    for rect, dest, w_ratio, h_ratio in corner_specs:
-        patch = source.crop(rect).convert("RGBA")
-        patch = _resize_patch_to_fit(
-            patch,
-            max_width=max(32, int(round(target_width * w_ratio))),
-            max_height=max(32, int(round(target_height * h_ratio))),
-            max_upscale=1.0,
-        ).filter(ImageFilter.GaussianBlur(radius=2.0))
-        alpha = patch.getchannel("A") if "A" in patch.getbands() else Image.new("L", patch.size, 255)
-        alpha = alpha.point(lambda px: int(px * 0.78))
-        patch.putalpha(alpha)
-        canvas.alpha_composite(patch, dest)
+    region = source_region
+    if region is not None:
+        region = (
+            _clamp_int(region[0], 0, source.width),
+            _clamp_int(region[1], 0, source.height),
+            _clamp_int(region[2], 0, source.width),
+            _clamp_int(region[3], 0, source.height),
+        )
+        if region[2] <= region[0] or region[3] <= region[1]:
+            region = None
 
-    arr = np.asarray(canvas).astype(np.float32)
-    arr[..., :3] *= 0.88
-    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), mode="RGBA")
+    background_source = source.crop(region).convert("RGBA") if region is not None else source.convert("RGBA")
+    canvas = _build_cover_background(background_source, target_width, target_height).convert("RGBA")
+    canvas = canvas.filter(ImageFilter.GaussianBlur(radius=8.0))
+    canvas = ImageEnhance.Brightness(canvas).enhance(0.80)
+    canvas = ImageEnhance.Color(canvas).enhance(0.94)
+
+    vignette = Image.new("L", (target_width, target_height), 0)
+    vignette_draw = ImageDraw.Draw(vignette)
+    vignette_draw.rounded_rectangle(
+        (0, 0, target_width, target_height),
+        radius=max(24, int(round(min(target_width, target_height) * 0.06))),
+        fill=255,
+    )
+    vignette = vignette.filter(ImageFilter.GaussianBlur(radius=max(18, int(round(min(target_width, target_height) * 0.06)))))
+    vignette_arr = np.asarray(vignette).astype(np.float32) / 255.0
+    canvas_arr = np.asarray(canvas).astype(np.float32)
+    falloff = 0.90 + (vignette_arr[..., None] * 0.10)
+    canvas_arr[..., :3] *= falloff
+    return Image.fromarray(np.clip(canvas_arr, 0, 255).astype(np.uint8), mode="RGBA")
+
+
+
+def _validate_commercial_deterministic_composition(
+    target_width: int,
+    target_height: int,
+    hero_box: Optional[Rect],
+    city_box: Optional[Rect],
+    dates_box: Optional[Rect],
+    cta_box: Optional[Rect],
+    placed_boxes: Sequence[Rect],
+) -> Tuple[bool, str]:
+    valid_boxes = [tuple(int(v) for v in rect) for rect in list(placed_boxes or []) if rect[2] > rect[0] and rect[3] > rect[1]]
+    if not valid_boxes:
+        return False, "no_boxes"
+
+    if hero_box is None:
+        return False, "missing_hero"
+
+    hero_width_ratio = (hero_box[2] - hero_box[0]) / max(1.0, float(target_width))
+    hero_height_ratio = (hero_box[3] - hero_box[1]) / max(1.0, float(target_height))
+    if hero_width_ratio < 0.52 or hero_height_ratio < 0.34:
+        return False, "hero_too_small"
+
+    if city_box is None and dates_box is None and cta_box is None:
+        return False, "missing_bottom_stack"
+
+    if cta_box is not None and cta_box[1] <= hero_box[3]:
+        return False, "cta_overlapping_hero"
+
+    if city_box is not None and city_box[1] <= hero_box[1]:
+        return False, "city_invalid_position"
+
+    return True, "ok"
 
 
 def _choose_bottom_commercial_blocks(
@@ -1143,6 +1192,176 @@ def _choose_bottom_commercial_blocks(
     return {"city": city, "dates": dates, "cta": cta}
 
 
+def _detect_bottom_commercial_blocks_from_pixels(source: Image.Image) -> Dict[str, Optional[Rect]]:
+    source_rgba = source.convert("RGBA")
+    source_width, source_height = source_rgba.size
+    if source_width < 64 or source_height < 64:
+        return {"city": None, "dates": None, "cta": None}
+
+    reduce_scale = min(1.0, 400.0 / max(1.0, float(source_width)))
+    reduced_width = max(96, int(round(source_width * reduce_scale)))
+    reduced_height = max(96, int(round(source_height * reduce_scale)))
+    reduced = source_rgba.resize((reduced_width, reduced_height), Image.Resampling.LANCZOS)
+
+    arr = np.asarray(reduced).astype(np.float32)
+    rgb = arr[..., :3]
+    gray = rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
+    saturation = np.max(rgb, axis=2) - np.min(rgb, axis=2)
+    gray_image = Image.fromarray(np.clip(gray, 0, 255).astype(np.uint8), mode="L")
+    blur = np.asarray(gray_image.filter(ImageFilter.GaussianBlur(radius=4))).astype(np.float32)
+    local_contrast = np.abs(gray - blur)
+    bright = np.clip(gray - 35.0, 0.0, None)
+    score = saturation * 0.38 + local_contrast * 1.00 + bright * 0.12
+
+    def _extract_components(y_ratio_start: float, y_ratio_end: float, percentile: float, center_bias: bool) -> List[Rect]:
+        y1 = _clamp_int(int(round(reduced_height * y_ratio_start)), 0, reduced_height - 1)
+        y2 = _clamp_int(int(round(reduced_height * y_ratio_end)), y1 + 1, reduced_height)
+        sub = score[y1:y2].copy()
+        if center_bias:
+            xx = np.linspace(0.0, 1.0, reduced_width, dtype=np.float32)[None, :]
+            sub *= np.clip(1.0 - np.abs(xx - 0.5) * 1.4, 0.2, 1.0)
+        non_zero = sub[sub > 0]
+        if non_zero.size == 0:
+            return []
+        threshold = float(np.percentile(non_zero, percentile))
+        mask = np.zeros((reduced_height, reduced_width), dtype=np.uint8)
+        mask[y1:y2] = (sub >= threshold).astype(np.uint8)
+        mask_image = Image.fromarray((mask * 255).astype(np.uint8), mode="L").filter(ImageFilter.GaussianBlur(radius=3))
+        mask = (np.asarray(mask_image) > 75).astype(np.uint8)
+
+        visited = np.zeros_like(mask, dtype=bool)
+        components: List[Rect] = []
+        for row in range(y1, y2):
+            for col in range(reduced_width):
+                if not mask[row, col] or visited[row, col]:
+                    continue
+                stack = [(row, col)]
+                visited[row, col] = True
+                xs: List[int] = []
+                ys: List[int] = []
+                while stack:
+                    cy, cx = stack.pop()
+                    xs.append(cx)
+                    ys.append(cy)
+                    if cy > 0 and mask[cy - 1, cx] and not visited[cy - 1, cx]:
+                        visited[cy - 1, cx] = True
+                        stack.append((cy - 1, cx))
+                    if cy + 1 < reduced_height and mask[cy + 1, cx] and not visited[cy + 1, cx]:
+                        visited[cy + 1, cx] = True
+                        stack.append((cy + 1, cx))
+                    if cx > 0 and mask[cy, cx - 1] and not visited[cy, cx - 1]:
+                        visited[cy, cx - 1] = True
+                        stack.append((cy, cx - 1))
+                    if cx + 1 < reduced_width and mask[cy, cx + 1] and not visited[cy, cx + 1]:
+                        visited[cy, cx + 1] = True
+                        stack.append((cy, cx + 1))
+                if not xs or not ys:
+                    continue
+                components.append((min(xs), min(ys), max(xs) + 1, max(ys) + 1))
+
+        merged: List[Rect] = []
+        for rect in sorted(components, key=lambda item: (item[1], item[0])):
+            attached = False
+            for idx, existing in enumerate(merged):
+                vertical_overlap = max(0, min(existing[3], rect[3]) - max(existing[1], rect[1]))
+                min_height = min(existing[3] - existing[1], rect[3] - rect[1])
+                same_row = vertical_overlap >= max(3, int(min_height * 0.28))
+                near_x = rect[0] <= existing[2] + max(10, int(round(reduced_width * 0.06)))
+                if same_row and near_x:
+                    merged[idx] = (
+                        min(existing[0], rect[0]),
+                        min(existing[1], rect[1]),
+                        max(existing[2], rect[2]),
+                        max(existing[3], rect[3]),
+                    )
+                    attached = True
+                    break
+            if not attached:
+                merged.append(rect)
+        return merged
+
+    info_components = _extract_components(0.52, 0.80, percentile=89.0, center_bias=True)
+    cta_components = _extract_components(0.80, 0.98, percentile=88.0, center_bias=True)
+
+    def _scaled(rect: Rect) -> Rect:
+        return (
+            _clamp_int(int(round(rect[0] * source_width / max(1.0, float(reduced_width)))), 0, source_width),
+            _clamp_int(int(round(rect[1] * source_height / max(1.0, float(reduced_height)))), 0, source_height),
+            _clamp_int(int(round(rect[2] * source_width / max(1.0, float(reduced_width)))), 0, source_width),
+            _clamp_int(int(round(rect[3] * source_height / max(1.0, float(reduced_height)))), 0, source_height),
+        )
+
+    def _metrics(rect: Rect) -> Tuple[float, float, float, float]:
+        width_ratio = (rect[2] - rect[0]) / max(1.0, float(reduced_width))
+        height_ratio = (rect[3] - rect[1]) / max(1.0, float(reduced_height))
+        center_x = ((rect[0] + rect[2]) * 0.5) / max(1.0, float(reduced_width))
+        center_y = ((rect[1] + rect[3]) * 0.5) / max(1.0, float(reduced_height))
+        return width_ratio, height_ratio, center_x, center_y
+
+    city_rect_reduced: Optional[Rect] = None
+    city_candidates = [
+        rect
+        for rect in info_components
+        if _metrics(rect)[0] >= 0.22 and _metrics(rect)[1] <= 0.12 and abs(_metrics(rect)[2] - 0.5) <= 0.28 and 0.56 <= _metrics(rect)[3] <= 0.78
+    ]
+    if city_candidates:
+        city_rect_reduced = sorted(city_candidates, key=lambda rect: (rect[1], -_metrics(rect)[0], abs(_metrics(rect)[2] - 0.5)))[0]
+
+    dates_rect_reduced: Optional[Rect] = None
+    if city_rect_reduced is not None:
+        dates_candidates = [
+            rect
+            for rect in info_components
+            if rect != city_rect_reduced and rect[1] >= city_rect_reduced[3] - max(4, int(round(reduced_height * 0.008)))
+            and _metrics(rect)[0] >= 0.10 and _metrics(rect)[1] <= 0.09 and abs(_metrics(rect)[2] - 0.5) <= 0.34
+        ]
+        if dates_candidates:
+            dates_rect_reduced = sorted(dates_candidates, key=lambda rect: (rect[1], -_metrics(rect)[0]))[0]
+
+    cta_rect_reduced: Optional[Rect] = None
+    cta_candidates = [
+        rect
+        for rect in cta_components
+        if 0.10 <= _metrics(rect)[0] <= 0.42 and 0.03 <= _metrics(rect)[1] <= 0.13 and abs(_metrics(rect)[2] - 0.5) <= 0.20 and _metrics(rect)[3] >= 0.82
+    ]
+    if cta_candidates:
+        cta_rect_reduced = sorted(
+            cta_candidates,
+            key=lambda rect: (-((rect[2] - rect[0]) * (rect[3] - rect[1])), abs(_metrics(rect)[2] - 0.5), -_metrics(rect)[3]),
+        )[0]
+
+    city = None
+    if city_rect_reduced is not None:
+        city = _scaled(city_rect_reduced)
+        city = _inflate_rect(city, max(10, int(round(source_width * 0.05))), max(8, int(round(source_height * 0.012))), source_width, source_height)
+        city_width = max(1, city[2] - city[0])
+        city_height = max(1, city[3] - city[1])
+        min_city_width = int(round(source_width * (0.74 if city_height <= int(round(source_height * 0.10)) else 0.58)))
+        desired_city_width = max(city_width, min_city_width)
+        city_center_x = source_width * 0.5
+        city = (
+            _clamp_int(int(round(city_center_x - desired_city_width * 0.5)), 0, max(0, source_width - desired_city_width)),
+            city[1],
+            _clamp_int(int(round(city_center_x - desired_city_width * 0.5)) + desired_city_width, min(desired_city_width, source_width), source_width),
+            city[3],
+        )
+        city = _expand_rect_to_min_width(city, int(round(source_width * 0.42)), source_width)
+
+    dates = None
+    if dates_rect_reduced is not None:
+        dates = _scaled(dates_rect_reduced)
+        dates = _inflate_rect(dates, max(12, int(round(source_width * 0.08))), max(10, int(round(source_height * 0.015))), source_width, source_height)
+        dates = _expand_rect_to_min_width(dates, int(round(source_width * 0.46)), source_width)
+
+    cta = None
+    if cta_rect_reduced is not None:
+        cta = _scaled(cta_rect_reduced)
+        cta = _inflate_rect(cta, max(12, int(round(source_width * 0.08))), max(14, int(round(source_height * 0.020))), source_width, source_height)
+        cta = _expand_rect_to_min_width(cta, int(round(source_width * 0.22)), source_width)
+
+    return {"city": city, "dates": dates, "cta": cta}
+
+
 def build_exact_size_commercial_deterministic_assets(
     image_bytes: bytes,
     target_width: int,
@@ -1154,10 +1373,11 @@ def build_exact_size_commercial_deterministic_assets(
 
     source_width, source_height = source.size
     background_meta = dict(profile_info.get("background_meta") or _analyze_edge_background(source))
-    canvas = _build_soft_cover_background(source, target_width, target_height, background_meta)
 
     preserve_rects = list(profile_info.get("preserve_text_rects") or profile_info.get("mandatory_source_rects") or [])
     blocks = _choose_bottom_commercial_blocks(preserve_rects, source_width, source_height)
+    if blocks.get("city") is None and blocks.get("dates") is None and blocks.get("cta") is None:
+        blocks = _detect_bottom_commercial_blocks_from_pixels(source)
     city_rect = blocks.get("city")
     dates_rect = blocks.get("dates")
     cta_rect = blocks.get("cta")
@@ -1165,6 +1385,13 @@ def build_exact_size_commercial_deterministic_assets(
     hero_cut_y = city_rect[1] - max(18, int(round(source_height * 0.026))) if city_rect else int(round(source_height * 0.58))
     hero_cut_y = _clamp_int(hero_cut_y, int(round(source_height * 0.34)), int(round(source_height * 0.76)))
     hero_region = (0, 0, source_width, hero_cut_y)
+    canvas = _build_soft_cover_background(
+        source,
+        target_width,
+        target_height,
+        background_meta,
+        source_region=hero_region,
+    )
     focus = _estimate_focus_bbox_within_region(source, hero_region, percentile=98.8)
     focus_w = max(1, focus[2] - focus[0])
     focus_h = max(1, focus[3] - focus[1])
@@ -1177,27 +1404,55 @@ def build_exact_size_commercial_deterministic_assets(
     if hero_rect[3] - hero_rect[1] < int(round(source_height * 0.18)):
         hero_rect = (0, 0, source_width, hero_cut_y)
 
+    placed_boxes: List[Rect] = []
+    transition_boxes: List[Rect] = []
+
     hero_patch, _ = _extract_padded_patch(
         source=source,
         rect=hero_rect,
-        pad_x_ratio=0.02,
-        pad_y_ratio=0.02,
+        pad_x_ratio=0.03,
+        pad_y_ratio=0.03,
     )
-    desired_hero_width = max(160, int(round(target_width * 0.70)))
+    desired_hero_width = max(170, int(round(target_width * 0.72)))
     scale = desired_hero_width / max(1.0, float(hero_patch.width))
     scaled_height = max(1, int(round(hero_patch.height * scale)))
     hero_patch = hero_patch.resize((desired_hero_width, scaled_height), Image.Resampling.LANCZOS)
-    hero_max_height = max(140, int(round(target_height * 0.62)))
+    hero_max_height = max(145, int(round(target_height * 0.60)))
     if hero_patch.height > hero_max_height:
         overflow = hero_patch.height - hero_max_height
-        crop_top = max(0, int(round(overflow * 0.12)))
+        crop_top = max(0, int(round(overflow * 0.10)))
         hero_patch = hero_patch.crop((0, crop_top, hero_patch.width, crop_top + hero_max_height))
     hero_x = max(0, (target_width - hero_patch.width) // 2)
-    hero_y = max(6, int(round(target_height * 0.02)))
-    placed_boxes: List[Rect] = []
-    placed_boxes.append(_paste_patch_with_feather(canvas, hero_patch, hero_x, hero_y, feather_px=6))
+    hero_y = max(8, int(round(target_height * 0.018)))
+    hero_box = _paste_patch_with_feather(canvas, hero_patch, hero_x, hero_y, feather_px=10)
+    placed_boxes.append(hero_box)
+    transition_boxes.append(_inflate_rect(hero_box, 18, 16, target_width, target_height))
 
-    next_y = placed_boxes[-1][3] + max(2, int(round(target_height * 0.006)))
+    next_y = hero_box[3] + max(4, int(round(target_height * 0.010)))
+
+    bottom_stack_box: Optional[Rect] = None
+    bottom_stack_rect = _merge_rects([rect for rect in (city_rect, dates_rect, cta_rect) if rect is not None])
+    if bottom_stack_rect is not None:
+        stack_patch, _ = _extract_padded_patch(
+            source=source,
+            rect=bottom_stack_rect,
+            pad_x_ratio=0.10,
+            pad_y_ratio=0.12,
+        )
+        stack_patch = _resize_patch_to_fit(
+            stack_patch,
+            max_width=max(150, int(round(target_width * 0.40))),
+            max_height=max(108, int(round(target_height * 0.26))),
+            max_upscale=1.16,
+        )
+        stack_x = max(0, (target_width - stack_patch.width) // 2)
+        stack_bottom_margin = max(18, int(round(target_height * 0.042)))
+        preferred_y = target_height - stack_patch.height - stack_bottom_margin
+        stack_y = max(next_y, preferred_y)
+        stack_y = min(stack_y, max(next_y, target_height - stack_patch.height - 6))
+        bottom_stack_box = _paste_patch_with_feather(canvas, stack_patch, stack_x, stack_y, feather_px=10)
+        placed_boxes.append(bottom_stack_box)
+        transition_boxes.append(_inflate_rect(bottom_stack_box, 18, 16, target_width, target_height))
 
     def _place_optional_block(rect: Optional[Rect], max_w_ratio: float, max_h_ratio: float, pad_x: float, pad_y: float, feather_px: int) -> Optional[Rect]:
         nonlocal next_y
@@ -1215,40 +1470,82 @@ def build_exact_size_commercial_deterministic_assets(
         box = _paste_patch_with_feather(canvas, patch, place_x, place_y, feather_px=feather_px)
         next_y = box[3] + max(1, int(round(target_height * 0.004)))
         placed_boxes.append(box)
+        transition_boxes.append(_inflate_rect(box, 12, 12, target_width, target_height))
         return box
 
-    city_box = _place_optional_block(city_rect, 0.52, 0.11, 0.05, 0.10, 4)
-    dates_box = _place_optional_block(dates_rect, 0.56, 0.10, 0.06, 0.18, 4)
-
+    city_box: Optional[Rect] = None
+    dates_box: Optional[Rect] = None
     cta_box: Optional[Rect] = None
-    if cta_rect is not None:
-        cta_patch, _ = _extract_padded_patch(source=source, rect=cta_rect, pad_x_ratio=0.10, pad_y_ratio=0.22)
-        cta_patch = _resize_patch_to_fit(
-            cta_patch,
-            max_width=max(90, int(round(target_width * 0.22))),
-            max_height=max(42, int(round(target_height * 0.12))),
-            max_upscale=1.18,
-        )
-        cta_x = max(0, (target_width - cta_patch.width) // 2)
-        cta_y = max(next_y + max(4, int(round(target_height * 0.008))), target_height - cta_patch.height - max(8, int(round(target_height * 0.018))))
-        cta_y = min(target_height - cta_patch.height - 4, cta_y)
-        cta_box = _paste_patch_with_feather(canvas, cta_patch, cta_x, cta_y, feather_px=4)
-        placed_boxes.append(cta_box)
+    if bottom_stack_box is not None:
+        city_box = bottom_stack_box if city_rect is not None else None
+        dates_box = bottom_stack_box if dates_rect is not None else None
+        cta_box = bottom_stack_box if cta_rect is not None else None
+    else:
+        city_box = _place_optional_block(city_rect, 0.52, 0.11, 0.05, 0.10, 6)
+        dates_box = _place_optional_block(dates_rect, 0.56, 0.10, 0.06, 0.18, 6)
+        if cta_rect is not None:
+            cta_patch, _ = _extract_padded_patch(source=source, rect=cta_rect, pad_x_ratio=0.10, pad_y_ratio=0.22)
+            cta_patch = _resize_patch_to_fit(
+                cta_patch,
+                max_width=max(90, int(round(target_width * 0.22))),
+                max_height=max(42, int(round(target_height * 0.12))),
+                max_upscale=1.18,
+            )
+            cta_x = max(0, (target_width - cta_patch.width) // 2)
+            cta_y = max(next_y + max(4, int(round(target_height * 0.008))), target_height - cta_patch.height - max(8, int(round(target_height * 0.018))))
+            cta_y = min(target_height - cta_patch.height - 4, cta_y)
+            cta_box = _paste_patch_with_feather(canvas, cta_patch, cta_x, cta_y, feather_px=6)
+            placed_boxes.append(cta_box)
+            transition_boxes.append(_inflate_rect(cta_box, 12, 12, target_width, target_height))
+
+    preserve_union = _merge_rects(placed_boxes) or (0, 0, target_width, target_height)
 
     mask_alpha = Image.new("L", (target_width, target_height), 0)
     draw = ImageDraw.Draw(mask_alpha)
+    transition_union = _merge_rects(transition_boxes) or preserve_union
+    draw.rounded_rectangle(
+        transition_union,
+        radius=max(10, int(round(min(target_width, target_height) * 0.018))),
+        fill=184,
+    )
+    for rect in transition_boxes:
+        draw.rounded_rectangle(
+            rect,
+            radius=max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10))),
+            fill=220,
+        )
     for rect in placed_boxes:
-        radius = max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10)))
-        draw.rounded_rectangle(rect, radius=radius, fill=255)
-    mask_alpha = mask_alpha.filter(ImageFilter.GaussianBlur(radius=2.2))
+        draw.rounded_rectangle(
+            rect,
+            radius=max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10))),
+            fill=255,
+        )
+    mask_alpha = mask_alpha.filter(ImageFilter.GaussianBlur(radius=3.0))
     redraw = ImageDraw.Draw(mask_alpha)
     for rect in placed_boxes:
-        radius = max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10)))
-        redraw.rounded_rectangle(rect, radius=radius, fill=255)
+        redraw.rounded_rectangle(
+            rect,
+            radius=max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10))),
+            fill=255,
+        )
     mask = Image.new("RGBA", (target_width, target_height), (0, 0, 0, 0))
     mask.putalpha(mask_alpha)
 
-    preserve_union = _merge_rects(placed_boxes) or (0, 0, target_width, target_height)
+    composition_ok, composition_reason = _validate_commercial_deterministic_composition(
+        target_width=target_width,
+        target_height=target_height,
+        hero_box=hero_box,
+        city_box=city_box,
+        dates_box=dates_box,
+        cta_box=cta_box,
+        placed_boxes=placed_boxes,
+    )
+    if not composition_ok:
+        raise ValueError(
+            "A recomposição determinística do layout não atingiu confiança suficiente para entrega final. "
+            f"Motivo: {composition_reason}"
+        )
+
     return {
         "canvas_bytes": _encode_png_bytes(canvas),
         "mask_bytes": _encode_png_bytes(mask),
@@ -1264,12 +1561,19 @@ def build_exact_size_commercial_deterministic_assets(
         "preserve_union": preserve_union,
         "crop_safe_rect": tuple(int(v) for v in profile_info.get("crop_safe_rect") or (0, 0, target_width, target_height)),
         "hard_preserve_boxes": _dedupe_rects(placed_boxes, iou_threshold=0.82),
-        "hard_feather": 8,
+        "hard_feather": 10,
+        "hard_preserve_limits": {
+            "max_area_ratio": 0.58,
+            "max_width_ratio": 0.86,
+            "max_height_ratio": 0.72,
+        },
         "strategy": "commercial_layout_deterministic",
-        "strength": "none",
-        "profile_info": {**dict(profile_info or {}), "deterministic_only": True},
-        "direct_result_bytes": _encode_png_bytes(canvas),
-        "direct_result_is_exact": True,
+        "strength": "low",
+        "profile_info": {**dict(profile_info or {}), "deterministic_only": True, "layout_first_non_native": True},
+        "composition_ok": True,
+        "composition_reason": "ok",
+        "direct_result_bytes": None,
+        "direct_result_is_exact": False,
     }
 
 
