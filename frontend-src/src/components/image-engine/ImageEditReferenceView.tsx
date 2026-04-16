@@ -685,6 +685,72 @@ function createProjectItem(index: number): ProjectItem {
   };
 }
 
+function buildSnapshotSignature(snapshot: ProjectSnapshot) {
+  const normalizedResizeOptions = normalizeResizeOptions({
+    preserveOriginalFrame: snapshot.preserveOriginalFrame,
+    allowResizeCrop: snapshot.allowResizeCrop,
+  });
+
+  return JSON.stringify({
+    formato: snapshot.formato,
+    qualidade: snapshot.qualidade,
+    resolutionMode: snapshot.resolutionMode,
+    customWidth: snapshot.customWidth,
+    customHeight: snapshot.customHeight,
+    preserveOriginalFrame: normalizedResizeOptions.preserveOriginalFrame,
+    allowResizeCrop: normalizedResizeOptions.allowResizeCrop,
+    editScope: snapshot.editScope,
+    promptInput: snapshot.promptInput,
+    statusText: snapshot.statusText,
+    selectedItemId: snapshot.selectedItemId,
+    viewport: snapshot.viewport,
+    hasManualViewport: snapshot.hasManualViewport,
+    baseReference: snapshot.baseReference
+      ? {
+          id: snapshot.baseReference.id,
+          previewUrl: snapshot.baseReference.previewUrl,
+          width: snapshot.baseReference.width,
+          height: snapshot.baseReference.height,
+          name: snapshot.baseReference.file?.name || "",
+          size: snapshot.baseReference.file?.size || 0,
+          type: snapshot.baseReference.file?.type || "",
+        }
+      : null,
+    messages: snapshot.messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      tone: message.tone,
+      attachments: (message.attachments || []).map((attachment) => ({
+        id: attachment.id,
+        label: attachment.label,
+        name: attachment.name,
+        previewUrl: attachment.previewUrl,
+      })),
+    })),
+    canvasItems: snapshot.canvasItems
+      .filter((item) => item.kind !== "pending")
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        url: item.url,
+        title: item.title,
+        subtitle: item.subtitle,
+        status: item.status,
+        progress: item.progress,
+        x: item.x,
+        y: item.y,
+        width: item.width,
+        height: item.height,
+        naturalWidth: item.naturalWidth,
+        naturalHeight: item.naturalHeight,
+        engineId: item.engineId,
+        motor: item.motor,
+        prompt: item.prompt,
+      })),
+  });
+}
+
 async function serializeProjectSnapshot(
   snapshot: ProjectSnapshot,
   getBaseDataUrl: (reference: ReferenceAttachment) => Promise<string>
@@ -1118,6 +1184,11 @@ const syncProjectSnapshotInList = useCallback(
 const commitCurrentProjectSnapshot = useCallback(
   (snapshotOverride?: ProjectSnapshot) => {
     const nextSnapshot = snapshotOverride ?? buildProjectSnapshot();
+    const currentProject = projectsRef.current.find((project) => project.id === currentProjectId);
+    if (currentProject && buildSnapshotSignature(currentProject.snapshot) === buildSnapshotSignature(nextSnapshot)) {
+      return projectsRef.current;
+    }
+
     const nextProjects = syncProjectSnapshotInList(projectsRef.current, currentProjectId, nextSnapshot);
     projectsRef.current = nextProjects;
     setProjects(nextProjects);
