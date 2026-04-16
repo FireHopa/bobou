@@ -424,16 +424,23 @@ def _sanitize_exact_size_text_rects(
             or y2 >= source_height - edge_margin_y
         )
 
+        # Peças comerciais costumam ter faixas largas e baixas no topo/rodapé.
+        # Não trate esses blocos como ruído só por serem largos.
+        wide_short_band = bool(width_ratio >= 0.56 and height_ratio <= 0.15 and area_ratio <= 0.11)
+        narrow_tall_label = bool(width_ratio <= 0.28 and height_ratio <= 0.12 and area_ratio <= 0.035)
+
         unreliable = False
         if width < 18 or height < 10:
             unreliable = True
-        if area_ratio >= 0.12:
+        if area_ratio >= 0.18 and not wide_short_band:
             unreliable = True
-        if width_ratio >= 0.80 and area_ratio >= 0.08:
+        if width_ratio >= 0.90 and height_ratio >= 0.18:
             unreliable = True
-        if touches_edge and area_ratio >= 0.06:
+        if width_ratio >= 0.82 and area_ratio >= 0.11 and not wide_short_band:
             unreliable = True
-        if width_ratio >= 0.74 and height_ratio >= 0.16:
+        if touches_edge and area_ratio >= 0.10 and height_ratio >= 0.16 and not wide_short_band:
+            unreliable = True
+        if width_ratio >= 0.74 and height_ratio >= 0.24 and not narrow_tall_label:
             unreliable = True
 
         if unreliable:
@@ -448,7 +455,21 @@ def _sanitize_exact_size_text_rects(
         if union is not None
         else 0.0
     )
-    reliable = bool(sanitized) and union_area_ratio <= 0.26 and len(dropped) <= max(2, len(sanitized) + 1)
+    total_area_ratio = sum(_rect_area(rect) for rect in sanitized) / image_area if sanitized else 0.0
+    bands = _group_text_rects_by_bands(sanitized, source_width, source_height) if sanitized else []
+    band_zones = sorted({_classify_text_band(rect, source_height) for rect in bands}) if bands else []
+    multi_zone = len(band_zones) >= 2
+    commercial_stack = "top" in band_zones and "bottom" in band_zones
+
+    reliable = bool(sanitized) and (
+        (
+            union_area_ratio <= 0.30
+            and total_area_ratio <= 0.18
+            and len(dropped) <= max(3, len(sanitized) + 2)
+        )
+        or multi_zone
+        or commercial_stack
+    )
 
     return sanitized, {
         "reliable": bool(reliable),
@@ -456,6 +477,10 @@ def _sanitize_exact_size_text_rects(
         "sanitized_count": int(len(sanitized)),
         "dropped_count": int(len(dropped)),
         "union_area_ratio": float(union_area_ratio),
+        "total_area_ratio": float(total_area_ratio),
+        "band_zones": band_zones,
+        "multi_zone": bool(multi_zone),
+        "commercial_stack": bool(commercial_stack),
         "dropped_rects": dropped,
     }
 
@@ -669,15 +694,28 @@ def detect_exact_size_recompose_profile(
     text_bands = _group_text_rects_by_bands(preserve_text_rects, source_width, source_height)
     top_text_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "top"]
     bottom_text_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "bottom"]
-    multi_zone_text = bool(len(text_bands) >= 3 or (top_text_bands and bottom_text_bands))
+    middle_text_bands = [rect for rect in text_bands if _classify_text_band(rect, source_height) == "middle"]
+    band_zone_names = {_classify_text_band(rect, source_height) for rect in text_bands}
+    multi_zone_text = bool(len(text_bands) >= 3 or len(band_zone_names) >= 2 or (top_text_bands and bottom_text_bands))
     commercial_layout_lock = bool(top_text_bands and bottom_text_bands)
+    fragmented_text_support = bool(
+        text_meta["reliable"]
+        or commercial_layout_lock
+        or multi_zone_text
+        or len(preserve_text_rects) >= 3
+        or (len(top_text_bands) >= 1 and len(bottom_text_bands) >= 1)
+    )
 
-    allow_assisted = bool(text_meta["reliable"] and sanitized_text_rects)
+    allow_assisted = bool((text_meta["reliable"] or multi_zone_text) and (sanitized_text_rects or preserve_text_rects))
     prefer_fragmented_preserve = bool(
         strong_geometry_change
-        and mandatory_pressure
-        and text_meta["reliable"]
-        and (commercial_layout_lock or multi_zone_text or intent.get("commercial_preservation"))
+        and fragmented_text_support
+        and (
+            mandatory_pressure
+            or commercial_layout_lock
+            or intent.get("commercial_preservation")
+            or (title_pressure and footer_pressure)
+        )
         and (
             center_compression
             or dense_foreground
@@ -685,6 +723,7 @@ def detect_exact_size_recompose_profile(
             or title_pressure
             or background_meta["plain"]
             or score >= 4
+            or len(middle_text_bands) >= 1
             or intent.get("commercial_preservation")
         )
     )
@@ -694,11 +733,11 @@ def detect_exact_size_recompose_profile(
         and orientation_changed
         and (mandatory_pressure or (preserve_text_rects and (title_pressure or footer_pressure)) or intent.get("commercial_preservation"))
         and (
-            not text_meta["reliable"]
-            or ratio_delta >= 0.72
+            ratio_delta >= 0.72
             or score >= 4
             or intent["strict_preservation"]
             or intent.get("commercial_preservation")
+            or not fragmented_text_support
         )
     )
 
@@ -853,19 +892,27 @@ def _build_mandatory_source_rects(
 
     top_union = _merge_rects(top_bands)
     if top_union is not None:
-        top_strip_bottom = max(
-            top_union[3] + max(18, int(round(source_height * 0.020))),
-            int(round(source_height * 0.14)),
+        result.append(
+            _inflate_rect(
+                top_union,
+                max(18, int(round(source_width * 0.045))),
+                max(22, int(round(source_height * 0.030))),
+                source_width,
+                source_height,
+            )
         )
-        result.append((0, 0, source_width, _clamp_int(top_strip_bottom, 1, source_height)))
 
     bottom_union = _merge_rects(bottom_bands)
     if bottom_union is not None:
-        bottom_strip_top = min(
-            bottom_union[1] - max(18, int(round(source_height * 0.020))),
-            int(round(source_height * 0.76)),
+        result.append(
+            _inflate_rect(
+                bottom_union,
+                max(18, int(round(source_width * 0.045))),
+                max(22, int(round(source_height * 0.030))),
+                source_width,
+                source_height,
+            )
         )
-        result.append((0, _clamp_int(bottom_strip_top, 0, source_height - 1), source_width, source_height))
 
     middle_union = _merge_rects(middle_bands)
     if middle_union is not None:
@@ -1776,6 +1823,142 @@ def _compact_user_exact_size_requirements(instruction_text: Optional[str], max_l
         clipped = raw[:max_len].strip()
     return f"{clipped}…"
 
+
+
+
+def _scale_rect_into_destination(
+    rect: Rect,
+    source_width: int,
+    source_height: int,
+    destination_rect: Rect,
+) -> Rect:
+    dest_x1, dest_y1, dest_x2, dest_y2 = destination_rect
+    dest_width = max(1, dest_x2 - dest_x1)
+    dest_height = max(1, dest_y2 - dest_y1)
+    scale_x = dest_width / max(1.0, float(source_width))
+    scale_y = dest_height / max(1.0, float(source_height))
+    return (
+        int(round(dest_x1 + rect[0] * scale_x)),
+        int(round(dest_y1 + rect[1] * scale_y)),
+        int(round(dest_x1 + rect[2] * scale_x)),
+        int(round(dest_y1 + rect[3] * scale_y)),
+    )
+
+
+def build_non_native_exact_size_layout_first_assets(
+    image_bytes: bytes,
+    plan: Dict[str, Any],
+    profile_info: Dict[str, Any],
+) -> Dict[str, Any]:
+    with Image.open(io.BytesIO(image_bytes)) as image_file:
+        source = image_file.convert("RGBA")
+
+    exact_width = int(plan["target_width"])
+    exact_height = int(plan["target_height"])
+    exact_plan = {
+        "base_width": int(exact_width),
+        "base_height": int(exact_height),
+        "working_width": int(exact_width),
+        "working_height": int(exact_height),
+        "crop_rect": (0, 0, int(exact_width), int(exact_height)),
+        "target_width": int(exact_width),
+        "target_height": int(exact_height),
+        "needs_upscale_after_crop": False,
+    }
+
+    exact_profile = dict(profile_info or {})
+    exact_profile["crop_safe_rect"] = _inset_rect(
+        (0, 0, exact_width, exact_height),
+        max(18, int(round(exact_width * 0.06))),
+        max(18, int(round(exact_height * 0.08))),
+    )
+
+    strategy = (profile_info.get("strategy") or "").strip().lower()
+    if strategy == "fragmented_preserve" or len(exact_profile.get("preserve_text_rects") or []) >= 2:
+        exact_assets = build_exact_size_fragmented_preserve_assets(
+            image_bytes=image_bytes,
+            plan=exact_plan,
+            profile_info=exact_profile,
+        )
+    elif strategy == "assisted_recompose":
+        exact_assets = build_exact_size_assisted_recompose_assets(
+            image_bytes=image_bytes,
+            plan=exact_plan,
+            profile_info=exact_profile,
+            text_rects=exact_profile.get("text_rects"),
+        )
+    else:
+        exact_assets = build_exact_size_layout_preserve_assets(
+            image_bytes=image_bytes,
+            plan=exact_plan,
+            profile_info=exact_profile,
+        )
+
+    base_width = int(plan["base_width"])
+    base_height = int(plan["base_height"])
+    crop_rect = tuple(int(v) for v in plan["crop_rect"])
+    crop_width = max(1, crop_rect[2] - crop_rect[0])
+    crop_height = max(1, crop_rect[3] - crop_rect[1])
+
+    background = _build_seed_background(source, base_width, base_height, profile_info)
+    canvas = background.copy()
+
+    with Image.open(io.BytesIO(exact_assets["canvas_bytes"])) as exact_canvas_file:
+        exact_canvas = exact_canvas_file.convert("RGBA")
+    with Image.open(io.BytesIO(exact_assets["mask_bytes"])) as exact_mask_file:
+        exact_mask = exact_mask_file.convert("RGBA")
+
+    if exact_canvas.size != (crop_width, crop_height):
+        exact_canvas = exact_canvas.resize((crop_width, crop_height), Image.Resampling.LANCZOS)
+        exact_mask = exact_mask.resize((crop_width, crop_height), Image.Resampling.LANCZOS)
+
+    canvas.alpha_composite(exact_canvas, (crop_rect[0], crop_rect[1]))
+
+    mask = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+    mask.alpha_composite(exact_mask, (crop_rect[0], crop_rect[1]))
+
+    exact_boxes = [tuple(int(v) for v in rect) for rect in list(exact_assets.get("hard_preserve_boxes") or [])]
+    mapped_boxes = [
+        _scale_rect_into_destination(rect, exact_width, exact_height, crop_rect)
+        for rect in exact_boxes
+        if rect[2] > rect[0] and rect[3] > rect[1]
+    ]
+    preserve_union = _merge_rects(mapped_boxes)
+    if preserve_union is None:
+        preserve_union = (
+            int(crop_rect[0]),
+            int(crop_rect[1]),
+            int(crop_rect[2]),
+            int(crop_rect[3]),
+        )
+
+    placement = {
+        "x": int(preserve_union[0]),
+        "y": int(preserve_union[1]),
+        "width": int(max(1, preserve_union[2] - preserve_union[0])),
+        "height": int(max(1, preserve_union[3] - preserve_union[1])),
+        "target_width": int(base_width),
+        "target_height": int(base_height),
+    }
+
+    embedded_profile = dict(profile_info or {})
+    embedded_profile["layout_first_non_native"] = True
+    embedded_profile["strategy"] = exact_assets.get("strategy") or strategy or "layout_preserve"
+
+    return {
+        "canvas_bytes": _encode_png_bytes(canvas),
+        "mask_bytes": _encode_png_bytes(mask),
+        "placement": placement,
+        "visible_rect": preserve_union,
+        "preserve_union": preserve_union,
+        "crop_safe_rect": tuple(int(v) for v in profile_info.get("crop_safe_rect") or plan["crop_rect"]),
+        "hard_preserve_boxes": _dedupe_rects(mapped_boxes, iou_threshold=0.82),
+        "hard_feather": int(exact_assets.get("hard_feather") or 10),
+        "strategy": exact_assets.get("strategy") or strategy or "layout_preserve",
+        "strength": exact_assets.get("strength") or "low",
+        "profile_info": embedded_profile,
+        "layout_first_preview_bytes": exact_assets["canvas_bytes"],
+    }
 
 def build_exact_size_fragmented_preserve_prompt(
     target_width: int,

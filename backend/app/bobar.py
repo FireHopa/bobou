@@ -99,6 +99,11 @@ class BobarCardOut(BaseModel):
     due_at: Optional[str] = None
     label_ids: list[int] = Field(default_factory=list)
     attachments: list[BobarAttachmentOut] = Field(default_factory=list)
+    is_hidden: bool = False
+    hidden_at: Optional[str] = None
+    is_archived: bool = False
+    archived_at: Optional[str] = None
+    assigned_user_id: Optional[int] = None
     created_at: str
     updated_at: str
 
@@ -152,6 +157,10 @@ class BobarColumnUpdateIn(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=80)
 
 
+class BobarColumnMoveIn(BaseModel):
+    position: int = Field(default=0, ge=0)
+
+
 class BobarLabelCreateIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     color: Optional[str] = Field(default=None, max_length=10)
@@ -173,6 +182,9 @@ class BobarCardCreateIn(BaseModel):
     structure_json: Optional[str] = Field(default=None, max_length=500000)
     due_at: Optional[str] = Field(default=None, max_length=60)
     label_ids: list[int] = Field(default_factory=list)
+    is_hidden: bool = False
+    is_archived: bool = False
+    assigned_user_id: Optional[int] = None
 
 
 class BobarCardUpdateIn(BaseModel):
@@ -184,6 +196,9 @@ class BobarCardUpdateIn(BaseModel):
     structure_json: Optional[str] = Field(default=None, max_length=500000)
     due_at: Optional[str] = Field(default=None, max_length=60)
     label_ids: Optional[list[int]] = None
+    is_hidden: Optional[bool] = None
+    is_archived: Optional[bool] = None
+    assigned_user_id: Optional[int] = None
 
 
 class BobarCardMoveIn(BaseModel):
@@ -900,6 +915,64 @@ def _require_board_editor(session: Session, board: BobarBoard, current_user: Use
     return role
 
 
+def _board_has_collaboration(session: Session, board: BobarBoard) -> bool:
+    if not (board.id or 0):
+        return False
+    membership = session.exec(
+        select(BobarBoardMember.id)
+        .where(BobarBoardMember.board_id == (board.id or 0))
+        .limit(1)
+    ).first()
+    return bool(membership)
+
+
+def _board_assignable_user_ids(session: Session, board: BobarBoard) -> set[int]:
+    owner_id = board.user_id or 0
+    member_ids = session.exec(
+        select(BobarBoardMember.user_id).where(BobarBoardMember.board_id == (board.id or 0))
+    ).all()
+    valid_ids = {owner_id}
+    for member_id in member_ids:
+        if member_id:
+            valid_ids.add(member_id)
+    return valid_ids
+
+
+def _resolve_assigned_user_id(
+    session: Session,
+    board: BobarBoard,
+    raw_user_id: Optional[int],
+) -> Optional[int]:
+    if raw_user_id is None:
+        return None
+
+    try:
+        user_id = int(raw_user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Pessoa marcada inválida.") from None
+
+    if user_id <= 0:
+        return None
+
+    if not _board_has_collaboration(session, board):
+        raise HTTPException(
+            status_code=400,
+            detail="Só é possível marcar uma pessoa em cards de quadros compartilhados.",
+        )
+
+    if user_id not in _board_assignable_user_ids(session, board):
+        raise HTTPException(
+            status_code=400,
+            detail="A pessoa marcada não pertence a este quadro compartilhado.",
+        )
+
+    return user_id
+
+
+def _active_card_total(cards: list[BobarCard]) -> int:
+    return len([card for card in cards if not bool(getattr(card, "is_archived", False))])
+
+
 def _board_invite_out(invite: BobarBoardInvite) -> BobarBoardInviteOut:
     return BobarBoardInviteOut(
         id=invite.id or 0,
@@ -1175,11 +1248,11 @@ def _build_accessible_board_list(session: Session, current_user: User) -> BobarB
     board_ids = [board.id or 0 for board in boards if board.id]
     totals: dict[int, int] = {board_id: 0 for board_id in board_ids}
     if board_ids:
-        rows = session.exec(select(BobarCard.board_id).where(BobarCard.board_id.in_(board_ids))).all()
-        for board_id in rows:
-            if board_id is None:
+        rows = session.exec(select(BobarCard).where(BobarCard.board_id.in_(board_ids))).all()
+        for card in rows:
+            if card.board_id is None or bool(getattr(card, "is_archived", False)):
                 continue
-            totals[board_id] = totals.get(board_id, 0) + 1
+            totals[card.board_id] = totals.get(card.board_id, 0) + 1
 
     owners_by_id: dict[int, User] = {}
     owner_ids = {board.user_id for board in boards}
@@ -1493,6 +1566,11 @@ def _card_out(
         due_at=card.due_at.isoformat() if card.due_at else None,
         label_ids=label_ids,
         attachments=attachments_by_card.get(card.id or 0, []),
+        is_hidden=bool(getattr(card, "is_hidden", False)),
+        hidden_at=card.hidden_at.isoformat() if getattr(card, "hidden_at", None) else None,
+        is_archived=bool(getattr(card, "is_archived", False)),
+        archived_at=card.archived_at.isoformat() if getattr(card, "archived_at", None) else None,
+        assigned_user_id=getattr(card, "assigned_user_id", None),
         created_at=card.created_at.isoformat(),
         updated_at=card.updated_at.isoformat(),
     )
@@ -1532,7 +1610,7 @@ def _build_board(session: Session, current_user: User, board: BobarBoard) -> Bob
     return BobarBoardOut(
         id=board.id or 0,
         title=board.title,
-        total_cards=len(cards),
+        total_cards=_active_card_total(cards),
         labels=[
             BobarLabelOut(
                 id=label.id or 0,
@@ -1560,12 +1638,12 @@ def _build_board_list(session: Session, current_user: User) -> BobarBoardListOut
     totals: dict[int, int] = {}
 
     rows = session.exec(
-        select(BobarCard.board_id).where(BobarCard.user_id == current_user.id)
+        select(BobarCard).where(BobarCard.user_id == current_user.id)
     ).all()
-    for board_id in rows:
-        if board_id is None:
+    for card in rows:
+        if card.board_id is None or bool(getattr(card, "is_archived", False)):
             continue
-        totals[board_id] = totals.get(board_id, 0) + 1
+        totals[card.board_id] = totals.get(card.board_id, 0) + 1
 
     return BobarBoardListOut(
         boards=[
@@ -2146,6 +2224,45 @@ def bobar_update_column(
     return _build_board(session, owner_user, board)
 
 
+@router.post("/columns/{column_id}/move", response_model=BobarBoardOut)
+def bobar_move_column(
+    column_id: int,
+    payload: BobarColumnMoveIn,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    column = _get_accessible_column_or_404(session, current_user, column_id)
+    board = _get_accessible_board_or_default(session, current_user, column.board_id)
+    _require_board_editor(session, board, current_user)
+    owner_user = _get_board_owner_user(session, board)
+    columns = _ensure_default_columns(session, owner_user, board)
+
+    ordered = [item for item in columns if (item.id or 0) != (column.id or 0)]
+    target_position = min(max(payload.position, 0), len(ordered))
+    ordered.insert(target_position, column)
+
+    now = utcnow()
+    for index, item in enumerate(ordered):
+        item.position = index
+        item.updated_at = now
+        session.add(item)
+
+    _touch_board(board)
+    session.add(board)
+    _record_board_activity(
+        session,
+        board,
+        actor=current_user,
+        event_type="column_moved",
+        message=f"{_display_user_name(current_user)} reordenou a coluna {column.name}.",
+        entity_type="column",
+        entity_id=column.id or 0,
+        metadata={"position": target_position},
+    )
+    session.commit()
+    return _build_board(session, owner_user, board)
+
+
 @router.delete("/columns/{column_id}", response_model=BobarBoardOut)
 def bobar_delete_column(
     column_id: int,
@@ -2236,6 +2353,10 @@ def bobar_create_card(
     card_type = _derive_card_type(payload.card_type, content_text)
     structure_json = _resolve_structure_json(card_type, payload.structure_json, title, content_text)
     label_ids = _normalize_card_label_ids(session, owner_user, board.id or 0, payload.label_ids)
+    assigned_user_id = _resolve_assigned_user_id(session, board, payload.assigned_user_id)
+    is_archived = bool(payload.is_archived)
+    is_hidden = False if is_archived else bool(payload.is_hidden)
+    now = utcnow()
 
     card = BobarCard(
         user_id=owner_user.id,
@@ -2251,8 +2372,13 @@ def bobar_create_card(
         structure_json=structure_json,
         due_at=_parse_due_at(payload.due_at),
         label_ids_json=_json_dumps(label_ids),
-        created_at=utcnow(),
-        updated_at=utcnow(),
+        is_hidden=is_hidden,
+        hidden_at=now if is_hidden else None,
+        is_archived=is_archived,
+        archived_at=now if is_archived else None,
+        assigned_user_id=assigned_user_id,
+        created_at=now,
+        updated_at=now,
     )
     session.add(card)
     session.flush()
@@ -2294,6 +2420,9 @@ def bobar_update_card(
     owner_user = _get_board_owner_user(session, board)
     old_column_id = card.column_id
     previous_title = card.title
+    previous_hidden = bool(getattr(card, "is_hidden", False))
+    previous_archived = bool(getattr(card, "is_archived", False))
+    previous_assigned_user_id = getattr(card, "assigned_user_id", None)
 
     if payload.column_id is not None and payload.column_id != card.column_id:
         new_column = _get_accessible_column_or_404(session, current_user, payload.column_id)
@@ -2346,16 +2475,66 @@ def bobar_update_card(
             _normalize_card_label_ids(session, owner_user, board.id or 0, payload.label_ids)
         )
 
-    card.updated_at = utcnow()
+    if "assigned_user_id" in payload.model_fields_set:
+        card.assigned_user_id = _resolve_assigned_user_id(session, board, payload.assigned_user_id)
+
+    now = utcnow()
+
+    if "is_archived" in payload.model_fields_set:
+        next_archived = bool(payload.is_archived)
+        card.is_archived = next_archived
+        card.archived_at = now if next_archived else None
+        if next_archived:
+            card.is_hidden = False
+            card.hidden_at = None
+
+    if "is_hidden" in payload.model_fields_set:
+        next_hidden = bool(payload.is_hidden)
+        card.is_hidden = False if bool(getattr(card, "is_archived", False)) and next_hidden else next_hidden
+        card.hidden_at = now if card.is_hidden else None
+        if card.is_hidden:
+            card.is_archived = False
+            card.archived_at = None
+
+    card.updated_at = now
     _touch_board(board)
     session.add(card)
     session.add(board)
+
+    event_type = "card_updated"
+    message = f"{_display_user_name(current_user)} editou o card {card.title or previous_title}."
+
+    if previous_archived != bool(getattr(card, "is_archived", False)):
+        if card.is_archived:
+            event_type = "card_archived"
+            message = f"{_display_user_name(current_user)} arquivou o card {card.title or previous_title}."
+        else:
+            event_type = "card_restored"
+            message = f"{_display_user_name(current_user)} restaurou o card {card.title or previous_title}."
+    elif previous_hidden != bool(getattr(card, "is_hidden", False)):
+        if card.is_hidden:
+            event_type = "card_hidden"
+            message = f"{_display_user_name(current_user)} ocultou o card {card.title or previous_title}."
+        else:
+            event_type = "card_unhidden"
+            message = f"{_display_user_name(current_user)} voltou a exibir o card {card.title or previous_title}."
+    elif previous_assigned_user_id != getattr(card, "assigned_user_id", None):
+        if card.assigned_user_id:
+            event_type = "card_assigned"
+            message = (
+                f"{_display_user_name(current_user)} marcou uma pessoa no card "
+                f"{card.title or previous_title}."
+            )
+        else:
+            event_type = "card_unassigned"
+            message = f"{_display_user_name(current_user)} removeu a marcação do card {card.title or previous_title}."
+
     _record_board_activity(
         session,
         board,
         actor=current_user,
-        event_type="card_updated",
-        message=f"{_display_user_name(current_user)} editou o card {card.title or previous_title}.",
+        event_type=event_type,
+        message=message,
         entity_type="card",
         entity_id=card.id or 0,
     )

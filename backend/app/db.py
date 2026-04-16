@@ -91,6 +91,11 @@ def _ensure_sqlite_columns() -> None:
             "structure_json": "TEXT",
             "due_at": "TIMESTAMP",
             "label_ids_json": "TEXT",
+            "is_hidden": "BOOLEAN DEFAULT 0",
+            "hidden_at": "TIMESTAMP",
+            "is_archived": "BOOLEAN DEFAULT 0",
+            "archived_at": "TIMESTAMP",
+            "assigned_user_id": "INTEGER",
         },
     )
 

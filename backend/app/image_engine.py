@@ -133,6 +133,16 @@ class ImageEngineProjectOut(BaseModel):
     updated_at: str
 
 
+class ImageEngineProjectReorderItem(BaseModel):
+    id: str
+    position: int = Field(default=0, ge=0)
+
+
+class ImageEngineProjectReorderPayload(BaseModel):
+    items: List[ImageEngineProjectReorderItem] = Field(default_factory=list)
+    current_project_id: Optional[str] = None
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -619,6 +629,62 @@ def update_image_engine_project(
     session.commit()
     session.refresh(project)
     return {"project": _serialize_image_project(project).model_dump()}
+
+
+@router.patch("/api/image-engine/projects/reorder")
+def reorder_image_engine_projects(
+    payload: ImageEngineProjectReorderPayload,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    now = _utcnow()
+    projects = session.exec(
+        select(ImageEngineProject).where(ImageEngineProject.user_id == current_user.id)
+    ).all()
+    if not projects:
+        return {"ok": True, "projects": []}
+
+    by_public_id = {project.public_id: project for project in projects}
+    explicit_positions = {
+        item.id: int(item.position)
+        for item in list(payload.items or [])
+        if item.id in by_public_id
+    }
+    ordered_ids = [item.id for item in sorted(list(payload.items or []), key=lambda entry: entry.position) if item.id in by_public_id]
+    remaining_ids = [project.public_id for project in sorted(projects, key=lambda item: (item.position, item.updated_at)) if project.public_id not in explicit_positions]
+
+    next_position = 0
+    seen: set[str] = set()
+
+    for public_id in ordered_ids + remaining_ids:
+        if public_id in seen:
+            continue
+        project = by_public_id.get(public_id)
+        if project is None:
+            continue
+        project.position = explicit_positions.get(public_id, next_position)
+        project.is_current = bool(public_id == payload.current_project_id)
+        project.updated_at = now
+        session.add(project)
+        seen.add(public_id)
+        next_position = max(next_position + 1, project.position + 1)
+
+    if payload.current_project_id and payload.current_project_id in by_public_id:
+        for public_id, project in by_public_id.items():
+            expected_current = public_id == payload.current_project_id
+            if project.is_current != expected_current:
+                project.is_current = expected_current
+                project.updated_at = now
+                session.add(project)
+
+    session.commit()
+
+    refreshed_projects = session.exec(
+        select(ImageEngineProject)
+        .where(ImageEngineProject.user_id == current_user.id)
+        .order_by(ImageEngineProject.position.asc(), ImageEngineProject.updated_at.desc())
+    ).all()
+    return {"ok": True, "projects": [_serialize_image_project(project).model_dump() for project in refreshed_projects]}
 
 
 @router.delete("/api/image-engine/projects/{public_id}")
@@ -1460,6 +1526,8 @@ async def _expand_image_to_exact_size_non_native(
         "preserve_union": assets.get("preserve_union"),
         "hard_preserve_boxes": assets.get("hard_preserve_boxes"),
         "strategy": "exact_size_non_native_smart_crop",
+        "exact_strategy": assets.get("strategy") or plan.get("exact_strategy"),
+        "layout_first_non_native": bool((assets.get("profile") or {}).get("layout_first_non_native")),
         "needs_upscale_after_crop": bool(plan.get("needs_upscale_after_crop")),
     }
     next_result["motor"] = f"{result.get('motor', 'Imagem')} + Exact Size"

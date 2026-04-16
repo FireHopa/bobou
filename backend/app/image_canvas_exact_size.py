@@ -13,6 +13,7 @@ from .image_canvas_exact_size_strategy import (
     build_exact_size_assisted_recompose_assets,
     build_exact_size_fragmented_preserve_assets,
     build_exact_size_fragmented_preserve_prompt,
+    build_non_native_exact_size_layout_first_assets,
     build_exact_size_layout_preserve_assets,
     build_exact_size_layout_preserve_prompt,
     detect_exact_size_recompose_profile,
@@ -201,6 +202,32 @@ def build_exact_size_expand_assets(
 
     effective_text_rects = profile.get("text_rects") or text_rects
 
+    use_layout_first_non_native = bool(
+        (int(plan["base_width"]) != int(target_width) or int(plan["base_height"]) != int(target_height))
+        and profile["strategy"] in {"fragmented_preserve", "layout_preserve", "assisted_recompose"}
+    )
+
+    if use_layout_first_non_native:
+        embedded_assets = build_non_native_exact_size_layout_first_assets(
+            image_bytes=image_bytes,
+            plan=plan,
+            profile_info={**profile, "text_rects": list(effective_text_rects or [])},
+        )
+        return {
+            "canvas_bytes": embedded_assets["canvas_bytes"],
+            "mask_bytes": embedded_assets["mask_bytes"],
+            "plan": plan,
+            "placement": embedded_assets["placement"],
+            "preserve_union": embedded_assets["preserve_union"],
+            "hard_preserve_boxes": list(embedded_assets.get("hard_preserve_boxes") or []),
+            "hard_feather": int(embedded_assets.get("hard_feather") or 10),
+            "strength": embedded_assets.get("strength", "low"),
+            "strategy": embedded_assets.get("strategy", profile["strategy"]),
+            "profile": {**profile, "layout_first_non_native": True},
+            "crop_safe_rect": embedded_assets.get("crop_safe_rect"),
+            "layout_first_preview_bytes": embedded_assets.get("layout_first_preview_bytes"),
+        }
+
     if profile["strategy"] == "fragmented_preserve":
         fragmented_assets = build_exact_size_fragmented_preserve_assets(
             image_bytes=image_bytes,
@@ -313,6 +340,7 @@ def build_exact_size_expand_prompt(
     prompt_profile = profile_info or {
         "reasons": plan.get("exact_recompose_reasons") or [],
     }
+    layout_first_non_native = bool((prompt_profile or {}).get("layout_first_non_native"))
     user_requirements = " ".join((instruction_text or "").replace("\n", " ").split()).strip()
     if len(user_requirements) > 480:
         user_requirements = user_requirements[:479].rsplit(" ", 1)[0].strip() + "…"
@@ -366,7 +394,8 @@ def build_exact_size_expand_prompt(
         f"A safe area interna útil mede aproximadamente {safe_width}x{safe_height}. "
         f"A área principal protegida mede aproximadamente {preserve_width}x{preserve_height}. "
         f"Use intensidade de recomposição {normalized_strength}. "
-        f"{user_clause}"
+        + ("A composição principal já veio pré-organizada dentro da janela final; trate essa estrutura como layout-base e faça apenas harmonização visual, sem reinventar a peça. " if layout_first_non_native else "")
+        + f"{user_clause}"
         f"A entrega final precisa ficar pronta para crop técnico exato em {target_width}x{target_height}."
     )
 

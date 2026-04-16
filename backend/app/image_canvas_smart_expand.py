@@ -342,6 +342,90 @@ def build_smart_expand_prompt(
     )
 
 
+
+def _normalize_rect_to_canvas(rect: Rect, canvas_width: int, canvas_height: int) -> Optional[Rect]:
+    if rect is None or len(rect) != 4:
+        return None
+
+    x1 = _clamp_int(rect[0], 0, canvas_width)
+    y1 = _clamp_int(rect[1], 0, canvas_height)
+    x2 = _clamp_int(rect[2], 0, canvas_width)
+    y2 = _clamp_int(rect[3], 0, canvas_height)
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
+
+
+def sanitize_hard_preserve_boxes(
+    hard_boxes: Sequence[Rect],
+    canvas_width: int,
+    canvas_height: int,
+    max_area_ratio: float = 0.18,
+    max_width_ratio: float = 0.60,
+    max_height_ratio: float = 0.30,
+) -> Dict[str, Any]:
+    canvas_area = max(1, int(canvas_width) * int(canvas_height))
+    accepted: List[Rect] = []
+    rejected: List[Dict[str, Any]] = []
+    seen: set[Rect] = set()
+
+    for raw_rect in hard_boxes or []:
+        rect = _normalize_rect_to_canvas(raw_rect, int(canvas_width), int(canvas_height))
+        if rect is None:
+            rejected.append({
+                "rect": list(raw_rect) if raw_rect is not None else None,
+                "reason": "invalid_rect",
+            })
+            continue
+
+        if rect in seen:
+            continue
+        seen.add(rect)
+
+        rect_width = max(1, rect[2] - rect[0])
+        rect_height = max(1, rect[3] - rect[1])
+        area_ratio = (rect_width * rect_height) / float(canvas_area)
+        width_ratio = rect_width / max(1.0, float(canvas_width))
+        height_ratio = rect_height / max(1.0, float(canvas_height))
+
+        if (
+            area_ratio > float(max_area_ratio)
+            or width_ratio > float(max_width_ratio)
+            or height_ratio > float(max_height_ratio)
+        ):
+            rejected.append({
+                "rect": list(rect),
+                "reason": "box_too_large",
+                "area_ratio": area_ratio,
+                "width_ratio": width_ratio,
+                "height_ratio": height_ratio,
+            })
+            continue
+
+        accepted.append(rect)
+
+    largest_applied_area_ratio = 0.0
+    if accepted:
+        largest_applied_area_ratio = max(
+            ((max(1, rect[2] - rect[0]) * max(1, rect[3] - rect[1])) / float(canvas_area))
+            for rect in accepted
+        )
+
+    return {
+        "boxes": accepted,
+        "rejected_boxes": rejected,
+        "input_count": len(list(hard_boxes or [])),
+        "applied_count": len(accepted),
+        "largest_applied_area_ratio": largest_applied_area_ratio,
+        "limits": {
+            "max_area_ratio": float(max_area_ratio),
+            "max_width_ratio": float(max_width_ratio),
+            "max_height_ratio": float(max_height_ratio),
+        },
+    }
+
+
 def overlay_hard_preserve_regions(
     expanded_bytes: bytes,
     source_canvas_bytes: bytes,
@@ -358,12 +442,18 @@ def overlay_hard_preserve_regions(
         if expanded.size != source_canvas.size:
             source_canvas = source_canvas.resize(expanded.size, Image.Resampling.LANCZOS)
 
+        sanitized = sanitize_hard_preserve_boxes(
+            hard_boxes=hard_boxes,
+            canvas_width=expanded.width,
+            canvas_height=expanded.height,
+        )
+        safe_boxes = list(sanitized["boxes"])
+        if not safe_boxes:
+            return expanded_bytes
+
         result = expanded.copy()
 
-        for rect in hard_boxes:
-            if rect[2] <= rect[0] or rect[3] <= rect[1]:
-                continue
-
+        for rect in safe_boxes:
             mask = Image.new("L", expanded.size, 0)
             draw = ImageDraw.Draw(mask)
             draw.rounded_rectangle(rect, radius=max(4, int(feather_px)), fill=255)

@@ -334,6 +334,11 @@ class BobarCard(SQLModel, table=True):
     structure_json: str = Field(default="{}")
     due_at: Optional[datetime] = Field(default=None, index=True)
     label_ids_json: str = Field(default="[]")
+    is_hidden: bool = Field(default=False, index=True)
+    hidden_at: Optional[datetime] = Field(default=None, index=True)
+    is_archived: bool = Field(default=False, index=True)
+    archived_at: Optional[datetime] = Field(default=None, index=True)
+    assigned_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
 
     created_at: datetime = Field(default_factory=utcnow, index=True)
     updated_at: datetime = Field(default_factory=utcnow, index=True)
