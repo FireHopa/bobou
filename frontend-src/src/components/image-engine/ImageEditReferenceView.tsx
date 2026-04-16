@@ -855,6 +855,7 @@ const projectsRef = useRef<ProjectItem[]>([projectSeed]);
 const projectHydratingRef = useRef(false);
 const baseDataUrlCacheRef = useRef<Record<string, string>>({});
 const persistProjectsTimeoutRef = useRef<number | null>(null);
+const dirtyProjectIdsRef = useRef<Set<string>>(new Set());
 const [projectsReady, setProjectsReady] = useState(false);
 const [projectsLoading, setProjectsLoading] = useState(true);
 const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
@@ -964,25 +965,59 @@ const deleteProjectOnServer = useCallback(
   [fetchProjectsJson]
 );
 
-const persistProjectsToServer = useCallback(
-  async (projectsToPersist: ProjectItem[], currentId: string) => {
-    await Promise.all(
-      projectsToPersist.map(async (project, index) => {
-        const persistedSnapshot = await serializeProjectSnapshot(project.snapshot, getPersistableBaseDataUrl);
-        await fetchProjectsJson(`/api/image-engine/projects/${project.id}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            name: project.name,
-            position: index,
-            is_current: project.id === currentId,
-            snapshot: persistedSnapshot,
-          }),
-        });
-      })
-    );
+const persistProjectToServer = useCallback(
+  async (project: ProjectItem, position: number, isCurrent: boolean) => {
+    const persistedSnapshot = await serializeProjectSnapshot(project.snapshot, getPersistableBaseDataUrl);
+    await fetchProjectsJson(`/api/image-engine/projects/${project.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: project.name,
+        position,
+        is_current: isCurrent,
+        snapshot: persistedSnapshot,
+      }),
+    });
   },
   [fetchProjectsJson, getPersistableBaseDataUrl]
 );
+
+const persistProjectOrderToServer = useCallback(
+  async (projectsToPersist: ProjectItem[], currentId: string) => {
+    await fetchProjectsJson("/api/image-engine/projects/reorder", {
+      method: "PATCH",
+      body: JSON.stringify({
+        current_project_id: currentId,
+        items: projectsToPersist.map((project, index) => ({
+          id: project.id,
+          position: index,
+        })),
+      }),
+    });
+  },
+  [fetchProjectsJson]
+);
+
+const flushDirtyProjectsToServer = useCallback(
+  async (projectsToPersist: ProjectItem[], currentId: string) => {
+    const dirtyIds = Array.from(dirtyProjectIdsRef.current);
+    if (dirtyIds.length === 0) {
+      return;
+    }
+
+    const dirtyIdSet = new Set(dirtyIds);
+    for (const [index, project] of projectsToPersist.entries()) {
+      if (!dirtyIdSet.has(project.id)) continue;
+      await persistProjectToServer(project, index, project.id === currentId);
+      dirtyProjectIdsRef.current.delete(project.id);
+    }
+  },
+  [persistProjectToServer]
+);
+
+const markProjectDirty = useCallback((projectId: string) => {
+  if (!projectId) return;
+  dirtyProjectIdsRef.current.add(projectId);
+}, []);
 
 const applyProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
   projectHydratingRef.current = true;
@@ -1086,9 +1121,10 @@ const commitCurrentProjectSnapshot = useCallback(
     const nextProjects = syncProjectSnapshotInList(projectsRef.current, currentProjectId, nextSnapshot);
     projectsRef.current = nextProjects;
     setProjects(nextProjects);
+    markProjectDirty(currentProjectId);
     return nextProjects;
   },
-  [buildProjectSnapshot, currentProjectId, syncProjectSnapshotInList]
+  [buildProjectSnapshot, currentProjectId, markProjectDirty, syncProjectSnapshotInList]
 );
 
 useEffect(() => {
@@ -1159,9 +1195,13 @@ useEffect(() => {
   }
 
   persistProjectsTimeoutRef.current = window.setTimeout(() => {
-    void persistProjectsToServer(projectsRef.current, currentProjectId).catch((error) => {
-      console.error("Falha ao persistir projetos do editor:", error);
-    });
+    void (async () => {
+      try {
+        await flushDirtyProjectsToServer(projectsRef.current, currentProjectId);
+      } catch (error) {
+        console.error("Falha ao persistir projetos do editor:", error);
+      }
+    })();
   }, 700);
 
   return () => {
@@ -1170,7 +1210,7 @@ useEffect(() => {
       persistProjectsTimeoutRef.current = null;
     }
   };
-}, [currentProjectId, persistProjectsToServer, projects, projectsReady]);
+}, [currentProjectId, flushDirtyProjectsToServer, projects, projectsReady]);
 
 const dockPanels = useCallback(() => {
   const width = window.innerWidth;
@@ -1210,11 +1250,14 @@ const handleCreateProject = useCallback(async () => {
     setProjects(nextProjects);
     setCurrentProjectId(nextProject.id);
     applyProjectSnapshot(nextProject.snapshot);
+    void persistProjectOrderToServer(nextProjects, nextProject.id).catch((error) => {
+      console.error("Falha ao sincronizar ordem dos projetos:", error);
+    });
   } catch (error) {
     console.error("Falha ao criar projeto no servidor:", error);
     setStatusText("Não foi possível criar o projeto no servidor.");
   }
-}, [abortActiveJobsForProjectSwitch, applyProjectSnapshot, commitCurrentProjectSnapshot, createProjectOnServer]);
+}, [abortActiveJobsForProjectSwitch, applyProjectSnapshot, commitCurrentProjectSnapshot, createProjectOnServer, persistProjectOrderToServer]);
 
 const handleSelectProject = useCallback(
   (projectId: string) => {
@@ -1232,8 +1275,11 @@ const handleSelectProject = useCallback(
     setCurrentProjectId(projectId);
     applyProjectSnapshot(targetProject.snapshot);
     setIsProjectsOpen(false);
+    void persistProjectOrderToServer(syncedProjects, projectId).catch((error) => {
+      console.error("Falha ao sincronizar projeto atual:", error);
+    });
   },
-  [abortActiveJobsForProjectSwitch, applyProjectSnapshot, commitCurrentProjectSnapshot, currentProjectId]
+  [abortActiveJobsForProjectSwitch, applyProjectSnapshot, commitCurrentProjectSnapshot, currentProjectId, persistProjectOrderToServer]
 );
 
 const handleDeleteProject = useCallback(
@@ -1280,7 +1326,8 @@ const handleDeleteProject = useCallback(
       const nextCurrentProject =
         remainingProjects.find((project) => project.id === nextCurrentProjectId) ?? remainingProjects[0];
 
-      await persistProjectsToServer(remainingProjects, nextCurrentProject.id);
+      dirtyProjectIdsRef.current.delete(projectId);
+      await persistProjectOrderToServer(remainingProjects, nextCurrentProject.id);
 
       projectsRef.current = remainingProjects;
       setProjects(remainingProjects);
@@ -1307,7 +1354,7 @@ const handleDeleteProject = useCallback(
     currentProjectId,
     deleteProjectOnServer,
     deletingProjectId,
-    persistProjectsToServer,
+    persistProjectOrderToServer,
   ]
 );
 

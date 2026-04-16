@@ -11,7 +11,8 @@ export function AppShell() {
   const isReferenceEditorRoute =
     location.pathname === "/image-engine" && params.get("mode") === "edit-reference";
   const isSkyBobFullscreenRoute = location.pathname === "/skybob";
-  const isFullscreenRoute = isReferenceEditorRoute || isSkyBobFullscreenRoute;
+  const isBobarFullscreenRoute = location.pathname === "/bobar" || location.pathname === "/projects";
+  const isFullscreenRoute = isReferenceEditorRoute || isSkyBobFullscreenRoute || isBobarFullscreenRoute;
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
@@ -26,7 +27,7 @@ export function AppShell() {
 
       <div
         style={isFullscreenRoute ? undefined : { paddingLeft: sidebarW }}
-        className={isReferenceEditorRoute ? "h-dvh overflow-hidden" : "min-h-dvh"}
+        className={isReferenceEditorRoute ? "h-dvh overflow-hidden" : isBobarFullscreenRoute ? "min-h-dvh overflow-hidden" : "min-h-dvh"}
       >
         <AnimatePresence mode="wait">
           <motion.main
@@ -36,7 +37,15 @@ export function AppShell() {
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: -6, filter: "blur(8px)" }}
             transition={{ duration: 0.22 }}
-            className={isReferenceEditorRoute ? "h-dvh overflow-hidden" : isSkyBobFullscreenRoute ? "min-h-dvh" : "container py-10"}
+            className={
+              isReferenceEditorRoute
+                ? "h-dvh overflow-hidden"
+                : isBobarFullscreenRoute
+                  ? "min-h-dvh"
+                  : isSkyBobFullscreenRoute
+                    ? "min-h-dvh"
+                    : "container py-10"
+            }
           >
             <Outlet />
           </motion.main>

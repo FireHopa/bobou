@@ -69,6 +69,11 @@ export type BobarCard = {
   due_at?: string | null;
   label_ids: number[];
   attachments: BobarAttachment[];
+  is_hidden: boolean;
+  hidden_at?: string | null;
+  is_archived: boolean;
+  archived_at?: string | null;
+  assigned_user_id?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -219,6 +224,9 @@ export type CreateBobarCardIn = {
   structure_json?: string | null;
   due_at?: string | null;
   label_ids?: number[];
+  is_hidden?: boolean;
+  is_archived?: boolean;
+  assigned_user_id?: number | null;
 };
 
 export type UpdateBobarCardIn = {
@@ -230,10 +238,17 @@ export type UpdateBobarCardIn = {
   structure_json?: string;
   due_at?: string | null;
   label_ids?: number[];
+  is_hidden?: boolean;
+  is_archived?: boolean;
+  assigned_user_id?: number | null;
 };
 
 export type MoveBobarCardIn = {
   column_id: number;
+  position: number;
+};
+
+export type MoveBobarColumnIn = {
   position: number;
 };
 
@@ -307,6 +322,9 @@ export const bobarService = {
 
   moveCard: (cardId: number, payload: MoveBobarCardIn) =>
     http<BobarBoard>(`/api/bobar/cards/${cardId}/move`, { method: "POST", json: payload }),
+
+  moveColumn: (columnId: number, payload: MoveBobarColumnIn) =>
+    http<BobarBoard>(`/api/bobar/columns/${columnId}/move`, { method: "POST", json: payload }),
 
   transformToFlowchart: (cardId: number) =>
     http<BobarBoard>(`/api/bobar/cards/${cardId}/transform-to-flowchart`, { method: "POST" }),
