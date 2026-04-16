@@ -1482,6 +1482,29 @@ async def _expand_image_to_exact_size_non_native(
     )
     plan = assets["plan"]
 
+    if assets.get("direct_result_bytes"):
+        direct_bytes = bytes(assets["direct_result_bytes"])
+        next_result = {
+            "url": _result_url_from_image_bytes(direct_bytes, "image/png"),
+            "motor": "Layout comercial determinístico",
+            "engine_id": "layout_first_exact_deterministic",
+            "expanded_canvas": {
+                "width": int(plan["base_width"]),
+                "height": int(plan["base_height"]),
+                "working_width": int(plan["working_width"]),
+                "working_height": int(plan["working_height"]),
+                "crop_rect": plan["crop_rect"],
+                "placement": assets["placement"],
+                "preserve_union": assets.get("preserve_union"),
+                "hard_preserve_boxes": assets.get("hard_preserve_boxes"),
+                "strategy": "commercial_layout_deterministic",
+                "exact_strategy": assets.get("strategy") or plan.get("exact_strategy"),
+                "layout_first_non_native": True,
+                "needs_upscale_after_crop": False,
+            },
+        }
+        return next_result
+
     result = await _edit_openai_image(
         client=client,
         image_bytes=assets["canvas_bytes"],
@@ -1512,6 +1535,7 @@ async def _expand_image_to_exact_size_non_native(
         plan=plan,
         hard_preserve_boxes=assets.get("hard_preserve_boxes"),
         hard_feather=int(assets.get("hard_feather") or 8),
+        hard_preserve_limits=assets.get("hard_preserve_limits"),
     )
 
     next_result = dict(result)
@@ -3990,7 +4014,7 @@ async def image_engine_edit_stream(
                         )
                         yield _sse({
                             "status": (
-                                "Pedido identificado como resolução exata não nativa do endpoint. Expandindo o canvas suportado em uma única chamada de IA e aplicando crop técnico final para entregar o tamanho exato solicitado."
+                                "Pedido identificado como resolução exata não nativa do endpoint. Preparando um fluxo layout-first. Em peças comerciais com preservação estrita, a recomposição pode ser concluída de forma determinística antes de qualquer chamada de IA."
                                 if exact_size_non_native
                                 else (
                                     "Pedido identificado como adaptação de formato/canvas. Aplicando recomposição inteligente em uma única chamada de IA para ocupar melhor a largura e reduzir seams."

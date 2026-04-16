@@ -14,6 +14,7 @@ from .image_canvas_exact_size_strategy import (
     build_exact_size_fragmented_preserve_assets,
     build_exact_size_fragmented_preserve_prompt,
     build_non_native_exact_size_layout_first_assets,
+    build_exact_size_commercial_deterministic_assets,
     build_exact_size_layout_preserve_assets,
     build_exact_size_layout_preserve_prompt,
     detect_exact_size_recompose_profile,
@@ -202,6 +203,29 @@ def build_exact_size_expand_assets(
 
     effective_text_rects = profile.get("text_rects") or text_rects
 
+    if profile.get("prefer_deterministic_layout"):
+        deterministic_assets = build_exact_size_commercial_deterministic_assets(
+            image_bytes=image_bytes,
+            target_width=target_width,
+            target_height=target_height,
+            profile_info=profile,
+        )
+        return {
+            "canvas_bytes": deterministic_assets["canvas_bytes"],
+            "mask_bytes": deterministic_assets["mask_bytes"],
+            "plan": plan,
+            "placement": deterministic_assets["placement"],
+            "preserve_union": deterministic_assets.get("preserve_union"),
+            "hard_preserve_boxes": list(deterministic_assets.get("hard_preserve_boxes") or []),
+            "hard_feather": int(deterministic_assets.get("hard_feather") or 8),
+            "strength": deterministic_assets.get("strength", "none"),
+            "strategy": deterministic_assets.get("strategy", "commercial_layout_deterministic"),
+            "profile": {**profile, "layout_first_non_native": True, "deterministic_only": True},
+            "crop_safe_rect": deterministic_assets.get("crop_safe_rect"),
+            "direct_result_bytes": deterministic_assets.get("direct_result_bytes"),
+            "direct_result_is_exact": bool(deterministic_assets.get("direct_result_is_exact")),
+        }
+
     use_layout_first_non_native = bool(
         (int(plan["base_width"]) != int(target_width) or int(plan["base_height"]) != int(target_height))
         and profile["strategy"] in {"fragmented_preserve", "layout_preserve", "assisted_recompose"}
@@ -221,6 +245,7 @@ def build_exact_size_expand_assets(
             "preserve_union": embedded_assets["preserve_union"],
             "hard_preserve_boxes": list(embedded_assets.get("hard_preserve_boxes") or []),
             "hard_feather": int(embedded_assets.get("hard_feather") or 10),
+            "hard_preserve_limits": embedded_assets.get("hard_preserve_limits"),
             "strength": embedded_assets.get("strength", "low"),
             "strategy": embedded_assets.get("strategy", profile["strategy"]),
             "profile": {**profile, "layout_first_non_native": True},
@@ -242,6 +267,7 @@ def build_exact_size_expand_assets(
             "preserve_union": fragmented_assets["preserve_union"],
             "hard_preserve_boxes": list(fragmented_assets.get("hard_preserve_boxes") or []),
             "hard_feather": int(fragmented_assets.get("hard_feather") or 12),
+            "hard_preserve_limits": fragmented_assets.get("hard_preserve_limits"),
             "strength": fragmented_assets.get("strength", "low"),
             "strategy": fragmented_assets.get("strategy", "fragmented_preserve"),
             "profile": profile,
@@ -262,6 +288,7 @@ def build_exact_size_expand_assets(
             "preserve_union": preserved_assets["preserve_union"],
             "hard_preserve_boxes": list(preserved_assets.get("hard_preserve_boxes") or []),
             "hard_feather": int(preserved_assets.get("hard_feather") or 14),
+            "hard_preserve_limits": preserved_assets.get("hard_preserve_limits"),
             "strength": preserved_assets.get("strength", "low"),
             "strategy": preserved_assets.get("strategy", "layout_preserve"),
             "profile": profile,
@@ -283,6 +310,7 @@ def build_exact_size_expand_assets(
             "preserve_union": assisted_assets["preserve_union"],
             "hard_preserve_boxes": list(assisted_assets.get("hard_preserve_boxes") or []),
             "hard_feather": int(assisted_assets.get("hard_feather") or 8),
+            "hard_preserve_limits": assisted_assets.get("hard_preserve_limits"),
             "strength": assisted_assets.get("strength", profile.get("strength", strength)),
             "strategy": assisted_assets.get("strategy", "assisted_recompose"),
             "profile": profile,
@@ -305,6 +333,7 @@ def build_exact_size_expand_assets(
         "preserve_union": smart_assets["preserve_union"],
         "hard_preserve_boxes": list(smart_assets.get("hard_preserve_boxes") or []),
         "hard_feather": int(smart_assets.get("hard_feather") or 8),
+        "hard_preserve_limits": smart_assets.get("hard_preserve_limits"),
         "strength": profile.get("strength", strength),
         "strategy": "simple_expand",
         "profile": profile,
@@ -406,12 +435,14 @@ def finalize_exact_size_expand(
     plan: Dict[str, Any],
     hard_preserve_boxes: Optional[Sequence[Tuple[int, int, int, int]]] = None,
     hard_feather: int = 8,
+    hard_preserve_limits: Optional[Dict[str, float]] = None,
 ) -> bytes:
     merged_bytes = overlay_hard_preserve_regions(
         expanded_bytes=expanded_bytes,
         source_canvas_bytes=source_canvas_bytes,
         hard_boxes=list(hard_preserve_boxes or []),
         feather_px=int(hard_feather or 0),
+        sanitize_limits=hard_preserve_limits,
     )
 
     crop_rect = tuple(int(v) for v in plan["crop_rect"])

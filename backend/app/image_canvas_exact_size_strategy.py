@@ -6,7 +6,7 @@ import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 
 Rect = Tuple[int, int, int, int]
 
@@ -759,6 +759,22 @@ def detect_exact_size_recompose_profile(
     if prefer_fragmented_preserve:
         strategy = "fragmented_preserve"
 
+    prefer_deterministic_layout = bool(
+        orientation_changed
+        and intent.get("strict_preservation")
+        and intent.get("commercial_preservation")
+        and (
+            background_meta.get("plain")
+            or ratio_delta >= 0.72
+            or commercial_layout_lock
+            or len(preserve_text_rects) >= 2
+            or mandatory_pressure
+        )
+    )
+    if prefer_deterministic_layout:
+        strategy = "commercial_layout_deterministic"
+        reasons.append("deterministic_layout_first")
+
     return {
         "strategy": strategy,
         "strength": resolved_strength,
@@ -783,8 +799,11 @@ def detect_exact_size_recompose_profile(
         "mapped_mandatory_rects": mapped_mandatory_rects,
         "mandatory_pressure": bool(mandatory_pressure),
         "text_bands": text_bands,
+        "multi_zone_text": bool(multi_zone_text),
+        "commercial_layout_lock": bool(commercial_layout_lock),
         "background_meta": background_meta,
         "intent": intent,
+        "prefer_deterministic_layout": bool(prefer_deterministic_layout),
     }
 
 
@@ -1031,6 +1050,229 @@ def _build_seed_background(
     return _build_cover_background(source, target_width, target_height)
 
 
+
+
+def _build_soft_cover_background(
+    source: Image.Image,
+    target_width: int,
+    target_height: int,
+    background_meta: Optional[Dict[str, Any]] = None,
+) -> Image.Image:
+    meta = background_meta or _analyze_edge_background(source)
+    canvas = _build_edge_gradient_background(target_width, target_height, meta).convert("RGBA")
+
+    corner_specs = [
+        ((0, 0, int(source.width * 0.22), int(source.height * 0.14)), (-int(target_width * 0.03), -int(target_height * 0.02)), 0.22, 0.18),
+        ((int(source.width * 0.78), 0, source.width, int(source.height * 0.15)), (int(target_width * 0.83), -int(target_height * 0.02)), 0.20, 0.18),
+        ((0, int(source.height * 0.84), int(source.width * 0.24), source.height), (-int(target_width * 0.04), int(target_height * 0.74)), 0.24, 0.24),
+        ((int(source.width * 0.80), int(source.height * 0.86), source.width, source.height), (int(target_width * 0.84), int(target_height * 0.77)), 0.18, 0.18),
+    ]
+    for rect, dest, w_ratio, h_ratio in corner_specs:
+        patch = source.crop(rect).convert("RGBA")
+        patch = _resize_patch_to_fit(
+            patch,
+            max_width=max(32, int(round(target_width * w_ratio))),
+            max_height=max(32, int(round(target_height * h_ratio))),
+            max_upscale=1.0,
+        ).filter(ImageFilter.GaussianBlur(radius=2.0))
+        alpha = patch.getchannel("A") if "A" in patch.getbands() else Image.new("L", patch.size, 255)
+        alpha = alpha.point(lambda px: int(px * 0.78))
+        patch.putalpha(alpha)
+        canvas.alpha_composite(patch, dest)
+
+    arr = np.asarray(canvas).astype(np.float32)
+    arr[..., :3] *= 0.88
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), mode="RGBA")
+
+
+def _choose_bottom_commercial_blocks(
+    preserve_rects: Sequence[Rect],
+    source_width: int,
+    source_height: int,
+) -> Dict[str, Optional[Rect]]:
+    prepared = _prepare_text_preserve_rects(preserve_rects, source_width, source_height)
+    if not prepared:
+        return {"city": None, "dates": None, "cta": None}
+
+    bands = _group_text_rects_by_bands(prepared, source_width, source_height)
+    ordered = sorted(bands or prepared, key=lambda rect: (rect[1], rect[0]))
+    bottom_candidates = [rect for rect in ordered if _classify_text_band(rect, source_height) == "bottom"]
+    if len(bottom_candidates) < 2:
+        bottom_candidates = [rect for rect in ordered if (rect[1] + rect[3]) * 0.5 >= source_height * 0.52]
+    bottom_candidates = sorted(bottom_candidates, key=lambda rect: (rect[1], rect[0]))
+
+    def _pick_city(candidates: Sequence[Rect]) -> Optional[Rect]:
+        wide = [rect for rect in candidates if (rect[2] - rect[0]) / max(1.0, float(source_width)) >= 0.42]
+        if wide:
+            return min(wide, key=lambda rect: rect[1])
+        return candidates[0] if candidates else None
+
+    city = _pick_city(bottom_candidates)
+    remaining = [rect for rect in bottom_candidates if rect != city]
+    cta = None
+    if remaining:
+        cta = max(
+            remaining,
+            key=lambda rect: (
+                (rect[1] + rect[3]) * 0.5,
+                -abs(((rect[0] + rect[2]) * 0.5) - (source_width * 0.5)),
+            ),
+        )
+    dates = None
+    remaining_no_cta = [rect for rect in remaining if rect != cta]
+    if remaining_no_cta:
+        dates = min(remaining_no_cta, key=lambda rect: rect[1])
+
+    if dates is None and city is not None:
+        below_city = [rect for rect in prepared if rect[1] >= city[3] - max(8, int(source_height * 0.01))]
+        below_city = [rect for rect in below_city if rect != cta and rect != city]
+        if below_city:
+            dates = _merge_rects(sorted(below_city, key=lambda rect: (rect[1], rect[0]))[:2])
+
+    if cta is None:
+        low = [rect for rect in prepared if (rect[1] + rect[3]) * 0.5 >= source_height * 0.74]
+        if low:
+            cta = max(
+                low,
+                key=lambda rect: (
+                    (rect[1] + rect[3]) * 0.5,
+                    -abs(((rect[0] + rect[2]) * 0.5) - (source_width * 0.5)),
+                ),
+            )
+
+    return {"city": city, "dates": dates, "cta": cta}
+
+
+def build_exact_size_commercial_deterministic_assets(
+    image_bytes: bytes,
+    target_width: int,
+    target_height: int,
+    profile_info: Dict[str, Any],
+) -> Dict[str, Any]:
+    with Image.open(io.BytesIO(image_bytes)) as image_file:
+        source = image_file.convert("RGBA")
+
+    source_width, source_height = source.size
+    background_meta = dict(profile_info.get("background_meta") or _analyze_edge_background(source))
+    canvas = _build_soft_cover_background(source, target_width, target_height, background_meta)
+
+    preserve_rects = list(profile_info.get("preserve_text_rects") or profile_info.get("mandatory_source_rects") or [])
+    blocks = _choose_bottom_commercial_blocks(preserve_rects, source_width, source_height)
+    city_rect = blocks.get("city")
+    dates_rect = blocks.get("dates")
+    cta_rect = blocks.get("cta")
+
+    hero_cut_y = city_rect[1] - max(18, int(round(source_height * 0.026))) if city_rect else int(round(source_height * 0.58))
+    hero_cut_y = _clamp_int(hero_cut_y, int(round(source_height * 0.34)), int(round(source_height * 0.76)))
+    hero_region = (0, 0, source_width, hero_cut_y)
+    focus = _estimate_focus_bbox_within_region(source, hero_region, percentile=98.8)
+    focus_w = max(1, focus[2] - focus[0])
+    focus_h = max(1, focus[3] - focus[1])
+    hero_rect = (
+        max(0, min(focus[0] - int(round(focus_w * 0.18)), int(round(source_width * 0.06)))),
+        max(0, min(focus[1] - int(round(focus_h * 0.16)), int(round(source_height * 0.03)))),
+        min(source_width, max(focus[2] + int(round(focus_w * 0.18)), int(round(source_width * 0.94)))),
+        min(hero_cut_y, max(focus[3] + int(round(focus_h * 0.10)), int(round(hero_cut_y * 0.96)))),
+    )
+    if hero_rect[3] - hero_rect[1] < int(round(source_height * 0.18)):
+        hero_rect = (0, 0, source_width, hero_cut_y)
+
+    hero_patch, _ = _extract_padded_patch(
+        source=source,
+        rect=hero_rect,
+        pad_x_ratio=0.02,
+        pad_y_ratio=0.02,
+    )
+    desired_hero_width = max(160, int(round(target_width * 0.70)))
+    scale = desired_hero_width / max(1.0, float(hero_patch.width))
+    scaled_height = max(1, int(round(hero_patch.height * scale)))
+    hero_patch = hero_patch.resize((desired_hero_width, scaled_height), Image.Resampling.LANCZOS)
+    hero_max_height = max(140, int(round(target_height * 0.62)))
+    if hero_patch.height > hero_max_height:
+        overflow = hero_patch.height - hero_max_height
+        crop_top = max(0, int(round(overflow * 0.12)))
+        hero_patch = hero_patch.crop((0, crop_top, hero_patch.width, crop_top + hero_max_height))
+    hero_x = max(0, (target_width - hero_patch.width) // 2)
+    hero_y = max(6, int(round(target_height * 0.02)))
+    placed_boxes: List[Rect] = []
+    placed_boxes.append(_paste_patch_with_feather(canvas, hero_patch, hero_x, hero_y, feather_px=6))
+
+    next_y = placed_boxes[-1][3] + max(2, int(round(target_height * 0.006)))
+
+    def _place_optional_block(rect: Optional[Rect], max_w_ratio: float, max_h_ratio: float, pad_x: float, pad_y: float, feather_px: int) -> Optional[Rect]:
+        nonlocal next_y
+        if rect is None:
+            return None
+        patch, _ = _extract_padded_patch(source=source, rect=rect, pad_x_ratio=pad_x, pad_y_ratio=pad_y)
+        patch = _resize_patch_to_fit(
+            patch,
+            max_width=max(80, int(round(target_width * max_w_ratio))),
+            max_height=max(36, int(round(target_height * max_h_ratio))),
+            max_upscale=1.20,
+        )
+        place_x = max(0, (target_width - patch.width) // 2)
+        place_y = min(max(0, target_height - patch.height - 4), next_y)
+        box = _paste_patch_with_feather(canvas, patch, place_x, place_y, feather_px=feather_px)
+        next_y = box[3] + max(1, int(round(target_height * 0.004)))
+        placed_boxes.append(box)
+        return box
+
+    city_box = _place_optional_block(city_rect, 0.52, 0.11, 0.05, 0.10, 4)
+    dates_box = _place_optional_block(dates_rect, 0.56, 0.10, 0.06, 0.18, 4)
+
+    cta_box: Optional[Rect] = None
+    if cta_rect is not None:
+        cta_patch, _ = _extract_padded_patch(source=source, rect=cta_rect, pad_x_ratio=0.10, pad_y_ratio=0.22)
+        cta_patch = _resize_patch_to_fit(
+            cta_patch,
+            max_width=max(90, int(round(target_width * 0.22))),
+            max_height=max(42, int(round(target_height * 0.12))),
+            max_upscale=1.18,
+        )
+        cta_x = max(0, (target_width - cta_patch.width) // 2)
+        cta_y = max(next_y + max(4, int(round(target_height * 0.008))), target_height - cta_patch.height - max(8, int(round(target_height * 0.018))))
+        cta_y = min(target_height - cta_patch.height - 4, cta_y)
+        cta_box = _paste_patch_with_feather(canvas, cta_patch, cta_x, cta_y, feather_px=4)
+        placed_boxes.append(cta_box)
+
+    mask_alpha = Image.new("L", (target_width, target_height), 0)
+    draw = ImageDraw.Draw(mask_alpha)
+    for rect in placed_boxes:
+        radius = max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10)))
+        draw.rounded_rectangle(rect, radius=radius, fill=255)
+    mask_alpha = mask_alpha.filter(ImageFilter.GaussianBlur(radius=2.2))
+    redraw = ImageDraw.Draw(mask_alpha)
+    for rect in placed_boxes:
+        radius = max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10)))
+        redraw.rounded_rectangle(rect, radius=radius, fill=255)
+    mask = Image.new("RGBA", (target_width, target_height), (0, 0, 0, 0))
+    mask.putalpha(mask_alpha)
+
+    preserve_union = _merge_rects(placed_boxes) or (0, 0, target_width, target_height)
+    return {
+        "canvas_bytes": _encode_png_bytes(canvas),
+        "mask_bytes": _encode_png_bytes(mask),
+        "placement": {
+            "x": int(preserve_union[0]),
+            "y": int(preserve_union[1]),
+            "width": int(max(1, preserve_union[2] - preserve_union[0])),
+            "height": int(max(1, preserve_union[3] - preserve_union[1])),
+            "target_width": int(target_width),
+            "target_height": int(target_height),
+        },
+        "visible_rect": preserve_union,
+        "preserve_union": preserve_union,
+        "crop_safe_rect": tuple(int(v) for v in profile_info.get("crop_safe_rect") or (0, 0, target_width, target_height)),
+        "hard_preserve_boxes": _dedupe_rects(placed_boxes, iou_threshold=0.82),
+        "hard_feather": 8,
+        "strategy": "commercial_layout_deterministic",
+        "strength": "none",
+        "profile_info": {**dict(profile_info or {}), "deterministic_only": True},
+        "direct_result_bytes": _encode_png_bytes(canvas),
+        "direct_result_is_exact": True,
+    }
+
+
 def _compute_exact_text_preserve_boxes(
     source_text_rects: Optional[Sequence[Rect]],
     placement: Dict[str, int],
@@ -1213,6 +1455,408 @@ def _classify_text_band(rect: Rect, source_height: int) -> str:
     return "middle"
 
 
+def _estimate_focus_bbox_within_region(
+    source: Image.Image,
+    region_rect: Rect,
+    percentile: float = 99.0,
+) -> Rect:
+    source_width, source_height = source.size
+    region = (
+        _clamp_int(region_rect[0], 0, source_width),
+        _clamp_int(region_rect[1], 0, source_height),
+        _clamp_int(region_rect[2], 0, source_width),
+        _clamp_int(region_rect[3], 0, source_height),
+    )
+    if region[2] <= region[0] or region[3] <= region[1]:
+        return (0, 0, source_width, source_height)
+
+    crop = source.crop(region).convert("RGBA")
+    crop_width, crop_height = crop.size
+    if crop_width < 48 or crop_height < 48:
+        return region
+
+    arr = np.asarray(crop).astype(np.float32)
+    rgb = arr[..., :3]
+    alpha = arr[..., 3] / 255.0
+    gray = rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
+    saturation = np.max(rgb, axis=2) - np.min(rgb, axis=2)
+    gray_image = Image.fromarray(np.clip(gray, 0, 255).astype(np.uint8), mode="L")
+    blur = np.asarray(gray_image.filter(ImageFilter.GaussianBlur(radius=7))).astype(np.float32)
+    local_contrast = np.abs(gray - blur)
+
+    yy, xx = np.mgrid[0:crop_height, 0:crop_width]
+    horizontal_focus = np.clip(1.0 - np.abs((xx / max(1, crop_width - 1)) - 0.5) * 0.55, 0.72, 1.0)
+    vertical_focus = np.clip(1.0 - np.abs((yy / max(1, crop_height - 1)) - 0.46) * 0.35, 0.72, 1.0)
+
+    score = (saturation * 0.34 + local_contrast * 0.82) * np.clip(alpha, 0.0, 1.0)
+    score *= horizontal_focus * vertical_focus
+
+    non_zero = score[score > 0]
+    if non_zero.size == 0:
+        return region
+
+    tried = [float(percentile), min(99.4, float(percentile) + 0.35), min(99.7, float(percentile) + 0.70)]
+    best_region = region
+    for pct in tried:
+        threshold = float(np.percentile(non_zero, pct))
+        ys, xs = np.where(score >= threshold)
+        if xs.size == 0 or ys.size == 0:
+            continue
+        x1 = int(xs.min())
+        y1 = int(ys.min())
+        x2 = int(xs.max()) + 1
+        y2 = int(ys.max()) + 1
+        width = max(1, x2 - x1)
+        height = max(1, y2 - y1)
+        area_ratio = (width * height) / float(max(1, crop_width * crop_height))
+        if area_ratio > 0.88:
+            continue
+        if width < int(crop_width * 0.14) or height < int(crop_height * 0.14):
+            continue
+        best_region = (region[0] + x1, region[1] + y1, region[0] + x2, region[1] + y2)
+        if area_ratio <= 0.56:
+            break
+
+    return best_region
+
+
+def _expand_rect_to_min_width(
+    rect: Rect,
+    min_width: int,
+    canvas_width: int,
+) -> Rect:
+    width = max(1, rect[2] - rect[0])
+    if width >= min_width:
+        return rect
+    deficit = int(min_width - width)
+    pad_left = deficit // 2
+    pad_right = deficit - pad_left
+    x1 = max(0, rect[0] - pad_left)
+    x2 = min(canvas_width, rect[2] + pad_right)
+    current = x2 - x1
+    if current < min_width:
+        if x1 == 0:
+            x2 = min(canvas_width, x1 + min_width)
+        else:
+            x1 = max(0, x2 - min_width)
+    return (x1, rect[1], x2, rect[3])
+
+
+def _infer_commercial_section_rects(
+    source: Image.Image,
+    profile_info: Dict[str, Any],
+) -> Optional[Dict[str, Rect]]:
+    source_width, source_height = source.size
+    text_rects = _prepare_text_preserve_rects(
+        profile_info.get("preserve_text_rects") or profile_info.get("text_rects"),
+        source_width,
+        source_height,
+    )
+    if not text_rects:
+        return None
+
+    sorted_rects = sorted(text_rects, key=lambda item: (item[1], item[0]))
+    wide_rects = [rect for rect in sorted_rects if (rect[2] - rect[0]) / max(1.0, float(source_width)) >= 0.40]
+
+    cta_candidates = [
+        rect
+        for rect in sorted_rects
+        if ((rect[1] + rect[3]) * 0.5) / max(1.0, float(source_height)) >= 0.76
+    ]
+    cta_rect = cta_candidates[-1] if cta_candidates else sorted_rects[-1]
+
+    info_candidates = [
+        rect
+        for rect in wide_rects
+        if rect != cta_rect
+        and ((rect[1] + rect[3]) * 0.5) / max(1.0, float(source_height)) >= 0.46
+        and ((rect[1] + rect[3]) * 0.5) / max(1.0, float(source_height)) <= 0.82
+    ]
+
+    city_rect = info_candidates[0] if info_candidates else None
+    date_rects = [rect for rect in info_candidates[1:] if rect[1] < cta_rect[1]]
+    dates_rect = _merge_rects(date_rects) if date_rects else None
+
+    if city_rect is None:
+        fallback_info = [rect for rect in sorted_rects if rect != cta_rect and rect[1] < cta_rect[1]]
+        city_rect = fallback_info[0] if fallback_info else None
+    if dates_rect is None and city_rect is not None:
+        lower = [rect for rect in sorted_rects if rect[1] > city_rect[1] and rect[1] < cta_rect[1]]
+        if lower:
+            dates_rect = _merge_rects(lower)
+
+    ribbon_candidates = [
+        rect
+        for rect in sorted_rects
+        if ((rect[1] + rect[3]) * 0.5) / max(1.0, float(source_height)) <= 0.22
+    ]
+    ribbon_union = _merge_rects(ribbon_candidates)
+    if ribbon_union is None:
+        ribbon_union = (
+            int(round(source_width * 0.28)),
+            int(round(source_height * 0.04)),
+            int(round(source_width * 0.72)),
+            int(round(source_height * 0.12)),
+        )
+    ribbon_union_width_ratio = (ribbon_union[2] - ribbon_union[0]) / max(1.0, float(source_width))
+    if ribbon_union_width_ratio < 0.12:
+        ribbon_rect = (
+            int(round(source_width * 0.20)),
+            int(round(source_height * 0.03)),
+            int(round(source_width * 0.82)),
+            int(round(source_height * 0.17)),
+        )
+    else:
+        ribbon_rect = _inflate_rect(
+            ribbon_union,
+            max(80, int(round(source_width * 0.18))),
+            max(24, int(round(source_height * 0.04))),
+            source_width,
+            source_height,
+        )
+    max_ribbon_y2 = int(round(source_height * 0.18))
+    ribbon_rect = (
+        ribbon_rect[0],
+        max(0, ribbon_rect[1]),
+        ribbon_rect[2],
+        min(max_ribbon_y2, max(ribbon_rect[1] + 40, ribbon_rect[3])),
+    )
+    ribbon_rect = _expand_rect_to_min_width(
+        ribbon_rect,
+        max(320, int(round(source_width * 0.46))),
+        source_width,
+    )
+
+    info_start_y = city_rect[1] if city_rect is not None else cta_rect[1]
+    hero_top = max(int(round(source_height * 0.13)), ribbon_rect[3] - int(round(source_height * 0.01)))
+    hero_bottom = min(
+        max(hero_top + int(round(source_height * 0.16)), info_start_y - int(round(source_height * 0.08))),
+        int(round(source_height * 0.60)),
+    )
+    if hero_bottom <= hero_top:
+        hero_bottom = min(source_height, hero_top + int(round(source_height * 0.22)))
+
+    hero_region = (
+        int(round(source_width * 0.02)),
+        hero_top,
+        int(round(source_width * 0.98)),
+        hero_bottom,
+    )
+    hero_focus = _estimate_focus_bbox_within_region(source, hero_region, percentile=99.0)
+    hero_rect = _inflate_rect(
+        hero_focus,
+        max(20, int(round(source_width * 0.04))),
+        max(18, int(round(source_height * 0.04))),
+        source_width,
+        source_height,
+    )
+
+    sections: Dict[str, Rect] = {
+        "ribbon_rect": ribbon_rect,
+        "hero_rect": hero_rect,
+    }
+
+    if city_rect is not None:
+        city_band = _inflate_rect(
+            city_rect,
+            max(20, int(round(source_width * 0.10))),
+            max(18, int(round(source_height * 0.04))),
+            source_width,
+            source_height,
+        )
+        city_band = _expand_rect_to_min_width(city_band, int(round(source_width * 0.82)), source_width)
+        sections["city_rect"] = city_band
+
+    if dates_rect is not None:
+        date_band = _inflate_rect(
+            dates_rect,
+            max(20, int(round(source_width * 0.10))),
+            max(18, int(round(source_height * 0.03))),
+            source_width,
+            source_height,
+        )
+        date_band = _expand_rect_to_min_width(date_band, int(round(source_width * 0.78)), source_width)
+        sections["dates_rect"] = date_band
+
+    cta_band = _inflate_rect(
+        cta_rect,
+        max(18, int(round(source_width * 0.08))),
+        max(18, int(round(source_height * 0.04))),
+        source_width,
+        source_height,
+    )
+    cta_band = _expand_rect_to_min_width(cta_band, int(round(source_width * 0.46)), source_width)
+    sections["cta_rect"] = cta_band
+    return sections
+
+
+def _build_commercial_fragmented_preserve_assets(
+    source: Image.Image,
+    plan: Dict[str, Any],
+    profile_info: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    source_width, source_height = source.size
+    base_width = int(plan["base_width"])
+    base_height = int(plan["base_height"])
+    crop_safe_rect = tuple(int(v) for v in profile_info.get("crop_safe_rect") or plan["crop_rect"])
+
+    sections = _infer_commercial_section_rects(source, profile_info)
+    if not sections:
+        return None
+
+    background = _build_seed_background(source, base_width, base_height, profile_info)
+    canvas = background.copy()
+
+    safe_x1, safe_y1, safe_x2, safe_y2 = crop_safe_rect
+    safe_width = max(1, safe_x2 - safe_x1)
+    safe_height = max(1, safe_y2 - safe_y1)
+    top_cursor = safe_y1 + max(8, int(round(safe_height * 0.01)))
+    bottom_cursor = safe_y2 - max(8, int(round(safe_height * 0.01)))
+    gap_small = max(8, int(round(safe_height * 0.015)))
+    gap_medium = max(12, int(round(safe_height * 0.022)))
+
+    resized: Dict[str, Image.Image] = {}
+    order_specs = {
+        "ribbon_rect": (0.56, 0.12, 1.20),
+        "hero_rect": (0.82, 0.60, 1.12),
+        "city_rect": (0.74, 0.13, 1.10),
+        "dates_rect": (0.72, 0.095, 1.08),
+        "cta_rect": (0.32, 0.11, 1.08),
+    }
+
+    for key, rect in sections.items():
+        patch = source.crop(rect)
+        max_w_ratio, max_h_ratio, max_upscale = order_specs.get(key, (0.60, 0.18, 1.10))
+        resized[key] = _resize_patch_to_fit(
+            patch,
+            max_width=max(80, int(round(safe_width * max_w_ratio))),
+            max_height=max(48, int(round(safe_height * max_h_ratio))),
+            max_upscale=max_upscale,
+        )
+
+    reserved_height = 0
+    if "ribbon_rect" in resized:
+        reserved_height += resized["ribbon_rect"].height + gap_small
+    if "city_rect" in resized:
+        reserved_height += resized["city_rect"].height + gap_small
+    if "dates_rect" in resized:
+        reserved_height += resized["dates_rect"].height + gap_small
+    if "cta_rect" in resized:
+        reserved_height += resized["cta_rect"].height + gap_small
+
+    hero_patch = resized.get("hero_rect")
+    available_for_hero = max(120, safe_height - reserved_height - gap_medium * 2)
+    if hero_patch is not None and hero_patch.height > available_for_hero:
+        resized["hero_rect"] = _resize_patch_to_fit(
+            source.crop(sections["hero_rect"]),
+            max_width=max(80, int(round(safe_width * 0.74))),
+            max_height=available_for_hero,
+            max_upscale=1.0,
+        )
+
+    placed_boxes: List[Rect] = []
+    transition_boxes: List[Rect] = []
+
+    def _place_centered(patch: Image.Image, y: int, feather_px: int = 12) -> Rect:
+        place_x = safe_x1 + max(0, (safe_width - patch.width) // 2)
+        place_y = _clamp_int(y, safe_y1, max(safe_y1, safe_y2 - patch.height))
+        box = _paste_patch_with_feather(canvas, patch, place_x, place_y, feather_px=feather_px)
+        placed_boxes.append(box)
+        transition_boxes.append(_inflate_rect(box, 12, 12, base_width, base_height))
+        return box
+
+    ribbon_patch = resized.get("ribbon_rect")
+    if ribbon_patch is not None:
+        ribbon_box = _place_centered(ribbon_patch, top_cursor, feather_px=10)
+        top_cursor = ribbon_box[3] + gap_small
+
+    hero_patch = resized.get("hero_rect")
+    if hero_patch is not None:
+        hero_box = _place_centered(hero_patch, top_cursor, feather_px=14)
+        top_cursor = hero_box[3] + gap_medium
+
+    cta_patch = resized.get("cta_rect")
+    cta_box: Optional[Rect] = None
+    if cta_patch is not None:
+        cta_box = _place_centered(cta_patch, bottom_cursor - cta_patch.height, feather_px=10)
+        bottom_cursor = cta_box[1] - gap_small
+
+    dates_patch = resized.get("dates_rect")
+    dates_box: Optional[Rect] = None
+    if dates_patch is not None:
+        dates_box = _place_centered(dates_patch, bottom_cursor - dates_patch.height, feather_px=10)
+        bottom_cursor = dates_box[1] - gap_small
+
+    city_patch = resized.get("city_rect")
+    if city_patch is not None:
+        city_y = bottom_cursor - city_patch.height
+        min_city_y = top_cursor
+        if city_y < min_city_y:
+            city_y = min_city_y
+        city_box = _place_centered(city_patch, city_y, feather_px=12)
+        bottom_cursor = city_box[1] - gap_small
+
+    preserve_union = _merge_rects(placed_boxes) or crop_safe_rect
+
+    mask_alpha = Image.new("L", (base_width, base_height), 0)
+    draw = ImageDraw.Draw(mask_alpha)
+    transition_union = _merge_rects(transition_boxes) or preserve_union
+    draw.rounded_rectangle(
+        transition_union,
+        radius=max(10, int(round(min(base_width, base_height) * 0.018))),
+        fill=188,
+    )
+    for rect in transition_boxes:
+        draw.rounded_rectangle(
+            rect,
+            radius=max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10))),
+            fill=224,
+        )
+    for rect in placed_boxes:
+        draw.rounded_rectangle(
+            rect,
+            radius=max(8, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10))),
+            fill=255,
+        )
+    mask_alpha = mask_alpha.filter(ImageFilter.GaussianBlur(radius=3.0))
+    redraw = ImageDraw.Draw(mask_alpha)
+    for rect in placed_boxes:
+        redraw.rounded_rectangle(
+            rect,
+            radius=max(6, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.10))),
+            fill=255,
+        )
+
+    mask = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+    mask.putalpha(mask_alpha)
+
+    return {
+        "canvas_bytes": _encode_png_bytes(canvas),
+        "mask_bytes": _encode_png_bytes(mask),
+        "placement": {
+            "x": int(preserve_union[0]),
+            "y": int(preserve_union[1]),
+            "width": int(max(1, preserve_union[2] - preserve_union[0])),
+            "height": int(max(1, preserve_union[3] - preserve_union[1])),
+            "target_width": int(base_width),
+            "target_height": int(base_height),
+        },
+        "visible_rect": preserve_union,
+        "preserve_union": preserve_union,
+        "crop_safe_rect": crop_safe_rect,
+        "hard_preserve_boxes": _dedupe_rects(placed_boxes, iou_threshold=0.80),
+        "hard_feather": 12,
+        "hard_preserve_limits": {
+            "max_area_ratio": 0.34,
+            "max_width_ratio": 0.82,
+            "max_height_ratio": 0.62,
+        },
+        "strategy": "fragmented_preserve",
+        "strength": profile_info.get("strength") or "medium",
+        "profile_info": profile_info,
+    }
+
+
 def build_exact_size_fragmented_preserve_assets(
     image_bytes: bytes,
     plan: Dict[str, Any],
@@ -1226,6 +1870,19 @@ def build_exact_size_fragmented_preserve_assets(
     base_height = int(plan["base_height"])
     crop_rect = tuple(int(v) for v in plan["crop_rect"])
     crop_safe_rect = tuple(int(v) for v in profile_info.get("crop_safe_rect") or crop_rect)
+
+    commercial_layout = bool(
+        (profile_info.get("intent") or {}).get("commercial_preservation")
+        and (profile_info.get("commercial_layout_lock") or profile_info.get("multi_zone_text"))
+    )
+    if commercial_layout:
+        commercial_assets = _build_commercial_fragmented_preserve_assets(
+            source=source,
+            plan=plan,
+            profile_info=profile_info,
+        )
+        if commercial_assets is not None:
+            return commercial_assets
 
     background = _build_seed_background(source, base_width, base_height, profile_info)
     canvas = background.copy()
@@ -1456,6 +2113,7 @@ def build_exact_size_fragmented_preserve_assets(
         "crop_safe_rect": crop_safe_rect,
         "hard_preserve_boxes": _dedupe_rects(placed_boxes, iou_threshold=0.82),
         "hard_feather": 12,
+        "hard_preserve_limits": None,
         "strategy": "fragmented_preserve",
         "strength": "low",
         "profile_info": profile_info,
@@ -1805,6 +2463,7 @@ def build_exact_size_assisted_recompose_assets(
         "crop_safe_rect": crop_safe_rect,
         "hard_preserve_boxes": _dedupe_rects(mapped_text_rects + text_preserve_boxes + raw_mandatory_boxes, iou_threshold=0.78),
         "hard_feather": int(profile["hard_feather"]),
+        "hard_preserve_limits": None,
         "strategy": "assisted_recompose",
         "strength": strength,
         "profile_info": profile_info,
@@ -1954,6 +2613,7 @@ def build_non_native_exact_size_layout_first_assets(
         "crop_safe_rect": tuple(int(v) for v in profile_info.get("crop_safe_rect") or plan["crop_rect"]),
         "hard_preserve_boxes": _dedupe_rects(mapped_boxes, iou_threshold=0.82),
         "hard_feather": int(exact_assets.get("hard_feather") or 10),
+        "hard_preserve_limits": exact_assets.get("hard_preserve_limits"),
         "strategy": exact_assets.get("strategy") or strategy or "layout_preserve",
         "strength": exact_assets.get("strength") or "low",
         "profile_info": embedded_profile,
@@ -1996,10 +2656,16 @@ def build_exact_size_fragmented_preserve_prompt(
         "Nas áreas novas, faça somente continuidade coerente do fundo e dos elementos de cena já existentes, sem trocar a linguagem visual da peça e sem criar cenário novo não presente na arte base. "
     )
     user_clause = f"Requisitos explícitos do usuário: {user_requirements}. " if user_requirements else ""
+    commercial_layout_ready = bool((profile_info or {}).get("commercial_layout_lock") or ((profile_info or {}).get("intent") or {}).get("commercial_preservation"))
+    layout_ready_text = (
+        "A peça já veio pré-organizada em bandas e blocos comerciais dentro do canvas final. Preserve exatamente essa estrutura pré-montada e trate-a como layout-base obrigatório. "
+        if commercial_layout_ready
+        else ""
+    )
 
     return (
-        "Adapte a peça como uma recomposição fiel com blocos preservados, e não como um poster vertical encolhido no centro. "
-        "Os blocos já posicionados no canvas com textos, CTA, badge, datas, locais e elementos principais são obrigatórios e devem permanecer exatamente como estão. "
+        ("Adapte a peça como uma recomposição fiel com blocos preservados, e não como um poster vertical encolhido no centro. " + layout_ready_text)
+        + "Os blocos já posicionados no canvas com textos, CTA, badge, datas, locais e elementos principais são obrigatórios e devem permanecer exatamente como estão. "
         "Você pode trabalhar apenas nas áreas não preservadas e nas transições entre esses blocos para integrar o layout ao novo formato. "
         "Mantenha exatamente os textos existentes, sem reescrever, traduzir, resumir, remover, deformar ou cortar qualquer elemento textual. "
         "Não redesenhe o título, o CTA, o badge, os chips, os selos, os labels, as datas, os locais nem o elemento principal. "

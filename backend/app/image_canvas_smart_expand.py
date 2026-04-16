@@ -431,6 +431,7 @@ def overlay_hard_preserve_regions(
     source_canvas_bytes: bytes,
     hard_boxes: Sequence[Rect],
     feather_px: int = 8,
+    sanitize_limits: Optional[Dict[str, float]] = None,
 ) -> bytes:
     if not hard_boxes:
         return expanded_bytes
@@ -442,10 +443,14 @@ def overlay_hard_preserve_regions(
         if expanded.size != source_canvas.size:
             source_canvas = source_canvas.resize(expanded.size, Image.Resampling.LANCZOS)
 
+        limits = dict(sanitize_limits or {})
         sanitized = sanitize_hard_preserve_boxes(
             hard_boxes=hard_boxes,
             canvas_width=expanded.width,
             canvas_height=expanded.height,
+            max_area_ratio=float(limits.get("max_area_ratio", 0.18)),
+            max_width_ratio=float(limits.get("max_width_ratio", 0.60)),
+            max_height_ratio=float(limits.get("max_height_ratio", 0.30)),
         )
         safe_boxes = list(sanitized["boxes"])
         if not safe_boxes:
