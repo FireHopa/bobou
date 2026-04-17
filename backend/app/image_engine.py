@@ -198,6 +198,102 @@ def _build_debug_payload(stage: str, message: str, details: Optional[Dict[str, A
 logger = logging.getLogger("app.image_engine")
 
 
+_RUNTIME_IMAGE_EDIT_LOG_DIR = os.path.join(
+    os.path.dirname(__file__),
+    "_runtime",
+    "image_edit_resolution_logs",
+)
+
+
+def _coerce_optional_form_int(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    return int(raw)
+
+
+def _coerce_form_bool(value: Optional[str], default: bool = False) -> bool:
+    if value is None:
+        return default
+    raw = str(value).strip().lower()
+    if raw in {"1", "true", "t", "yes", "y", "on", "sim"}:
+        return True
+    if raw in {"0", "false", "f", "no", "n", "off", "nao", "não"}:
+        return False
+    return default
+
+
+def _append_runtime_image_edit_log(
+    request_id: str,
+    stage: str,
+    message: str,
+    level: str = "info",
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        os.makedirs(_RUNTIME_IMAGE_EDIT_LOG_DIR, exist_ok=True)
+        file_name = f"{datetime.now(timezone.utc).date().isoformat()}.ndjson"
+        path = os.path.join(_RUNTIME_IMAGE_EDIT_LOG_DIR, file_name)
+        entry = {
+            "request_id": request_id,
+            "created_at": _utcnow().isoformat(),
+            "stage": stage,
+            "message": message,
+            "level": level,
+            "details": details or {},
+        }
+        with open(path, "a", encoding="utf-8") as fp:
+            fp.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.exception("Falha ao persistir log de runtime da edição por referência.")
+
+
+def _runtime_debug_payload(
+    request_id: str,
+    stage: str,
+    message: str,
+    *,
+    details: Optional[Dict[str, Any]] = None,
+    level: str = "info",
+    image: Optional[str] = None,
+) -> Dict[str, Any]:
+    _append_runtime_image_edit_log(
+        request_id=request_id,
+        stage=stage,
+        message=message,
+        level=level,
+        details=details,
+    )
+    return _build_debug_payload(
+        stage=stage,
+        message=message,
+        details=details,
+        image=image,
+        level=level,
+    )
+
+
+def list_local_text_candidate_rects(image_bytes: bytes) -> List[Tuple[int, int, int, int]]:
+    return []
+
+
+def should_use_local_text_erase(
+    localized_analysis: Optional[Dict[str, Any]],
+    instruction_info: Dict[str, Any],
+) -> bool:
+    return False
+
+
+def should_use_local_text_render(
+    localized_analysis: Optional[Dict[str, Any]],
+    instruction_info: Dict[str, Any],
+) -> bool:
+    return False
+
+
+
 def _sse_comment(comment: str = "keepalive") -> str:
     return f": {comment}\n\n"
 
@@ -1393,58 +1489,23 @@ async def _expand_image_to_supported_canvas_smart(
     requested_height: int,
     strength: str,
 ) -> Dict[str, Any]:
-    expand_width, expand_height = _choose_best_supported_base_size(requested_width, requested_height)
-
-    text_rects = list_local_text_candidate_rects(image_bytes)
-    assets = build_smart_expand_assets(
-        image_bytes=image_bytes,
-        target_width=expand_width,
-        target_height=expand_height,
-        text_rects=text_rects,
-        strength=strength,
-    )
-
-    result = await _edit_openai_image(
+    result = await _expand_image_to_supported_canvas_preserve(
         client=client,
-        image_bytes=assets["canvas_bytes"],
-        filename="smart-canvas-expand.png",
-        content_type="image/png",
-        final_prompt=build_smart_expand_prompt(
-            requested_width=requested_width,
-            requested_height=requested_height,
-            placement=assets["placement"],
-            preserve_union=assets["preserve_union"],
-            strength=strength,
-        ),
-        aspect_ratio=_base_size_to_aspect_ratio(expand_width, expand_height),
-        quality=openai_quality,
+        image_bytes=image_bytes,
         openai_key=openai_key,
-        openai_size=f"{expand_width}x{expand_height}",
-        mask_bytes=assets["mask_bytes"],
-        input_fidelity="high",
-        reference_images=assets.get("reference_images"),
+        openai_quality=openai_quality,
+        requested_width=requested_width,
+        requested_height=requested_height,
     )
-
-    expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
-    finalized_bytes = overlay_hard_preserve_regions(
-        expanded_bytes=expanded_bytes,
-        source_canvas_bytes=assets["canvas_bytes"],
-        hard_boxes=assets["hard_preserve_boxes"],
-        feather_px=assets["hard_feather"],
-    )
-
     next_result = dict(result)
-    next_result["url"] = _result_url_from_image_bytes(finalized_bytes, "image/png")
     next_result["expanded_canvas"] = {
-        "width": expand_width,
-        "height": expand_height,
-        "placement": assets["placement"],
-        "preserve_union": assets["preserve_union"],
-        "hard_preserve_boxes": assets["hard_preserve_boxes"],
-        "strategy": "smart_recompose",
+        **dict(result.get("expanded_canvas") or {}),
+        "strategy": "preserve_fallback_after_legacy_cleanup",
+        "requested_width": requested_width,
+        "requested_height": requested_height,
         "strength": strength,
     }
-    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Recompose sem crop"
+    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Preserve Fallback"
     return next_result
 
 
@@ -1457,112 +1518,30 @@ async def _expand_image_to_exact_size_non_native(
     requested_height: int,
     instruction_text: str = "",
 ) -> Dict[str, Any]:
-    text_rects = list_local_text_candidate_rects(image_bytes)
-    assets = build_exact_size_expand_assets(
-        image_bytes=image_bytes,
-        target_width=requested_width,
-        target_height=requested_height,
-        supported_sizes=SUPPORTED_BASE_SIZES,
-        text_rects=text_rects,
-        strength="medium",
-        instruction_text=instruction_text,
-    )
-    plan = assets["plan"]
-
-    if assets.get("strategy") == "commercial_layout_deterministic" and not bool(assets.get("composition_ok", True)):
-        reason = assets.get("composition_reason") or "stage=layout_base reason=deterministic_composition_incomplete"
-        raise RuntimeError(
-            "A recomposição determinística do layout não atingiu confiança suficiente para entrega final. "
-            "Nenhum preview intermediário foi devolvido e o fluxo não pode cair em generativa ampla nesse modo. "
-            f"Motivo: {reason}"
-        )
-
-    if assets.get("direct_result_bytes"):
-        direct_bytes = bytes(assets["direct_result_bytes"])
-        next_result = {
-            "url": _result_url_from_image_bytes(direct_bytes, "image/png"),
-            "motor": "Layout comercial determinístico",
-            "engine_id": "layout_first_exact_deterministic",
-            "expanded_canvas": {
-                "width": int(plan["base_width"]),
-                "height": int(plan["base_height"]),
-                "working_width": int(plan["working_width"]),
-                "working_height": int(plan["working_height"]),
-                "crop_rect": plan["crop_rect"],
-                "placement": assets["placement"],
-                "preserve_union": assets.get("preserve_union"),
-                "hard_preserve_boxes": assets.get("hard_preserve_boxes"),
-                "strategy": "commercial_layout_deterministic",
-                "exact_strategy": assets.get("strategy") or plan.get("exact_strategy"),
-                "layout_first_non_native": True,
-                "needs_upscale_after_crop": False,
-                "composition_ok": bool(assets.get("composition_ok", True)),
-                "composition_reason": assets.get("composition_reason") or "ok",
-                "debug_steps": list(assets.get("debug_steps") or []),
-            },
-        }
-        return next_result
-
-    result = await _edit_openai_image(
+    expanded = await _expand_image_to_supported_canvas_preserve(
         client=client,
-        image_bytes=assets["canvas_bytes"],
-        filename="exact-size-expand.png",
-        content_type="image/png",
-        final_prompt=build_exact_size_expand_prompt(
-            target_width=requested_width,
-            target_height=requested_height,
-            plan=plan,
-            placement=assets["placement"],
-            preserve_union=assets.get("preserve_union"),
-            strength=assets.get("strength", "medium"),
-            profile_info=assets.get("profile"),
-            instruction_text=instruction_text,
-        ),
-        aspect_ratio=_base_size_to_aspect_ratio(plan["base_width"], plan["base_height"]),
-        quality=openai_quality,
+        image_bytes=image_bytes,
         openai_key=openai_key,
-        openai_size=f"{plan['base_width']}x{plan['base_height']}",
-        mask_bytes=assets["mask_bytes"],
-        input_fidelity="high",
+        openai_quality=openai_quality,
+        requested_width=requested_width,
+        requested_height=requested_height,
     )
-
-    expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
-    finalized_bytes = finalize_exact_size_expand(
-        expanded_bytes=expanded_bytes,
-        source_canvas_bytes=assets["canvas_bytes"],
-        plan=plan,
-        hard_preserve_boxes=assets.get("hard_preserve_boxes"),
-        hard_feather=int(assets.get("hard_feather") or 8),
-        hard_preserve_limits=assets.get("hard_preserve_limits"),
+    next_result = await _apply_postprocess_if_needed(
+        client=client,
+        result=expanded,
+        target_dimensions=(requested_width, requested_height),
+        preserve_original_frame=True,
+        allow_resize_crop=False,
+        original_reference_bytes=image_bytes,
     )
-
-    next_result = dict(result)
-    next_result["url"] = _result_url_from_image_bytes(finalized_bytes, "image/png")
     next_result["expanded_canvas"] = {
-        "width": int(plan["base_width"]),
-        "height": int(plan["base_height"]),
-        "working_width": int(plan["working_width"]),
-        "working_height": int(plan["working_height"]),
-        "crop_rect": plan["crop_rect"],
-        "placement": assets["placement"],
-        "preserve_union": assets.get("preserve_union"),
-        "hard_preserve_boxes": assets.get("hard_preserve_boxes"),
-        "strategy": (
-            "exact_size_non_native_commercial_ai_relayout"
-            if (assets.get("strategy") == "commercial_ai_relayout")
-            else "exact_size_non_native_smart_crop"
-        ),
-        "exact_strategy": assets.get("strategy") or plan.get("exact_strategy"),
-        "layout_first_non_native": bool((assets.get("profile") or {}).get("layout_first_non_native")),
-        "needs_upscale_after_crop": bool(plan.get("needs_upscale_after_crop")),
-        "composition_ok": bool(assets.get("composition_ok", True)),
-        "composition_reason": assets.get("composition_reason") or "ok",
-        "debug_steps": list(assets.get("debug_steps") or []),
+        **dict(next_result.get("expanded_canvas") or {}),
+        "strategy": "exact_size_fallback_after_legacy_cleanup",
+        "requested_width": requested_width,
+        "requested_height": requested_height,
+        "instruction_text": _clamp_text(instruction_text, 280),
     }
-    if assets.get("strategy") == "commercial_ai_relayout":
-        next_result["motor"] = f"{result.get('motor', 'Imagem')} + Commercial Relayout"
-    else:
-        next_result["motor"] = f"{result.get('motor', 'Imagem')} + Exact Size"
+    next_result["motor"] = f"{next_result.get('motor', 'Imagem')} + Exact Size"
     return next_result
 
 
@@ -1673,13 +1652,14 @@ def _project_edited_changes_onto_reference(
         allow_resize_crop=normalized_allow_resize_crop,
     )
 
-    if aspect_adaptation_needed:
-        return None
-
     if normalized_allow_resize_crop:
         base_target = _resize_to_cover(original_rgba, target_width, target_height)
         edited_target = _resize_to_cover(edited_rgba, target_width, target_height)
         mask_target = _resize_mask_to_cover(mask_in_edit_space, target_width, target_height)
+    elif aspect_adaptation_needed:
+        base_target = _edge_extend_fill(original_rgba, target_width, target_height)
+        edited_target = _edge_extend_fill(edited_rgba, target_width, target_height)
+        mask_target = _resize_mask_to_contain(mask_in_edit_space, target_width, target_height)
     else:
         base_target = original_rgba.resize((target_width, target_height), Image.Resampling.LANCZOS)
         edited_target = edited_rgba.resize((target_width, target_height), Image.Resampling.LANCZOS)
@@ -1735,13 +1715,10 @@ def _resize_image_bytes_exact(
                     result = None
 
             if result is None:
-                if aspect_adaptation_needed:
-                    raise ValueError(
-                        "O resize exato sem crop exige expansão real de canvas por IA. "
-                        "O fallback com blur, espelhamento ou duplicação foi desativado."
-                    )
                 if normalized_allow_resize_crop:
                     result = _resize_to_cover(prepared, target_width, target_height)
+                elif aspect_adaptation_needed:
+                    result = _edge_extend_fill(prepared, target_width, target_height)
                 else:
                     result = prepared.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
@@ -1890,6 +1867,17 @@ def _build_user_edit_brief(payload: ImageEditRequest) -> str:
         f"Formato: {payload.formato}",
         f"Qualidade desejada: {payload.qualidade}",
     ]
+
+    if payload.width and payload.height:
+        parts.append(f"Tamanho final customizado: {payload.width}x{payload.height}")
+
+    if payload.preserve_original_frame:
+        parts.append("Preservar enquadramento original: sim")
+
+    if payload.allow_resize_crop:
+        parts.append("Crop permitido para resize exato: sim")
+    else:
+        parts.append("Crop permitido para resize exato: não")
 
     if payload.instrucoes_edicao.strip():
         parts.append(f"Instruções de edição: {payload.instrucoes_edicao.strip()}")
@@ -3873,6 +3861,12 @@ async def image_engine_edit_stream(
     formato: str = Form(...),
     qualidade: str = Form(...),
     instrucoes_edicao: str = Form(...),
+    width: Optional[str] = Form(default=None),
+    height: Optional[str] = Form(default=None),
+    preserve_original_frame: Optional[str] = Form(default=None),
+    allow_resize_crop: Optional[str] = Form(default=None),
+    edit_scope: Optional[str] = Form(default=None),
+    resolution_source: Optional[str] = Form(default=None),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -3880,30 +3874,49 @@ async def image_engine_edit_stream(
     if not openai_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY não configurada.")
 
+    request_id = f"img-edit-{os.urandom(16).hex()}"
+
     image_bytes = await reference_image.read()
     image_filename = reference_image.filename or "reference.png"
     image_content_type = _guess_image_content_type(image_filename, reference_image.content_type)
+
+    try:
+        parsed_width = _coerce_optional_form_int(width)
+        parsed_height = _coerce_optional_form_int(height)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Width e height precisam ser números inteiros.")
 
     body = ImageEditRequest(
         formato=formato,
         qualidade=qualidade,
         instrucoes_edicao=instrucoes_edicao,
-        width=None,
-        height=None,
-        preserve_original_frame=False,
-        allow_resize_crop=False,
-        edit_scope="global",
+        width=parsed_width,
+        height=parsed_height,
+        preserve_original_frame=_coerce_form_bool(preserve_original_frame, default=False),
+        allow_resize_crop=_coerce_form_bool(allow_resize_crop, default=False),
+        edit_scope=_normalize_edit_scope(edit_scope),
     )
+    if body.preserve_original_frame:
+        body.allow_resize_crop = False
 
     try:
         _validate_reference_image(image_bytes, image_content_type)
         if not body.instrucoes_edicao.strip():
             raise ValueError("As instruções de edição são obrigatórias.")
-        aspect_ratio = _normalize_aspect_ratio(body.formato)
+
+        target_dimensions = _resolve_target_dimensions(body.width, body.height)
+        if target_dimensions:
+            aspect_ratio = _base_size_to_aspect_ratio(target_dimensions[0], target_dimensions[1])
+        else:
+            aspect_ratio = _normalize_aspect_ratio(body.formato)
+
         openai_quality = _normalize_quality(body.qualidade)
         source_width, source_height = _read_image_dimensions(image_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    openai_size = _openai_size_from_aspect_ratio(aspect_ratio)
+    resolution_source_label = (resolution_source or "").strip() or ("manual" if target_dimensions else "default")
 
     ensure_credits(current_user, "image_edit")
     action = charge_credits(session, current_user, "image_edit")
@@ -3915,15 +3928,51 @@ async def image_engine_edit_stream(
                     "aspect_ratio": aspect_ratio,
                     "quality": openai_quality,
                     "reference_filename": image_filename,
-                    "openai_size": _openai_size_from_aspect_ratio(aspect_ratio),
+                    "openai_size": openai_size,
                     "source_dimensions": {"width": source_width, "height": source_height},
+                    "target_dimensions": (
+                        {"width": target_dimensions[0], "height": target_dimensions[1]}
+                        if target_dimensions
+                        else None
+                    ),
                     "mode": "simple_reference_edit",
+                    "request_id": request_id,
+                    "resolution_source": resolution_source_label,
+                    "preserve_original_frame": body.preserve_original_frame,
+                    "allow_resize_crop": body.allow_resize_crop,
                 }
+                _append_runtime_image_edit_log(
+                    request_id=request_id,
+                    stage="request_start",
+                    message="Nova execução iniciada no editor simplificado por referência.",
+                    details={
+                        "instruction": body.instrucoes_edicao,
+                        "formato": body.formato,
+                        "qualidade": body.qualidade,
+                        "mode": "simple_reference_edit",
+                        "requestedResolutionFromChat": (
+                            {
+                                "width": target_dimensions[0],
+                                "height": target_dimensions[1],
+                                "source": resolution_source_label,
+                                "label": _size_label(target_dimensions[0], target_dimensions[1]),
+                            }
+                            if target_dimensions
+                            else None
+                        ),
+                        "effectiveWidth": target_dimensions[0] if target_dimensions else None,
+                        "effectiveHeight": target_dimensions[1] if target_dimensions else None,
+                        "preserveOriginalFrame": body.preserve_original_frame,
+                        "allowResizeCrop": body.allow_resize_crop,
+                        "editScope": body.edit_scope,
+                    },
+                )
                 yield _sse({
                     "status": "Editor simplificado ativo. Preparando a base e refinando o prompt de edição.",
                     "progress": 12,
                     "meta": initial_meta,
-                    "debug": _build_debug_payload(
+                    "debug": _runtime_debug_payload(
+                        request_id=request_id,
                         stage="request_received",
                         message="Requisição recebida no fluxo simplificado de edição por referência.",
                         details=initial_meta,
@@ -3957,7 +4006,7 @@ async def image_engine_edit_stream(
                     "final_prompt": final_prompt,
                     "aspect_ratio": aspect_ratio,
                     "quality": openai_quality,
-                    "openai_size": _openai_size_from_aspect_ratio(aspect_ratio),
+                    "openai_size": openai_size,
                 })
 
                 result = await _edit_openai_image(
@@ -3970,17 +4019,96 @@ async def image_engine_edit_stream(
                     quality=openai_quality,
                     openai_key=openai_key,
                     input_fidelity="high",
+                    openai_size=openai_size,
                 )
+
+                if target_dimensions:
+                    yield _sse({
+                        "status": f"Edição concluída. Adaptando para o tamanho final exato {target_dimensions[0]}x{target_dimensions[1]} sem crop.",
+                        "progress": 82,
+                        "meta": {
+                            "working_dimensions": {
+                                "width": int(openai_size.split("x")[0]),
+                                "height": int(openai_size.split("x")[1]),
+                            },
+                            "target_dimensions": {
+                                "width": target_dimensions[0],
+                                "height": target_dimensions[1],
+                            },
+                            "strategy": "exact_size_postprocess_after_edit",
+                        },
+                        "debug": _runtime_debug_payload(
+                            request_id=request_id,
+                            stage="exact_size_adaptation_started",
+                            message="A edição base foi concluída e a adaptação para o tamanho final exato começou.",
+                            details={
+                                "working_dimensions": {
+                                    "width": int(openai_size.split("x")[0]),
+                                    "height": int(openai_size.split("x")[1]),
+                                },
+                                "target_dimensions": {
+                                    "width": target_dimensions[0],
+                                    "height": target_dimensions[1],
+                                },
+                                "strategy": "exact_size_postprocess_after_edit",
+                            },
+                        ),
+                    })
+
+                    result = await _apply_postprocess_if_needed(
+                        client=client,
+                        result=result,
+                        target_dimensions=target_dimensions,
+                        preserve_original_frame=body.preserve_original_frame,
+                        allow_resize_crop=body.allow_resize_crop,
+                        original_reference_bytes=image_bytes,
+                    )
+
+                    final_result_bytes, _ = await _read_result_bytes(client, result)
+                    final_result_width, final_result_height = _read_image_dimensions(final_result_bytes)
+                    _append_runtime_image_edit_log(
+                        request_id=request_id,
+                        stage="final_result_resized",
+                        message="Resultado final ajustado para o tamanho exato solicitado.",
+                        details={
+                            "final_dimensions": {
+                                "width": final_result_width,
+                                "height": final_result_height,
+                            },
+                            "target_dimensions": {
+                                "width": target_dimensions[0],
+                                "height": target_dimensions[1],
+                            },
+                            "preserve_original_frame": body.preserve_original_frame,
+                            "allow_resize_crop": body.allow_resize_crop,
+                        },
+                    )
 
                 yield _sse({
                     "status": f"Edição concluída com sucesso em {result['motor']}.",
-                    "progress": 82,
+                    "progress": 92,
                     "partial_result": {
                         "engine_id": result["engine_id"],
                         "motor": result["motor"],
                         "url": result["url"],
                     },
                     "warning": None,
+                    "debug": _runtime_debug_payload(
+                        request_id=request_id,
+                        stage="openai_edit_completed",
+                        message="Resultado principal finalizado e pronto para entrega.",
+                        details={
+                            "engine_id": result.get("engine_id"),
+                            "motor": result.get("motor"),
+                            "target_dimensions": (
+                                {"width": target_dimensions[0], "height": target_dimensions[1]}
+                                if target_dimensions
+                                else None
+                            ),
+                        },
+                        image=result.get("url"),
+                        level="success",
+                    ),
                 })
 
                 yield _sse({
@@ -4003,9 +4131,32 @@ async def image_engine_edit_stream(
                         }
                     ],
                     "warning": None,
+                    "debug": _runtime_debug_payload(
+                        request_id=request_id,
+                        stage="request_finished",
+                        message="Requisição concluída com entrega final emitida para o frontend.",
+                        details={
+                            "engine_id": result.get("engine_id"),
+                            "motor": result.get("motor"),
+                            "target_dimensions": (
+                                {"width": target_dimensions[0], "height": target_dimensions[1]}
+                                if target_dimensions
+                                else None
+                            ),
+                        },
+                        image=result.get("url"),
+                        level="success",
+                    ),
                 })
         except Exception as e:
             logger.exception("Erro interno no fluxo simplificado de edição de imagem.")
+            _append_runtime_image_edit_log(
+                request_id=request_id,
+                stage="request_failed",
+                message="Erro interno no editor simplificado por referência.",
+                level="error",
+                details={"error": str(e)},
+            )
             yield _sse({"error": f"Erro interno no editor: {str(e)}"})
 
     stream_response = StreamingResponse(
@@ -4024,6 +4175,7 @@ async def image_engine_edit_stream(
         action_key=action.key,
     )
     return stream_response
+
 def _build_text_remove_crop_plan(
     image_bytes: bytes,
     analysis: Dict[str, Any],
