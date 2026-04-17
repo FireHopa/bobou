@@ -209,6 +209,18 @@ def _size_label(width: int, height: int) -> str:
 def _sse(data: Dict[str, Any]) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
+def _build_debug_payload(stage: str, message: str, details: Optional[Dict[str, Any]] = None, image: Optional[str] = None, level: str = "info") -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "stage": stage,
+        "message": message,
+        "level": level,
+    }
+    if details:
+        payload["details"] = details
+    if image:
+        payload["image"] = image
+    return payload
+
 logger = logging.getLogger("app.image_engine")
 
 
@@ -1511,6 +1523,7 @@ async def _expand_image_to_exact_size_non_native(
                 "needs_upscale_after_crop": False,
                 "composition_ok": bool(assets.get("composition_ok", True)),
                 "composition_reason": assets.get("composition_reason") or "ok",
+                "debug_steps": list(assets.get("debug_steps") or []),
             },
         }
         return next_result
@@ -1563,6 +1576,9 @@ async def _expand_image_to_exact_size_non_native(
         "exact_strategy": assets.get("strategy") or plan.get("exact_strategy"),
         "layout_first_non_native": bool((assets.get("profile") or {}).get("layout_first_non_native")),
         "needs_upscale_after_crop": bool(plan.get("needs_upscale_after_crop")),
+        "composition_ok": bool(assets.get("composition_ok", True)),
+        "composition_reason": assets.get("composition_reason") or "ok",
+        "debug_steps": list(assets.get("debug_steps") or []),
     }
     next_result["motor"] = f"{result.get('motor', 'Imagem')} + Exact Size"
     return next_result
@@ -3972,6 +3988,13 @@ async def image_engine_edit_stream(
     ensure_credits(current_user, "image_edit")
     action = charge_credits(session, current_user, "image_edit")
 
+    async def _yield_debug_steps(steps: Optional[List[Dict[str, Any]]], progress: Optional[int] = None):
+        for step in list(steps or []):
+            payload: Dict[str, Any] = {"debug": step}
+            if isinstance(progress, int):
+                payload["progress"] = progress
+            yield _sse(payload)
+
     async def event_generator():
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
@@ -3980,10 +4003,7 @@ async def image_engine_edit_stream(
                     if canvas_only_edit
                     else "Analisando a imagem de referência e refinando o prompt de edição..."
                 )
-                yield _sse({
-                    "status": initial_status,
-                    "progress": 14,
-                    "meta": {
+                initial_meta = {
                         "aspect_ratio": engine_aspect_ratio,
                         "quality": openai_quality,
                         "reference_filename": image_filename,
@@ -3996,7 +4016,17 @@ async def image_engine_edit_stream(
                         "exact_request_dimensions": {"width": exact_request_dimensions[0], "height": exact_request_dimensions[1]} if exact_request_dimensions else None,
                         "exact_size_non_native": exact_size_non_native,
                         "canvas_only_edit": canvas_only_edit,
-                    },
+                        "source_dimensions": {"width": source_width, "height": source_height},
+                    }
+                yield _sse({
+                    "status": initial_status,
+                    "progress": 14,
+                    "meta": initial_meta,
+                    "debug": _build_debug_payload(
+                        stage="request_received",
+                        message="Requisição de edição por referência recebida e normalizada.",
+                        details=initial_meta,
+                    ),
                 })
 
                 if canvas_only_edit and final_target_dimensions:
@@ -4056,6 +4086,8 @@ async def image_engine_edit_stream(
                                     requested_height=final_target_dimensions[1],
                                     instruction_text=body.instrucoes_edicao,
                                 )
+                                async for debug_chunk in _yield_debug_steps((result.get("expanded_canvas") or {}).get("debug_steps"), progress=66):
+                                    yield debug_chunk
                             else:
                                 result = await _expand_image_to_supported_canvas(
                                     client=client,
@@ -4482,6 +4514,19 @@ async def image_engine_edit_stream(
                         fetched.raise_for_status()
                         edited_bytes = fetched.content
 
+                    yield _sse({
+                        "debug": _build_debug_payload(
+                            stage="expand_prepare",
+                            message="Resultado intermediário convertido em bytes para expansão final do canvas.",
+                            details={
+                                "final_target_dimensions": {"width": final_target_dimensions[0], "height": final_target_dimensions[1]},
+                                "exact_size_non_native": exact_size_non_native,
+                                "expand_strategy": expand_strategy,
+                                "edited_bytes": len(edited_bytes),
+                            },
+                        )
+                    })
+
                     try:
                         if exact_size_non_native:
                             result = await _expand_image_to_exact_size_non_native(
@@ -4493,6 +4538,8 @@ async def image_engine_edit_stream(
                                 requested_height=final_target_dimensions[1],
                                 instruction_text=body.instrucoes_edicao,
                             )
+                            async for debug_chunk in _yield_debug_steps((result.get("expanded_canvas") or {}).get("debug_steps"), progress=84):
+                                yield debug_chunk
                         else:
                             result = await _expand_image_to_supported_canvas(
                                 client=client,

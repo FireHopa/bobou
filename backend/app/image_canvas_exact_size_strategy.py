@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import base64
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -1101,6 +1102,22 @@ def _build_soft_cover_background(
 
 
 
+
+
+def _debug_image_data_uri(image: Image.Image) -> str:
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return f"data:image/png;base64,{base64.b64encode(output.getvalue()).decode('utf-8')}"
+
+
+def _append_debug_step(steps: List[Dict[str, Any]], stage: str, message: str, details: Optional[Dict[str, Any]] = None, image: Optional[Image.Image] = None) -> None:
+    entry: Dict[str, Any] = {"stage": stage, "message": message}
+    if details:
+        entry["details"] = details
+    if image is not None:
+        entry["image"] = _debug_image_data_uri(image)
+    steps.append(entry)
+
 def _validate_commercial_deterministic_composition(
     target_width: int,
     target_height: int,
@@ -1400,6 +1417,8 @@ def build_exact_size_commercial_deterministic_assets(
         "needs_upscale_after_crop": False,
     }
 
+    debug_steps: List[Dict[str, Any]] = []
+
     commercial_assets = _build_commercial_fragmented_preserve_assets(
         source=source,
         plan=exact_plan,
@@ -1421,13 +1440,16 @@ def build_exact_size_commercial_deterministic_assets(
             cta_box=block_boxes.get("cta"),
             placed_boxes=placed_boxes,
         )
-        if not composition_ok:
-            raise ValueError(
-                "A recomposição determinística do layout não atingiu confiança suficiente para entrega final. "
-                f"Motivo: {composition_reason}"
-            )
-
-        return {
+        if composition_ok:
+            debug_steps.append({
+                "stage": "fragmented_layout_validation",
+                "message": "Recomposição fragmentada validada com sucesso.",
+                "details": {
+                    "composition_reason": composition_reason,
+                    "block_boxes": block_boxes,
+                },
+            })
+            return {
             **commercial_assets,
             "strategy": "commercial_layout_deterministic",
             "strength": "low",
@@ -1436,7 +1458,31 @@ def build_exact_size_commercial_deterministic_assets(
             "composition_reason": "ok",
             "direct_result_bytes": None,
             "direct_result_is_exact": False,
+            "debug_steps": debug_steps,
         }
+
+        debug_steps.append({
+            "stage": "fragmented_layout_validation",
+            "message": "A recomposição fragmentada falhou na validação e o sistema caiu para o layout determinístico manual.",
+            "details": {
+                "composition_reason": composition_reason,
+                "block_boxes": block_boxes,
+            },
+        })
+    _append_debug_step(
+        debug_steps,
+        "deterministic_start",
+        "Iniciando recomposição determinística layout-first.",
+        details={
+            "source_width": int(source_width),
+            "source_height": int(source_height),
+            "target_width": int(target_width),
+            "target_height": int(target_height),
+            "profile_strategy": str(profile_info.get("strategy") or "unknown"),
+            "profile_reasons": list(profile_info.get("reasons") or []),
+        },
+        image=source,
+    )
 
     preserve_rects = list(profile_info.get("preserve_text_rects") or profile_info.get("mandatory_source_rects") or [])
     blocks = _choose_bottom_commercial_blocks(preserve_rects, source_width, source_height)
@@ -1445,6 +1491,17 @@ def build_exact_size_commercial_deterministic_assets(
     city_rect = blocks.get("city")
     dates_rect = blocks.get("dates")
     cta_rect = blocks.get("cta")
+    _append_debug_step(
+        debug_steps,
+        "detected_blocks",
+        "Blocos comerciais obrigatórios detectados para a pilha inferior.",
+        details={
+            "city_rect": city_rect,
+            "dates_rect": dates_rect,
+            "cta_rect": cta_rect,
+            "preserve_rect_count": len(preserve_rects),
+        },
+    )
 
     hero_cut_y = city_rect[1] - max(18, int(round(source_height * 0.026))) if city_rect else int(round(source_height * 0.58))
     hero_cut_y = _clamp_int(hero_cut_y, int(round(source_height * 0.34)), int(round(source_height * 0.76)))
@@ -1473,9 +1530,26 @@ def build_exact_size_commercial_deterministic_assets(
 
     ribbon_box: Optional[Rect] = None
     ribbon_rect = None
+    ribbon_strategy = "section_detected"
     sections = _infer_commercial_section_rects(source, profile_info)
     if sections:
         ribbon_rect = sections.get("ribbon_rect")
+
+    if ribbon_rect is None:
+        fallback_height = _clamp_int(int(round(source_height * 0.12)), max(22, int(round(source_height * 0.05))), max(44, int(round(source_height * 0.18))))
+        fallback_margin_x = _clamp_int(int(round(source_width * 0.04)), 0, max(0, source_width // 6))
+        ribbon_rect = (fallback_margin_x, 0, max(fallback_margin_x + 1, source_width - fallback_margin_x), fallback_height)
+        ribbon_strategy = "fallback_top_strip"
+
+    _append_debug_step(
+        debug_steps,
+        "ribbon_detection",
+        "Faixa superior resolvida para a recomposição.",
+        details={
+            "ribbon_rect": ribbon_rect,
+            "ribbon_strategy": ribbon_strategy,
+        },
+    )
 
     if ribbon_rect is not None:
         ribbon_patch, _ = _extract_padded_patch(
@@ -1623,6 +1697,18 @@ def build_exact_size_commercial_deterministic_assets(
     mask = Image.new("RGBA", (target_width, target_height), (0, 0, 0, 0))
     mask.putalpha(mask_alpha)
 
+    _append_debug_step(
+        debug_steps,
+        "layout_canvas",
+        "Canvas determinístico montado antes da validação final.",
+        details={
+            "hero_rect": hero_rect,
+            "placed_boxes": placed_boxes,
+            "transition_boxes": transition_boxes,
+        },
+        image=canvas,
+    )
+
     composition_ok, composition_reason = _validate_commercial_deterministic_composition(
         target_width=target_width,
         target_height=target_height,
@@ -1633,11 +1719,52 @@ def build_exact_size_commercial_deterministic_assets(
         cta_box=cta_box,
         placed_boxes=placed_boxes,
     )
+    _append_debug_step(
+        debug_steps,
+        "composition_validation",
+        "Validação final da recomposição determinística.",
+        details={
+            "composition_ok": bool(composition_ok),
+            "composition_reason": composition_reason,
+            "ribbon_box": ribbon_box,
+            "hero_box": hero_box,
+            "city_box": city_box,
+            "dates_box": dates_box,
+            "cta_box": cta_box,
+        },
+        image=mask,
+    )
     if not composition_ok:
-        raise ValueError(
-            "A recomposição determinística do layout não atingiu confiança suficiente para entrega final. "
-            f"Motivo: {composition_reason}"
-        )
+        return {
+            "canvas_bytes": _encode_png_bytes(canvas),
+            "mask_bytes": _encode_png_bytes(mask),
+            "placement": {
+                "x": int(preserve_union[0]),
+                "y": int(preserve_union[1]),
+                "width": int(max(1, preserve_union[2] - preserve_union[0])),
+                "height": int(max(1, preserve_union[3] - preserve_union[1])),
+                "target_width": int(target_width),
+                "target_height": int(target_height),
+            },
+            "visible_rect": preserve_union,
+            "preserve_union": preserve_union,
+            "crop_safe_rect": tuple(int(v) for v in profile_info.get("crop_safe_rect") or (0, 0, target_width, target_height)),
+            "hard_preserve_boxes": _dedupe_rects(placed_boxes, iou_threshold=0.82),
+            "hard_feather": 10,
+            "hard_preserve_limits": {
+                "max_area_ratio": 0.58,
+                "max_width_ratio": 0.86,
+                "max_height_ratio": 0.72,
+            },
+            "strategy": "commercial_layout_deterministic",
+            "strength": "low",
+            "profile_info": {**dict(profile_info or {}), "deterministic_only": True, "layout_first_non_native": True},
+            "composition_ok": False,
+            "composition_reason": composition_reason,
+            "direct_result_bytes": None,
+            "direct_result_is_exact": False,
+            "debug_steps": debug_steps,
+        }
 
     return {
         "canvas_bytes": _encode_png_bytes(canvas),
@@ -1667,6 +1794,7 @@ def build_exact_size_commercial_deterministic_assets(
         "composition_reason": "ok",
         "direct_result_bytes": None,
         "direct_result_is_exact": False,
+        "debug_steps": debug_steps,
     }
 
 def _compute_exact_text_preserve_boxes(

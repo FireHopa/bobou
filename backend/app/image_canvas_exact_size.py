@@ -197,6 +197,18 @@ def build_exact_size_expand_assets(
         instruction_text=instruction_text,
     )
 
+    debug_steps: List[Dict[str, Any]] = [{
+        "stage": "exact_size_profile",
+        "message": "Perfil de recomposição exata calculado.",
+        "details": {
+            "strategy": profile.get("strategy"),
+            "reasons": list(profile.get("reasons") or []),
+            "prefer_deterministic_layout": bool(profile.get("prefer_deterministic_layout")),
+            "crop_safe_rect": profile.get("crop_safe_rect"),
+            "text_rect_count": len(profile.get("text_rects") or text_rects or []),
+        },
+    }]
+
     plan["exact_strategy"] = profile["strategy"]
     plan["crop_safe_rect"] = tuple(int(v) for v in profile.get("crop_safe_rect") or plan["crop_rect"])
     plan["exact_recompose_reasons"] = list(profile.get("reasons") or [])
