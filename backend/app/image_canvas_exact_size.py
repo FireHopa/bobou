@@ -14,6 +14,7 @@ from .image_canvas_exact_size_strategy import (
     build_exact_size_fragmented_preserve_assets,
     build_exact_size_fragmented_preserve_prompt,
     build_non_native_exact_size_layout_first_assets,
+    build_exact_size_commercial_ai_relayout_assets,
     build_exact_size_commercial_deterministic_assets,
     build_exact_size_layout_preserve_assets,
     build_exact_size_layout_preserve_prompt,
@@ -215,7 +216,34 @@ def build_exact_size_expand_assets(
 
     effective_text_rects = profile.get("text_rects") or text_rects
 
-    if profile.get("prefer_deterministic_layout"):
+    if profile["strategy"] == "commercial_ai_relayout":
+        commercial_ai_assets = build_exact_size_commercial_ai_relayout_assets(
+            image_bytes=image_bytes,
+            plan=plan,
+            profile_info=profile,
+        )
+        return {
+            "canvas_bytes": commercial_ai_assets["canvas_bytes"],
+            "mask_bytes": commercial_ai_assets["mask_bytes"],
+            "plan": plan,
+            "placement": commercial_ai_assets["placement"],
+            "preserve_union": commercial_ai_assets.get("preserve_union"),
+            "hard_preserve_boxes": list(commercial_ai_assets.get("hard_preserve_boxes") or []),
+            "hard_feather": int(commercial_ai_assets.get("hard_feather") or 10),
+            "hard_preserve_limits": commercial_ai_assets.get("hard_preserve_limits"),
+            "strength": commercial_ai_assets.get("strength", "medium"),
+            "strategy": commercial_ai_assets.get("strategy", "commercial_ai_relayout"),
+            "profile": {**profile, "layout_first_non_native": True},
+            "crop_safe_rect": commercial_ai_assets.get("crop_safe_rect"),
+            "composition_ok": bool(commercial_ai_assets.get("composition_ok", True)),
+            "composition_reason": commercial_ai_assets.get("composition_reason") or "ok",
+            "direct_result_bytes": commercial_ai_assets.get("direct_result_bytes"),
+            "direct_result_is_exact": bool(commercial_ai_assets.get("direct_result_is_exact")),
+            "reference_images": commercial_ai_assets.get("reference_images") or [],
+            "debug_steps": list(debug_steps) + list(commercial_ai_assets.get("debug_steps") or []),
+        }
+
+    if profile["strategy"] == "commercial_layout_deterministic":
         deterministic_assets = build_exact_size_commercial_deterministic_assets(
             image_bytes=image_bytes,
             target_width=target_width,
@@ -411,6 +439,28 @@ def build_exact_size_expand_prompt(
             crop_safe_rect=crop_safe_rect,
             profile_info=prompt_profile,
             instruction_text=instruction_text,
+        )
+
+    if strategy == "commercial_ai_relayout":
+        reason_text = ", ".join(list((prompt_profile or {}).get("reasons") or [])[:4]) or "relayout comercial"
+        return (
+            "Você recebeu duas referências combinadas: a composição scaffold no novo canvas e a arte original completa. "
+            "Use a primeira como guia de layout e a segunda como verdade visual da peça. "
+            "Refaça a arte como um banner horizontal único e coeso, sem manter blocos separados, sem parecer colagem e sem parecer proto/mock. "
+            "O resultado final deve ocupar a largura com presença comercial real, como uma arte publicitária horizontal pronta para uso. "
+            "A faixa superior precisa continuar no topo. O bloco principal da oferta precisa virar um hero largo e integrado ao fundo. "
+            "O box de cidade/local, as datas e o CTA precisam permanecer legíveis, centralizados e visualmente integrados, sem virarem cards soltos. "
+            "Preserve exatamente os textos existentes, sem reescrever, traduzir, inventar ou deformar letras, números, datas, CTA, logos e nomes próprios. "
+            "As áreas não protegidas podem e devem ser redesenhadas para unir o layout, reconstruir profundidade, brilho, partículas, gradientes, trilhas e continuidade visual. "
+            "Não mantenha contornos de recorte, bordas de patch, caixas flutuantes, retângulos duros, miniaturas empilhadas nem faixas separadas. "
+            "Não devolva a arte em formato de preview intermediário, cards, mosaico, scrapbook, colagem ou painel de blocos. "
+            "A composição inteira precisa parecer que sempre nasceu horizontal. "
+            f"A janela final prioritária é x={crop_x1}, y={crop_y1}, w={crop_x2 - crop_x1}, h={crop_y2 - crop_y1} dentro de um canvas {plan['base_width']}x{plan['base_height']}. "
+            f"A safe area útil mede aproximadamente {safe_width}x{safe_height}. "
+            f"A área protegida principal mede aproximadamente {preserve_width}x{preserve_height}. "
+            f"O motivo deste relayout é: {reason_text}. "
+            + f"{user_clause}"
+            + f"A entrega final precisa ficar pronta para crop técnico exato em {target_width}x{target_height}."
         )
 
     if strategy == "commercial_layout_deterministic":

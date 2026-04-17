@@ -773,8 +773,8 @@ def detect_exact_size_recompose_profile(
         )
     )
     if prefer_deterministic_layout:
-        strategy = "commercial_layout_deterministic"
-        reasons.append("deterministic_layout_first")
+        strategy = "commercial_ai_relayout"
+        reasons.append("commercial_ai_relayout")
 
     return {
         "strategy": strategy,
@@ -1392,6 +1392,370 @@ def _detect_bottom_commercial_blocks_from_pixels(source: Image.Image) -> Dict[st
         cta = _expand_rect_to_min_width(cta, int(round(source_width * 0.22)), source_width)
 
     return {"city": city, "dates": dates, "cta": cta}
+
+
+
+
+def build_exact_size_commercial_ai_relayout_assets(
+    image_bytes: bytes,
+    plan: Dict[str, Any],
+    profile_info: Dict[str, Any],
+) -> Dict[str, Any]:
+    with Image.open(io.BytesIO(image_bytes)) as image_file:
+        source = image_file.convert("RGBA")
+
+    source_width, source_height = source.size
+    base_width = int(plan["base_width"])
+    base_height = int(plan["base_height"])
+    crop_rect = tuple(int(v) for v in plan["crop_rect"])
+    crop_safe_rect = tuple(int(v) for v in profile_info.get("crop_safe_rect") or crop_rect)
+    safe_x1, safe_y1, safe_x2, safe_y2 = crop_safe_rect
+    safe_width = max(1, safe_x2 - safe_x1)
+    safe_height = max(1, safe_y2 - safe_y1)
+
+    background_meta = dict(profile_info.get("background_meta") or _analyze_edge_background(source))
+    sections = _infer_commercial_section_rects(source, profile_info) or {}
+    blocks = _choose_bottom_commercial_blocks(
+        profile_info.get("preserve_text_rects") or profile_info.get("mandatory_source_rects") or [],
+        source_width,
+        source_height,
+    )
+    if blocks.get("city") is None and blocks.get("dates") is None and blocks.get("cta") is None:
+        blocks = _detect_bottom_commercial_blocks_from_pixels(source)
+
+    ribbon_rect = tuple(int(v) for v in (sections.get("ribbon_rect") or (
+        int(round(source_width * 0.22)),
+        int(round(source_height * 0.02)),
+        int(round(source_width * 0.78)),
+        int(round(source_height * 0.16)),
+    )))
+    city_rect = tuple(int(v) for v in (sections.get("city_rect") or blocks.get("city") or (
+        int(round(source_width * 0.08)),
+        int(round(source_height * 0.58)),
+        int(round(source_width * 0.92)),
+        int(round(source_height * 0.72)),
+    )))
+    dates_rect = tuple(int(v) for v in (sections.get("dates_rect") or blocks.get("dates") or (
+        int(round(source_width * 0.18)),
+        int(round(source_height * 0.70)),
+        int(round(source_width * 0.82)),
+        int(round(source_height * 0.80)),
+    )))
+    cta_rect = tuple(int(v) for v in (sections.get("cta_rect") or blocks.get("cta") or (
+        int(round(source_width * 0.32)),
+        int(round(source_height * 0.82)),
+        int(round(source_width * 0.68)),
+        int(round(source_height * 0.95)),
+    )))
+
+    hero_top = max(ribbon_rect[3] - int(round(source_height * 0.01)), int(round(source_height * 0.05)))
+    hero_bottom = min(city_rect[1] - int(round(source_height * 0.03)), int(round(source_height * 0.66)))
+    if hero_bottom <= hero_top + int(round(source_height * 0.14)):
+        hero_bottom = min(source_height, hero_top + int(round(source_height * 0.40)))
+
+    hero_rect = (
+        int(round(source_width * 0.04)),
+        hero_top,
+        int(round(source_width * 0.96)),
+        hero_bottom,
+    )
+    hero_focus = _estimate_focus_bbox_within_region(source, hero_rect, percentile=98.8)
+    hero_rect = _inflate_rect(
+        hero_focus,
+        max(22, int(round(source_width * 0.05))),
+        max(22, int(round(source_height * 0.05))),
+        source_width,
+        source_height,
+    )
+    hero_rect = (
+        int(round(source_width * 0.03)),
+        max(0, min(hero_rect[1], hero_top)),
+        int(round(source_width * 0.97)),
+        min(source_height, max(hero_rect[3], hero_bottom)),
+    )
+
+    canvas = _build_soft_cover_background(
+        source,
+        base_width,
+        base_height,
+        background_meta,
+        source_region=hero_rect,
+    )
+
+    overlay = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    overlay_draw.rounded_rectangle(
+        crop_safe_rect,
+        radius=max(24, int(round(min(safe_width, safe_height) * 0.04))),
+        fill=(0, 0, 0, 26),
+    )
+    overlay_draw.ellipse(
+        (
+            int(round(safe_x1 + safe_width * 0.18)),
+            int(round(safe_y1 + safe_height * 0.06)),
+            int(round(safe_x1 + safe_width * 0.88)),
+            int(round(safe_y1 + safe_height * 0.78)),
+        ),
+        fill=(120, 210, 255, 24),
+    )
+    overlay = overlay.filter(ImageFilter.GaussianBlur(radius=24))
+    canvas.alpha_composite(overlay)
+
+    top_gap = max(10, int(round(safe_height * 0.018)))
+    ribbon_target = (
+        int(round(safe_x1 + safe_width * 0.26)),
+        int(round(safe_y1 + safe_height * 0.02)),
+        int(round(safe_x1 + safe_width * 0.74)),
+        int(round(safe_y1 + safe_height * 0.14)),
+    )
+    hero_target = (
+        int(round(safe_x1 + safe_width * 0.12)),
+        ribbon_target[3] + top_gap,
+        int(round(safe_x1 + safe_width * 0.88)),
+        int(round(safe_y1 + safe_height * 0.63)),
+    )
+    city_target = (
+        int(round(safe_x1 + safe_width * 0.23)),
+        int(round(safe_y1 + safe_height * 0.61)),
+        int(round(safe_x1 + safe_width * 0.77)),
+        int(round(safe_y1 + safe_height * 0.76)),
+    )
+    dates_target = (
+        int(round(safe_x1 + safe_width * 0.25)),
+        int(round(safe_y1 + safe_height * 0.75)),
+        int(round(safe_x1 + safe_width * 0.75)),
+        int(round(safe_y1 + safe_height * 0.84)),
+    )
+    cta_target = (
+        int(round(safe_x1 + safe_width * 0.39)),
+        int(round(safe_y1 + safe_height * 0.84)),
+        int(round(safe_x1 + safe_width * 0.61)),
+        int(round(safe_y1 + safe_height * 0.97)),
+    )
+
+    def _place_region(
+        source_rect: Rect,
+        target_rect: Rect,
+        pad_x_ratio: float,
+        pad_y_ratio: float,
+        feather_px: int,
+        max_upscale: float = 1.12,
+        fit_mode: str = "contain",
+    ) -> Tuple[Rect, Rect]:
+        patch, patch_crop = _extract_padded_patch(
+            source=source,
+            rect=source_rect,
+            pad_x_ratio=pad_x_ratio,
+            pad_y_ratio=pad_y_ratio,
+        )
+        target_w = max(1, target_rect[2] - target_rect[0])
+        target_h = max(1, target_rect[3] - target_rect[1])
+
+        if fit_mode == "cover":
+            cover_w, cover_h = _fit_cover(patch.width, patch.height, target_w, target_h)
+            patch = patch.resize((cover_w, cover_h), Image.Resampling.LANCZOS)
+            crop_x = max(0, (cover_w - target_w) // 2)
+            crop_y = max(0, (cover_h - target_h) // 2)
+            patch = patch.crop((crop_x, crop_y, crop_x + target_w, crop_y + target_h))
+        else:
+            patch = _resize_patch_to_fit(
+                patch,
+                max_width=target_w,
+                max_height=target_h,
+                max_upscale=max_upscale,
+            )
+
+        place_x = target_rect[0] + max(0, (target_w - patch.width) // 2)
+        place_y = target_rect[1] + max(0, (target_h - patch.height) // 2)
+        placed_box = _paste_patch_with_feather(canvas, patch, place_x, place_y, feather_px=feather_px)
+        return placed_box, patch_crop
+
+    debug_steps: List[Dict[str, Any]] = []
+    _append_debug_step(
+        debug_steps,
+        "commercial_ai_relayout_prepare",
+        "Scaffold comercial orientado por IA preparado.",
+        details={
+            "crop_rect": crop_rect,
+            "crop_safe_rect": crop_safe_rect,
+            "source_sections": {
+                "ribbon_rect": ribbon_rect,
+                "hero_rect": hero_rect,
+                "city_rect": city_rect,
+                "dates_rect": dates_rect,
+                "cta_rect": cta_rect,
+            },
+            "target_sections": {
+                "ribbon_target": ribbon_target,
+                "hero_target": hero_target,
+                "city_target": city_target,
+                "dates_target": dates_target,
+                "cta_target": cta_target,
+            },
+        },
+    )
+
+    placed_boxes: Dict[str, Rect] = {}
+    crop_map: Dict[str, Rect] = {}
+    for key, src_rect, dst_rect, pad_x_ratio, pad_y_ratio, feather_px, max_upscale, fit_mode in [
+        ("ribbon", ribbon_rect, ribbon_target, 0.04, 0.08, 10, 1.16, "contain"),
+        ("hero", hero_rect, hero_target, 0.03, 0.04, 18, 1.06, "cover"),
+        ("city", city_rect, city_target, 0.05, 0.08, 10, 1.10, "contain"),
+        ("dates", dates_rect, dates_target, 0.05, 0.10, 10, 1.10, "contain"),
+        ("cta", cta_rect, cta_target, 0.06, 0.12, 10, 1.10, "contain"),
+    ]:
+        placed_box, patch_crop = _place_region(src_rect, dst_rect, pad_x_ratio, pad_y_ratio, feather_px, max_upscale=max_upscale, fit_mode=fit_mode)
+        placed_boxes[key] = placed_box
+        crop_map[key] = patch_crop
+
+    glow = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+    glow_draw = ImageDraw.Draw(glow)
+    for key in ("city", "cta"):
+        box = placed_boxes.get(key)
+        if not box:
+            continue
+        glow_box = _inflate_rect(box, max(18, int(round((box[2] - box[0]) * 0.10))), max(14, int(round((box[3] - box[1]) * 0.26))), base_width, base_height)
+        glow_draw.rounded_rectangle(
+            glow_box,
+            radius=max(16, int(round(min(glow_box[2] - glow_box[0], glow_box[3] - glow_box[1]) * 0.28))),
+            fill=(90, 210, 255, 26),
+        )
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=18))
+    canvas.alpha_composite(glow)
+
+    preserve_text_rects = _prepare_text_preserve_rects(
+        profile_info.get("preserve_text_rects") or profile_info.get("mandatory_source_rects") or profile_info.get("text_rects"),
+        source_width,
+        source_height,
+    )
+
+    def _map_rect_from_crop_to_target(rect: Rect, crop_rect_src: Rect, target_rect_dst: Rect) -> Rect:
+        crop_w = max(1, crop_rect_src[2] - crop_rect_src[0])
+        crop_h = max(1, crop_rect_src[3] - crop_rect_src[1])
+        target_w = max(1, target_rect_dst[2] - target_rect_dst[0])
+        target_h = max(1, target_rect_dst[3] - target_rect_dst[1])
+
+        ix1 = _clamp_int(rect[0] - crop_rect_src[0], 0, crop_w)
+        iy1 = _clamp_int(rect[1] - crop_rect_src[1], 0, crop_h)
+        ix2 = _clamp_int(rect[2] - crop_rect_src[0], 0, crop_w)
+        iy2 = _clamp_int(rect[3] - crop_rect_src[1], 0, crop_h)
+        if ix2 <= ix1 or iy2 <= iy1:
+            return target_rect_dst
+
+        sx = target_w / max(1.0, float(crop_w))
+        sy = target_h / max(1.0, float(crop_h))
+        return (
+            _clamp_int(target_rect_dst[0] + ix1 * sx, 0, base_width),
+            _clamp_int(target_rect_dst[1] + iy1 * sy, 0, base_height),
+            _clamp_int(target_rect_dst[0] + ix2 * sx, 0, base_width),
+            _clamp_int(target_rect_dst[1] + iy2 * sy, 0, base_height),
+        )
+
+    text_preserve_boxes: List[Rect] = []
+    section_targets = {
+        "ribbon": placed_boxes["ribbon"],
+        "hero": placed_boxes["hero"],
+        "city": placed_boxes["city"],
+        "dates": placed_boxes["dates"],
+        "cta": placed_boxes["cta"],
+    }
+
+    section_for_rect: List[Tuple[str, Rect]] = [
+        ("ribbon", crop_map["ribbon"]),
+        ("hero", crop_map["hero"]),
+        ("city", crop_map["city"]),
+        ("dates", crop_map["dates"]),
+        ("cta", crop_map["cta"]),
+    ]
+
+    for rect in preserve_text_rects:
+        matched = False
+        for section_name, patch_crop in section_for_rect:
+            inter = (
+                max(rect[0], patch_crop[0]),
+                max(rect[1], patch_crop[1]),
+                min(rect[2], patch_crop[2]),
+                min(rect[3], patch_crop[3]),
+            )
+            if inter[2] <= inter[0] or inter[3] <= inter[1]:
+                continue
+            mapped = _map_rect_from_crop_to_target(inter, patch_crop, section_targets[section_name])
+            pad_x = max(10, int(round((mapped[2] - mapped[0]) * (0.20 if section_name == "hero" else 0.12))))
+            pad_y = max(10, int(round((mapped[3] - mapped[1]) * (0.70 if section_name == "hero" else 0.42))))
+            text_preserve_boxes.append(_inflate_rect(mapped, pad_x, pad_y, base_width, base_height))
+            matched = True
+            break
+        if not matched and _rect_iou(rect, hero_rect) > 0.05:
+            mapped = _map_rect_from_crop_to_target(rect, crop_map["hero"], section_targets["hero"])
+            text_preserve_boxes.append(_inflate_rect(mapped, 14, 18, base_width, base_height))
+
+    for section_name in ("ribbon", "city", "dates", "cta"):
+        box = placed_boxes.get(section_name)
+        if box:
+            inset_x = max(8, int(round((box[2] - box[0]) * 0.06)))
+            inset_y = max(8, int(round((box[3] - box[1]) * 0.10)))
+            text_preserve_boxes.append(_inset_rect(box, inset_x, inset_y))
+
+    text_preserve_boxes = _dedupe_rects(text_preserve_boxes, iou_threshold=0.72)
+    preserve_union = _merge_rects(list(placed_boxes.values())) or crop_safe_rect
+
+    mask = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+    mask_alpha = Image.new("L", (base_width, base_height), 0)
+    mask_draw = ImageDraw.Draw(mask_alpha)
+    for rect in text_preserve_boxes:
+        radius = max(10, int(round(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.18)))
+        mask_draw.rounded_rectangle(rect, radius=radius, fill=255)
+    mask_alpha = mask_alpha.filter(ImageFilter.GaussianBlur(radius=2.5))
+    mask.putalpha(mask_alpha)
+
+    _append_debug_step(
+        debug_steps,
+        "commercial_ai_relayout_scaffold",
+        "Scaffold orientado por IA e máscara de preservação textual montados.",
+        details={
+            "placed_boxes": placed_boxes,
+            "text_preserve_boxes": text_preserve_boxes,
+        },
+        image=canvas,
+    )
+
+    return {
+        "canvas_bytes": _encode_png_bytes(canvas),
+        "mask_bytes": _encode_png_bytes(mask),
+        "placement": {
+            "x": int(preserve_union[0]),
+            "y": int(preserve_union[1]),
+            "width": int(max(1, preserve_union[2] - preserve_union[0])),
+            "height": int(max(1, preserve_union[3] - preserve_union[1])),
+            "target_width": int(base_width),
+            "target_height": int(base_height),
+        },
+        "visible_rect": preserve_union,
+        "preserve_union": preserve_union,
+        "crop_safe_rect": crop_safe_rect,
+        "hard_preserve_boxes": text_preserve_boxes,
+        "hard_feather": 10,
+        "hard_preserve_limits": {
+            "max_area_ratio": 0.32,
+            "max_width_ratio": 0.78,
+            "max_height_ratio": 0.30,
+        },
+        "strategy": "commercial_ai_relayout",
+        "strength": "medium",
+        "profile_info": {**dict(profile_info or {}), "layout_first_non_native": True},
+        "composition_ok": True,
+        "composition_reason": "scaffold_ready_for_ai",
+        "direct_result_bytes": None,
+        "direct_result_is_exact": False,
+        "reference_images": [
+            {
+                "bytes": bytes(image_bytes),
+                "filename": "original-reference.png",
+                "content_type": "image/png",
+            }
+        ],
+        "debug_steps": debug_steps,
+    }
 
 
 def build_exact_size_commercial_deterministic_assets(

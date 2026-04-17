@@ -1448,6 +1448,7 @@ async def _expand_image_to_supported_canvas_smart(
         openai_size=f"{expand_width}x{expand_height}",
         mask_bytes=assets["mask_bytes"],
         input_fidelity="high",
+        reference_images=assets.get("reference_images"),
     )
 
     expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
@@ -1572,7 +1573,11 @@ async def _expand_image_to_exact_size_non_native(
         "placement": assets["placement"],
         "preserve_union": assets.get("preserve_union"),
         "hard_preserve_boxes": assets.get("hard_preserve_boxes"),
-        "strategy": "exact_size_non_native_smart_crop",
+        "strategy": (
+            "exact_size_non_native_commercial_ai_relayout"
+            if (assets.get("strategy") == "commercial_ai_relayout")
+            else "exact_size_non_native_smart_crop"
+        ),
         "exact_strategy": assets.get("strategy") or plan.get("exact_strategy"),
         "layout_first_non_native": bool((assets.get("profile") or {}).get("layout_first_non_native")),
         "needs_upscale_after_crop": bool(plan.get("needs_upscale_after_crop")),
@@ -1580,7 +1585,10 @@ async def _expand_image_to_exact_size_non_native(
         "composition_reason": assets.get("composition_reason") or "ok",
         "debug_steps": list(assets.get("debug_steps") or []),
     }
-    next_result["motor"] = f"{result.get('motor', 'Imagem')} + Exact Size"
+    if assets.get("strategy") == "commercial_ai_relayout":
+        next_result["motor"] = f"{result.get('motor', 'Imagem')} + Commercial Relayout"
+    else:
+        next_result["motor"] = f"{result.get('motor', 'Imagem')} + Exact Size"
     return next_result
 
 
@@ -3629,6 +3637,7 @@ async def _edit_openai_image(
     openai_size: Optional[str] = None,
     mask_bytes: Optional[bytes] = None,
     input_fidelity: str = "high",
+    reference_images: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     headers = {
         "Authorization": f"Bearer {openai_key}",
@@ -3647,6 +3656,13 @@ async def _edit_openai_image(
     files = [
         ("image[]", (filename or "reference.png", image_bytes, content_type)),
     ]
+    for index, ref in enumerate(list(reference_images or [])):
+        ref_bytes = ref.get("bytes")
+        if not ref_bytes:
+            continue
+        ref_filename = str(ref.get("filename") or f"reference-{index + 1}.png")
+        ref_content_type = str(ref.get("content_type") or "image/png")
+        files.append(("image[]", (ref_filename, ref_bytes, ref_content_type)))
     if mask_bytes:
         files.append(("mask", ("localized-mask.png", mask_bytes, "image/png")))
 
@@ -4054,7 +4070,7 @@ async def image_engine_edit_stream(
                         )
                         yield _sse({
                             "status": (
-                                "Pedido identificado como resolução exata não nativa do endpoint. Preparando um fluxo layout-first. Em peças comerciais com preservação estrita, a recomposição pode ser concluída de forma determinística antes de qualquer chamada de IA."
+                                "Pedido identificado como resolução exata não nativa do endpoint. Preparando um scaffold comercial orientado por IA, com preservação textual e recomposição real do layout no canvas horizontal."
                                 if exact_size_non_native
                                 else (
                                     "Pedido identificado como adaptação de formato/canvas. Aplicando recomposição inteligente em uma única chamada de IA para ocupar melhor a largura e reduzir seams."
