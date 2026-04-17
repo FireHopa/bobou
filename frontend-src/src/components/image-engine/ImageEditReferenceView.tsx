@@ -16,6 +16,8 @@ import {
   SendHorizonal,
   Settings2,
   Sparkles,
+  Bug,
+  ChevronDown,
   Square,
   Smartphone,
   Trash2,
@@ -90,6 +92,16 @@ type ActiveJob = {
   pendingCanvasItemId: string;
   progress: number;
   status: string;
+};
+
+type ImageDebugLog = {
+  id: string;
+  createdAt: string;
+  stage: string;
+  message: string;
+  level: "info" | "warning" | "error" | "success";
+  details?: unknown;
+  image?: string;
 };
 
 type FloatingPosition = {
@@ -925,8 +937,19 @@ const dirtyProjectIdsRef = useRef<Set<string>>(new Set());
 const [projectsReady, setProjectsReady] = useState(false);
 const [projectsLoading, setProjectsLoading] = useState(true);
 const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+const [logsOpen, setLogsOpen] = useState(false);
+const [debugLogs, setDebugLogs] = useState<ImageDebugLog[]>([]);
 
-
+const appendDebugLog = useCallback((entry: Omit<ImageDebugLog, "id" | "createdAt">) => {
+  setDebugLogs((current) => [
+    {
+      id: makeId(),
+      createdAt: new Date().toISOString(),
+      ...entry,
+    },
+    ...current,
+  ].slice(0, 300));
+}, []);
 
 useEffect(() => {
   projectsRef.current = projects;
@@ -1853,6 +1876,29 @@ const handleDeleteProject = useCallback(
         return;
       }
 
+      const resizeOptions = normalizeResizeOptions({
+        preserveOriginalFrame,
+        allowResizeCrop,
+      });
+
+      setDebugLogs([]);
+      appendDebugLog({
+        stage: "request_start",
+        message: "Nova execução iniciada no editor por referência.",
+        level: "info",
+        details: {
+          instruction,
+          formato: effectiveFormato,
+          qualidade,
+          resolutionMode,
+          parsedCustomWidth,
+          parsedCustomHeight,
+          preserveOriginalFrame: resizeOptions.preserveOriginalFrame,
+          allowResizeCrop: resizeOptions.allowResizeCrop,
+          editScope,
+        },
+      });
+
       const pendingCanvasItemId = `pending-${makeId()}`;
       const position = getNextCanvasPosition(canvasItemsRef.current);
       const controller = new AbortController();
@@ -1899,11 +1945,6 @@ const handleDeleteProject = useCallback(
         },
       ]);
       setSelectedItemId(pendingCanvasItemId);
-
-      const resizeOptions = normalizeResizeOptions({
-        preserveOriginalFrame,
-        allowResizeCrop,
-      });
 
       const formData = new FormData();
       formData.append("reference_image", baseReference.file);
@@ -1964,11 +2005,33 @@ const handleDeleteProject = useCallback(
 
               const payload = JSON.parse(line.replace(/^data:\s*/, ""));
 
+              if (payload.debug) {
+                appendDebugLog({
+                  stage: payload.debug.stage || "debug",
+                  message: payload.debug.message || "Evento de debug recebido do backend.",
+                  level: payload.debug.level || "info",
+                  details: payload.debug.details ?? payload,
+                  image: payload.debug.image,
+                });
+              }
+
               if (payload.error) {
+                appendDebugLog({
+                  stage: "stream_error",
+                  message: payload.error,
+                  level: "error",
+                  details: payload,
+                });
                 throw new Error(payload.error);
               }
 
               if (payload.status) {
+                appendDebugLog({
+                  stage: "status",
+                  message: payload.status,
+                  level: "info",
+                  details: payload.meta ?? payload.attempt_plan ?? payload,
+                });
                 setStatusText(payload.status);
                 updateCanvasItem(pendingCanvasItemId, {
                   status: payload.status,
@@ -1993,6 +2056,12 @@ const handleDeleteProject = useCallback(
               }
 
               if (payload.warning) {
+                appendDebugLog({
+                  stage: "warning",
+                  message: payload.warning,
+                  level: "warning",
+                  details: payload,
+                });
                 pushAssistantMessage(payload.warning, "warning");
               }
 
@@ -2005,6 +2074,13 @@ const handleDeleteProject = useCallback(
               }
 
               if (Array.isArray(payload.final_results) && payload.final_results[0]?.url) {
+                appendDebugLog({
+                  stage: "final_result",
+                  message: "Resultado final recebido pelo frontend.",
+                  level: "success",
+                  details: payload.final_results[0],
+                  image: payload.final_results[0]?.url,
+                });
                 await finalizeJobOnCanvas(pendingCanvasItemId, payload.final_results[0], instruction);
                 streamFinishedWithResult = true;
                 setStatusText("Entrega concluída.");
@@ -2036,6 +2112,12 @@ const handleDeleteProject = useCallback(
           /network error|failed to fetch/i.test(rawMessage)
             ? "A conexão do stream da edição foi interrompida antes da entrega final. Tente novamente."
             : rawMessage;
+        appendDebugLog({
+          stage: "frontend_catch",
+          message,
+          level: "error",
+          details: { rawMessage },
+        });
         setStatusText(message);
         updateCanvasItem(pendingCanvasItemId, {
           status: message,
@@ -2352,6 +2434,17 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
       </div>
 
       <div className="absolute bottom-4 left-4 z-20 flex max-w-[calc(100vw-32px)] flex-wrap gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-[58px] rounded-2xl border-amber-400/20 bg-slate-950/90 px-4 text-amber-100 hover:bg-slate-900"
+          onClick={() => setLogsOpen((current) => !current)}
+        >
+          <Bug className="mr-2 h-4 w-4" />
+          logs
+          <span className="ml-2 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px]">{debugLogs.length}</span>
+          <ChevronDown className={cn("ml-2 h-4 w-4 transition-transform", logsOpen && "rotate-180")} />
+        </Button>
         <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 shadow-lg">
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Canvas</div>
           <div className="mt-1 text-sm font-medium text-slate-100">
@@ -2365,6 +2458,57 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           </div>
         </div>
       </div>
+
+      {logsOpen ? (
+        <div className="absolute bottom-20 left-4 z-20 h-[min(62vh,680px)] w-[min(520px,calc(100vw-32px))] overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/95 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Logs do fluxo</div>
+              <div className="mt-1 text-sm text-slate-200">Registro completo da edição local por referência</div>
+            </div>
+            <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 text-slate-300 hover:bg-white/10" onClick={() => setDebugLogs([])}>
+              Limpar
+            </Button>
+          </div>
+          <div className="h-[calc(100%-73px)] overflow-y-auto p-3">
+            <div className="space-y-3">
+              {debugLogs.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">
+                  Os logs desta execução vão aparecer aqui em tempo real.
+                </div>
+              ) : (
+                debugLogs.map((log) => (
+                  <div key={log.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-white">{log.message}</div>
+                        <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">{log.stage}</div>
+                      </div>
+                      <div className={cn(
+                        "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]",
+                        log.level === "error" ? "bg-red-500/15 text-red-200" : log.level === "warning" ? "bg-amber-500/15 text-amber-200" : log.level === "success" ? "bg-emerald-500/15 text-emerald-200" : "bg-blue-500/15 text-blue-200"
+                      )}>
+                        {log.level}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-500">{new Date(log.createdAt).toLocaleTimeString()}</div>
+                    {log.image ? (
+                      <div className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/70">
+                        <img src={log.image} alt={log.message} className="max-h-56 w-full object-contain" />
+                      </div>
+                    ) : null}
+                    {log.details !== undefined ? (
+                      <pre className="mt-3 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-xs text-slate-300">
+                        {JSON.stringify(log.details, null, 2)}
+                      </pre>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div
         className="absolute inset-0"
