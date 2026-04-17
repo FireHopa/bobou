@@ -223,6 +223,8 @@ def build_exact_size_expand_assets(
             "strategy": deterministic_assets.get("strategy", "commercial_layout_deterministic"),
             "profile": {**profile, "layout_first_non_native": True, "deterministic_only": True},
             "crop_safe_rect": deterministic_assets.get("crop_safe_rect"),
+            "composition_ok": bool(deterministic_assets.get("composition_ok", True)),
+            "composition_reason": deterministic_assets.get("composition_reason") or "ok",
             "direct_result_bytes": deterministic_assets.get("direct_result_bytes"),
             "direct_result_is_exact": bool(deterministic_assets.get("direct_result_is_exact")),
         }

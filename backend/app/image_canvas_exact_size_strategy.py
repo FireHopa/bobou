@@ -1109,27 +1109,42 @@ def _validate_commercial_deterministic_composition(
     dates_box: Optional[Rect],
     cta_box: Optional[Rect],
     placed_boxes: Sequence[Rect],
+    ribbon_box: Optional[Rect] = None,
 ) -> Tuple[bool, str]:
     valid_boxes = [tuple(int(v) for v in rect) for rect in list(placed_boxes or []) if rect[2] > rect[0] and rect[3] > rect[1]]
     if not valid_boxes:
-        return False, "no_boxes"
+        return False, "stage=layout_base reason=no_boxes"
+
+    if ribbon_box is None:
+        return False, "stage=layout_base reason=missing_top_ribbon"
 
     if hero_box is None:
-        return False, "missing_hero"
+        return False, "stage=layout_base reason=missing_hero"
 
     hero_width_ratio = (hero_box[2] - hero_box[0]) / max(1.0, float(target_width))
     hero_height_ratio = (hero_box[3] - hero_box[1]) / max(1.0, float(target_height))
-    if hero_width_ratio < 0.52 or hero_height_ratio < 0.34:
-        return False, "hero_too_small"
+    hero_area_ratio = ((hero_box[2] - hero_box[0]) * (hero_box[3] - hero_box[1])) / max(1.0, float(target_width * target_height))
+    if hero_width_ratio < 0.20 or hero_height_ratio < 0.20 or hero_area_ratio < 0.055:
+        return False, (
+            "stage=layout_base reason=hero_too_small "
+            f"details=width_ratio:{hero_width_ratio:.3f},height_ratio:{hero_height_ratio:.3f},area_ratio:{hero_area_ratio:.3f}"
+        )
 
-    if city_box is None and dates_box is None and cta_box is None:
-        return False, "missing_bottom_stack"
+    missing_bottom = [name for name, box in (("city", city_box), ("dates", dates_box), ("cta", cta_box)) if box is None]
+    if missing_bottom:
+        return False, (
+            "stage=layout_base reason=missing_bottom_stack "
+            f"details=missing:{','.join(missing_bottom)}"
+        )
 
     if cta_box is not None and cta_box[1] <= hero_box[3]:
-        return False, "cta_overlapping_hero"
+        return False, "stage=layout_base reason=cta_overlapping_hero"
 
-    if city_box is not None and city_box[1] <= hero_box[1]:
-        return False, "city_invalid_position"
+    if city_box is not None and city_box[1] <= ribbon_box[1]:
+        return False, "stage=layout_base reason=city_invalid_position"
+
+    if dates_box is not None and dates_box[1] <= hero_box[1]:
+        return False, "stage=layout_base reason=dates_invalid_position"
 
     return True, "ok"
 
@@ -1374,6 +1389,55 @@ def build_exact_size_commercial_deterministic_assets(
     source_width, source_height = source.size
     background_meta = dict(profile_info.get("background_meta") or _analyze_edge_background(source))
 
+    exact_plan = {
+        "base_width": int(target_width),
+        "base_height": int(target_height),
+        "working_width": int(target_width),
+        "working_height": int(target_height),
+        "crop_rect": (0, 0, int(target_width), int(target_height)),
+        "target_width": int(target_width),
+        "target_height": int(target_height),
+        "needs_upscale_after_crop": False,
+    }
+
+    commercial_assets = _build_commercial_fragmented_preserve_assets(
+        source=source,
+        plan=exact_plan,
+        profile_info={
+            **dict(profile_info or {}),
+            "crop_safe_rect": tuple(int(v) for v in profile_info.get("crop_safe_rect") or (0, 0, target_width, target_height)),
+        },
+    )
+    if commercial_assets is not None:
+        block_boxes = dict(commercial_assets.get("block_boxes") or {})
+        placed_boxes = list(commercial_assets.get("hard_preserve_boxes") or [])
+        composition_ok, composition_reason = _validate_commercial_deterministic_composition(
+            target_width=target_width,
+            target_height=target_height,
+            ribbon_box=block_boxes.get("ribbon"),
+            hero_box=block_boxes.get("hero"),
+            city_box=block_boxes.get("city"),
+            dates_box=block_boxes.get("dates"),
+            cta_box=block_boxes.get("cta"),
+            placed_boxes=placed_boxes,
+        )
+        if not composition_ok:
+            raise ValueError(
+                "A recomposição determinística do layout não atingiu confiança suficiente para entrega final. "
+                f"Motivo: {composition_reason}"
+            )
+
+        return {
+            **commercial_assets,
+            "strategy": "commercial_layout_deterministic",
+            "strength": "low",
+            "profile_info": {**dict(profile_info or {}), "deterministic_only": True, "layout_first_non_native": True},
+            "composition_ok": True,
+            "composition_reason": "ok",
+            "direct_result_bytes": None,
+            "direct_result_is_exact": False,
+        }
+
     preserve_rects = list(profile_info.get("preserve_text_rects") or profile_info.get("mandatory_source_rects") or [])
     blocks = _choose_bottom_commercial_blocks(preserve_rects, source_width, source_height)
     if blocks.get("city") is None and blocks.get("dates") is None and blocks.get("cta") is None:
@@ -1407,28 +1471,56 @@ def build_exact_size_commercial_deterministic_assets(
     placed_boxes: List[Rect] = []
     transition_boxes: List[Rect] = []
 
+    ribbon_box: Optional[Rect] = None
+    ribbon_rect = None
+    sections = _infer_commercial_section_rects(source, profile_info)
+    if sections:
+        ribbon_rect = sections.get("ribbon_rect")
+
+    if ribbon_rect is not None:
+        ribbon_patch, _ = _extract_padded_patch(
+            source=source,
+            rect=ribbon_rect,
+            pad_x_ratio=0.04,
+            pad_y_ratio=0.10,
+        )
+        ribbon_patch = _resize_patch_to_fit(
+            ribbon_patch,
+            max_width=max(180, int(round(target_width * 0.56))),
+            max_height=max(44, int(round(target_height * 0.12))),
+            max_upscale=1.18,
+        )
+        ribbon_x = max(0, (target_width - ribbon_patch.width) // 2)
+        ribbon_y = max(6, int(round(target_height * 0.012)))
+        ribbon_box = _paste_patch_with_feather(canvas, ribbon_patch, ribbon_x, ribbon_y, feather_px=10)
+        placed_boxes.append(ribbon_box)
+        transition_boxes.append(_inflate_rect(ribbon_box, 14, 10, target_width, target_height))
+
     hero_patch, _ = _extract_padded_patch(
         source=source,
         rect=hero_rect,
         pad_x_ratio=0.03,
         pad_y_ratio=0.03,
     )
-    desired_hero_width = max(170, int(round(target_width * 0.72)))
+    desired_hero_width = max(170, int(round(target_width * 0.68)))
     scale = desired_hero_width / max(1.0, float(hero_patch.width))
     scaled_height = max(1, int(round(hero_patch.height * scale)))
     hero_patch = hero_patch.resize((desired_hero_width, scaled_height), Image.Resampling.LANCZOS)
-    hero_max_height = max(145, int(round(target_height * 0.60)))
+    hero_max_height = max(145, int(round(target_height * 0.48)))
     if hero_patch.height > hero_max_height:
-        overflow = hero_patch.height - hero_max_height
-        crop_top = max(0, int(round(overflow * 0.10)))
-        hero_patch = hero_patch.crop((0, crop_top, hero_patch.width, crop_top + hero_max_height))
+        hero_patch = _resize_patch_to_fit(
+            hero_patch,
+            max_width=desired_hero_width,
+            max_height=hero_max_height,
+            max_upscale=1.0,
+        )
     hero_x = max(0, (target_width - hero_patch.width) // 2)
-    hero_y = max(8, int(round(target_height * 0.018)))
-    hero_box = _paste_patch_with_feather(canvas, hero_patch, hero_x, hero_y, feather_px=10)
+    hero_y = (ribbon_box[3] + max(10, int(round(target_height * 0.018)))) if ribbon_box is not None else max(8, int(round(target_height * 0.026)))
+    hero_box = _paste_patch_with_feather(canvas, hero_patch, hero_x, hero_y, feather_px=12)
     placed_boxes.append(hero_box)
     transition_boxes.append(_inflate_rect(hero_box, 18, 16, target_width, target_height))
 
-    next_y = hero_box[3] + max(4, int(round(target_height * 0.010)))
+    next_y = hero_box[3] + max(8, int(round(target_height * 0.014)))
 
     bottom_stack_box: Optional[Rect] = None
     bottom_stack_rect = _merge_rects([rect for rect in (city_rect, dates_rect, cta_rect) if rect is not None])
@@ -1441,8 +1533,8 @@ def build_exact_size_commercial_deterministic_assets(
         )
         stack_patch = _resize_patch_to_fit(
             stack_patch,
-            max_width=max(150, int(round(target_width * 0.40))),
-            max_height=max(108, int(round(target_height * 0.26))),
+            max_width=max(150, int(round(target_width * 0.46))),
+            max_height=max(132, int(round(target_height * 0.28))),
             max_upscale=1.16,
         )
         stack_x = max(0, (target_width - stack_patch.width) // 2)
@@ -1534,6 +1626,7 @@ def build_exact_size_commercial_deterministic_assets(
     composition_ok, composition_reason = _validate_commercial_deterministic_composition(
         target_width=target_width,
         target_height=target_height,
+        ribbon_box=ribbon_box,
         hero_box=hero_box,
         city_box=city_box,
         dates_box=dates_box,
@@ -1575,7 +1668,6 @@ def build_exact_size_commercial_deterministic_assets(
         "direct_result_bytes": None,
         "direct_result_is_exact": False,
     }
-
 
 def _compute_exact_text_preserve_boxes(
     source_text_rects: Optional[Sequence[Rect]],
@@ -2154,6 +2246,13 @@ def _build_commercial_fragmented_preserve_assets(
             "max_area_ratio": 0.34,
             "max_width_ratio": 0.82,
             "max_height_ratio": 0.62,
+        },
+        "block_boxes": {
+            "ribbon": ribbon_box if "ribbon_box" in locals() else None,
+            "hero": hero_box if "hero_box" in locals() else None,
+            "city": city_box if "city_box" in locals() else None,
+            "dates": dates_box if "dates_box" in locals() else None,
+            "cta": cta_box if "cta_box" in locals() else None,
         },
         "strategy": "fragmented_preserve",
         "strength": profile_info.get("strength") or "medium",
