@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Bot,
   Check,
+  Copy,
   Download,
   Gauge,
   GripHorizontal,
@@ -207,6 +208,46 @@ function makeId() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function sanitizeDebugValue(value: unknown, depth = 0): unknown {
+  if (depth > 4) {
+    return "<max_depth>";
+  }
+
+  if (typeof value === "string") {
+    if (value.startsWith("data:")) {
+      const commaIndex = value.indexOf(",");
+      const meta = commaIndex >= 0 ? value.slice(0, commaIndex) : value;
+      const mime = meta.match(/^data:([^;]+)/)?.[1] || "unknown";
+      const base64Payload = commaIndex >= 0 ? value.slice(commaIndex + 1) : "";
+      return {
+        kind: "data_url",
+        mime,
+        chars: value.length,
+        approxBytes: Math.round((base64Payload.length * 3) / 4),
+        preview: "data:image/png;base64,<omitted>",
+      };
+    }
+
+    if (value.length > 1800) {
+      return `${value.slice(0, 280)}… <trimmed ${value.length - 280} chars>`;
+    }
+
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeDebugValue(item, depth + 1));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [key, sanitizeDebugValue(nestedValue, depth + 1)])
+    );
+  }
+
+  return value;
 }
 
 function getAssistantPanelDefaultSize(viewportWidth: number, viewportHeight: number): FloatingPanelSize {
@@ -938,7 +979,36 @@ const [projectsReady, setProjectsReady] = useState(false);
 const [projectsLoading, setProjectsLoading] = useState(true);
 const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
 const [logsOpen, setLogsOpen] = useState(false);
-const [debugLogs, setDebugLogs] = useState<ImageDebugLog[]>([]);
+  const [debugLogs, setDebugLogs] = useState<ImageDebugLog[]>([]);
+
+  const copyDebugLogs = useCallback(async () => {
+    const payload = debugLogs.map((log) => ({
+      ...log,
+      details: sanitizeDebugValue(log.details),
+      image: log.image ? "data:image/png;base64,<omitted>" : undefined,
+    }));
+
+    const content = JSON.stringify(payload, null, 2);
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(content);
+        return;
+      }
+    } catch {}
+
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = content;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    } catch {}
+  }, [debugLogs]);
+
 
 const appendDebugLog = useCallback((entry: Omit<ImageDebugLog, "id" | "createdAt">) => {
   setDebugLogs((current) => [
@@ -2466,9 +2536,15 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Logs do fluxo</div>
               <div className="mt-1 text-sm text-slate-200">Registro completo da edição local por referência</div>
             </div>
-            <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 text-slate-300 hover:bg-white/10" onClick={() => setDebugLogs([])}>
-              Limpar
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 text-slate-300 hover:bg-white/10" onClick={() => void copyDebugLogs()}>
+                <Copy className="mr-2 h-4 w-4" />
+                Copiar logs
+              </Button>
+              <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 text-slate-300 hover:bg-white/10" onClick={() => setDebugLogs([])}>
+                Limpar
+              </Button>
+            </div>
           </div>
           <div className="h-[calc(100%-73px)] overflow-y-auto p-3">
             <div className="space-y-3">
@@ -2499,7 +2575,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                     ) : null}
                     {log.details !== undefined ? (
                       <pre className="mt-3 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-xs text-slate-300">
-                        {JSON.stringify(log.details, null, 2)}
+                        {JSON.stringify(sanitizeDebugValue(log.details), null, 2)}
                       </pre>
                     ) : null}
                   </div>
