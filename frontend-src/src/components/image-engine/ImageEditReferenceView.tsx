@@ -712,9 +712,9 @@ function createDefaultProjectSnapshot(): ProjectSnapshot {
     resolutionMode: "preset",
     customWidth: "1024",
     customHeight: "1280",
-    preserveOriginalFrame: true,
+    preserveOriginalFrame: false,
     allowResizeCrop: false,
-    editScope: "auto",
+    editScope: "global",
     promptInput: "",
     statusText: "Carregue uma base e descreva a alteração.",
     messages: createInitialAssistantMessages(),
@@ -898,7 +898,12 @@ async function deserializeProjectSnapshot(snapshot?: PersistedProjectSnapshot | 
   return {
     ...fallback,
     ...snapshot,
-    ...normalizedResizeOptions,
+    resolutionMode: "preset",
+    customWidth: fallback.customWidth,
+    customHeight: fallback.customHeight,
+    preserveOriginalFrame: false,
+    allowResizeCrop: false,
+    editScope: "global",
     messages:
       Array.isArray(snapshot.messages) && snapshot.messages.length > 0
         ? snapshot.messages
@@ -1900,8 +1905,8 @@ const handleDeleteProject = useCallback(
           engine_id: result.engine_id,
           format: formato,
           quality: qualidade,
-          width: resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomWidth : undefined,
-          height: resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomHeight : undefined,
+          width: undefined,
+          height: undefined,
           prompt: instruction,
         },
       ]);
@@ -1941,31 +1946,16 @@ const handleDeleteProject = useCallback(
         return;
       }
 
-      if (resolutionMode === "custom" && !hasValidCustomDimensions) {
-        pushAssistantMessage("As dimensões customizadas precisam estar entre 256 e 4096 pixels.", "warning");
-        return;
-      }
-
-      const resizeOptions = normalizeResizeOptions({
-        preserveOriginalFrame,
-        allowResizeCrop,
-      });
-
       setDebugLogs([]);
       appendDebugLog({
         stage: "request_start",
-        message: "Nova execução iniciada no editor por referência.",
+        message: "Nova execução iniciada no editor simplificado por referência.",
         level: "info",
         details: {
           instruction,
-          formato: effectiveFormato,
+          formato: formato,
           qualidade,
-          resolutionMode,
-          parsedCustomWidth,
-          parsedCustomHeight,
-          preserveOriginalFrame: resizeOptions.preserveOriginalFrame,
-          allowResizeCrop: resizeOptions.allowResizeCrop,
-          editScope,
+          mode: "simple_reference_edit",
         },
       });
 
@@ -1990,10 +1980,8 @@ const handleDeleteProject = useCallback(
       pushUserMessage(instruction, attachments);
       setPromptInput("");
 
-      const placeholderWidth =
-        resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomWidth : baseReference.width;
-      const placeholderHeight =
-        resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomHeight : baseReference.height;
+      const placeholderWidth = baseReference.width;
+      const placeholderHeight = baseReference.height;
 
       setCanvasItems((current) => [
         ...current,
@@ -2018,17 +2006,9 @@ const handleDeleteProject = useCallback(
 
       const formData = new FormData();
       formData.append("reference_image", baseReference.file);
-      formData.append("formato", effectiveFormato);
+      formData.append("formato", formato);
       formData.append("qualidade", qualidade);
       formData.append("instrucoes_edicao", instruction);
-      formData.append("preserve_original_frame", String(resizeOptions.preserveOriginalFrame));
-      formData.append("allow_resize_crop", String(resizeOptions.allowResizeCrop));
-      formData.append("edit_scope", editScope);
-
-      if (resolutionMode === "custom" && hasValidCustomDimensions) {
-        formData.append("width", String(parsedCustomWidth));
-        formData.append("height", String(parsedCustomHeight));
-      }
 
       const token = getAuthToken();
 
@@ -2810,9 +2790,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 {currentFormatBadgeLabel} • {currentQuality.shortLabel}
               </div>
               <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                {resolutionMode === "custom" && hasValidCustomDimensions
-                  ? `${parsedCustomWidth}×${parsedCustomHeight}`
-                  : "Resolução preservada"}
+                Fluxo simples sem patch local
               </div>
             </div>
           </div>
@@ -2913,8 +2891,8 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           <div className="image-engine-scroll w-[min(460px,calc(100vw-24px))] max-h-[min(76vh,720px)] overflow-y-auto rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] px-4 py-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white">Formato, dimensões e qualidade</div>
-                <div className="truncate text-[11px] text-slate-400">Painel fixo do processamento</div>
+                <div className="truncate text-sm font-semibold text-white">Base simples do editor</div>
+                <div className="truncate text-[11px] text-slate-400">Somente formato, qualidade e envio direto</div>
               </div>
               <button
                 type="button"
@@ -2929,93 +2907,43 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               <div>
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
                   <Settings2 className="h-4 w-4 text-indigo-300" />
-                  Formato e tamanho
+                  Formato
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setResolutionMode("preset")}
-                    className={cn(
-                      "rounded-full px-4 py-2 text-sm font-medium transition-all",
-                      resolutionMode === "preset" ? "bg-slate-100 text-slate-950" : "bg-white/5 text-slate-300 hover:bg-white/10"
-                    )}
-                  >
-                    Presets sociais
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setResolutionMode("custom")}
-                    className={cn(
-                      "rounded-full px-4 py-2 text-sm font-medium transition-all",
-                      resolutionMode === "custom" ? "bg-slate-100 text-slate-950" : "bg-white/5 text-slate-300 hover:bg-white/10"
-                    )}
-                  >
-                    Tamanho exato
-                  </button>
-                </div>
-
-                {resolutionMode === "preset" ? (
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    {FORMAT_OPTIONS.map((option) => {
-                      const active = formato === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setFormato(option.value)}
-                          className={cn(
-                            "rounded-[22px] border px-4 py-4 text-left transition-all",
-                            active
-                              ? "border-blue-400/40 bg-blue-500/10"
-                              : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
-                          )}
-                        >
-                          <div className="flex min-h-[72px] flex-col justify-between gap-4">
-                            <div
-                              className={cn(
-                                "flex h-10 w-10 items-center justify-center rounded-2xl",
-                                active ? "bg-blue-500/20 text-blue-200" : "bg-white/5 text-slate-300"
-                              )}
-                            >
-                              {option.icon}
-                            </div>
-                            <div className="text-sm font-semibold leading-snug text-white">{option.label}</div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {FORMAT_OPTIONS.map((option) => {
+                    const active = formato === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setFormato(option.value)}
+                        className={cn(
+                          "rounded-[22px] border px-4 py-4 text-left transition-all",
+                          active
+                            ? "border-blue-400/40 bg-blue-500/10"
+                            : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+                        )}
+                      >
+                        <div className="flex min-h-[72px] flex-col justify-between gap-4">
+                          <div
+                            className={cn(
+                              "flex h-10 w-10 items-center justify-center rounded-2xl",
+                              active ? "bg-blue-500/20 text-blue-200" : "bg-white/5 text-slate-300"
+                            )}
+                          >
+                            {option.icon}
                           </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="mt-4 space-y-3 rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div>
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Largura</div>
-                        <Input
-                          type="number"
-                          value={customWidth}
-                          onChange={(event) => setCustomWidth(event.target.value)}
-                          className="border-white/10 bg-slate-950/60 text-white"
-                        />
-                      </div>
-                      <div>
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Altura</div>
-                        <Input
-                          type="number"
-                          value={customHeight}
-                          onChange={(event) => setCustomHeight(event.target.value)}
-                          className="border-white/10 bg-slate-950/60 text-white"
-                        />
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-300">
-                      No tamanho exato, a proporção vem da resolução informada. Os presets 1:1, 9:16 e 16:9 ficam desativados para evitar conflito no resultado.
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      Faixa aceita pelo backend: 256 a 4096 pixels. Quando a resolução estiver válida, o tamanho customizado é enviado ao backend mesmo sem crop.
-                    </div>
-                  </div>
-                )}
+                          <div className="text-sm font-semibold leading-snug text-white">{option.label}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-300">
+                  O modo simplificado não usa crop, patch local, expansão automática nem recomposição de canvas.
+                </div>
               </div>
 
               <div>
@@ -3052,124 +2980,32 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-sm font-semibold text-white">Estratégia de edição</div>
-                  <div className="mt-4 space-y-3">
-                    {EDIT_SCOPE_OPTIONS.map((option) => {
-                      const active = editScope === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setEditScope(option.value)}
-                          className={cn(
-                            "w-full rounded-2xl border px-4 py-3 text-left transition-all",
-                            active ? "border-cyan-400/30 bg-cyan-500/10" : "border-white/10 bg-slate-950/50 hover:bg-white/[0.04]"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm text-white">{option.label}</div>
-                            <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
-                              {option.badge}
-                            </div>
-                          </div>
-                          <div className="mt-1 text-xs leading-5 text-slate-400">{option.hint}</div>
-                        </button>
-                      );
-                    })}
+              <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
+                <div className="text-sm font-semibold text-white">Resumo operacional</div>
+                <div className="mt-3 space-y-2 text-sm text-slate-300">
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+                    <span>Formato</span>
+                    <span className="font-semibold text-white">{currentFormat.shortLabel}</span>
                   </div>
-                </div>
-
-                <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-sm font-semibold text-white">Automação do fluxo</div>
-                  <div className="mt-4 space-y-3">
-                    {[
-                      {
-                        label: "Preservar enquadramento original",
-                        description: "Mantém tudo que já está visível. Se a proporção mudar e crop estiver desligado, o sistema tenta expandir a peça com IA. Se falhar, ele interrompe em vez de inventar blur, espelhamento ou duplicação.",
-                        value: preserveOriginalFrame,
-                        disabled: false,
-                        onToggle: handleTogglePreserveOriginalFrame,
-                      },
-                      {
-                        label: "Permitir crop para preencher 100%",
-                        description: preserveOriginalFrame
-                          ? "Indisponível enquanto a preservação integral do enquadramento estiver ativa."
-                          : "Quando ligado, o arquivo final pode cortar as sobras para ocupar todo o width/height. Quando desligado, o sistema usa expansão com IA quando a proporção muda, sem inventar borda artificial.",
-                        value: allowResizeCrop,
-                        disabled: preserveOriginalFrame,
-                        onToggle: handleToggleAllowResizeCrop,
-                      },
-                    ].map((toggle) => (
-                      <button
-                        key={toggle.label}
-                        type="button"
-                        onClick={toggle.disabled ? undefined : toggle.onToggle}
-                        disabled={toggle.disabled}
-                        className={cn(
-                          "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-all",
-                          toggle.value ? "border-blue-400/25 bg-blue-500/10" : "border-white/10 bg-slate-950/50 hover:bg-white/[0.04]",
-                          toggle.disabled && "cursor-not-allowed opacity-60 hover:bg-slate-950/50"
-                        )}
-                      >
-                        <div className="pr-4">
-                          <div className="text-sm text-white">{toggle.label}</div>
-                          <div className="mt-1 text-xs leading-5 text-slate-400">{toggle.description}</div>
-                        </div>
-                        <div
-                          className={cn(
-                            "flex h-7 w-12 items-center rounded-full p-1 transition-all",
-                            toggle.value ? "bg-blue-500" : "bg-slate-700"
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "h-5 w-5 rounded-full bg-white transition-all",
-                              toggle.value ? "translate-x-5" : "translate-x-0"
-                            )}
-                          />
-                        </div>
-                      </button>
-                    ))}
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+                    <span>Qualidade</span>
+                    <span className="font-semibold text-white">{currentQuality.shortLabel}</span>
                   </div>
-                </div>
-
-                <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-sm font-semibold text-white">Resumo operacional</div>
-                  <div className="mt-3 space-y-2 text-sm text-slate-300">
-                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
-                      <span>{resolutionMode === "custom" && hasValidCustomDimensions ? "Tamanho" : "Formato"}</span>
-                      <span className="font-semibold text-white">{currentFormatBadgeLabel}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
-                      <span>Qualidade</span>
-                      <span className="font-semibold text-white">{currentQuality.shortLabel}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
-                      <span>Base ativa</span>
-                      <span className="max-w-[180px] truncate text-right font-semibold text-white">
-                        {baseReference?.file.name || "Nenhuma"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
-                      <span>Base original</span>
-                      <span className="font-semibold text-white">Preservada</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
-                      <span>Resize final</span>
-                      <span className="font-semibold text-white">{currentResizeBehaviorLabel}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
-                      <span>Fluxo de edição</span>
-                      <span className="font-semibold text-white">{currentEditScopeLabel}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
-                      <span>Canvas</span>
-                      <span className="font-semibold text-white">
-                        {resultsCount} pronto{resultsCount === 1 ? "" : "s"} / {activeJobs.length} em andamento
-                      </span>
-                    </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+                    <span>Base ativa</span>
+                    <span className="max-w-[180px] truncate text-right font-semibold text-white">
+                      {baseReference?.file.name || "Nenhuma"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+                    <span>Fluxo</span>
+                    <span className="font-semibold text-white">Edição direta</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+                    <span>Canvas</span>
+                    <span className="font-semibold text-white">
+                      {resultsCount} pronto{resultsCount === 1 ? "" : "s"} / {activeJobs.length} em andamento
+                    </span>
                   </div>
                 </div>
               </div>
@@ -3183,7 +3019,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           className="flex h-12 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/90 px-4 text-sm font-medium text-slate-100 shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition hover:bg-slate-900"
         >
           <Settings2 className="h-4 w-4 text-indigo-300" />
-          {isSettingsOpen ? "Ocultar controles" : "Formato, dimensões e qualidade"}
+          {isSettingsOpen ? "Ocultar controles" : "Formato e qualidade"}
         </button>
       </div>
       </div>
