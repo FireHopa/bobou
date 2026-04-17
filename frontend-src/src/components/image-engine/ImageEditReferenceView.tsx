@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { API_BASE_URL } from "@/constants/app";
 import { appendImageHistory, downloadImage } from "@/lib/imageHistory";
 import { dataUrlToFile, readImageDimensionsFromUrl } from "@/lib/image";
+import { extractImageRequestResolution } from "@/lib/imageRequestResolution";
 import { cn } from "@/lib/utils";
 import { extractResponseErrorMessage, syncCreditsFromResponse } from "@/lib/credits";
 
@@ -1929,6 +1930,20 @@ const handleDeleteProject = useCallback(
   const handleGenerate = useCallback(
     async (manualInstruction?: string) => {
       const instruction = (manualInstruction ?? promptInput).trim();
+      const requestedResolutionFromChat = extractImageRequestResolution(instruction);
+      const requestedResolutionFromPanel =
+        resolutionMode === "custom" && hasValidCustomDimensions
+          ? {
+              width: parsedCustomWidth,
+              height: parsedCustomHeight,
+              source: "panel" as const,
+              label: formatResolutionLabel(parsedCustomWidth, parsedCustomHeight).replace("×", "x"),
+            }
+          : null;
+      const effectiveRequestedResolution = requestedResolutionFromChat ?? requestedResolutionFromPanel;
+      const effectiveFormatoForRequest = effectiveRequestedResolution
+        ? getFormatoFromDimensions(effectiveRequestedResolution.width, effectiveRequestedResolution.height)
+        : effectiveFormato;
 
       if (!baseReference) {
         pushAssistantMessage("Antes de pedir uma edição, você precisa carregar a imagem-base.", "warning");
@@ -1953,9 +1968,15 @@ const handleDeleteProject = useCallback(
         level: "info",
         details: {
           instruction,
-          formato: formato,
+          formato: effectiveFormatoForRequest,
           qualidade,
           mode: "simple_reference_edit",
+          requestedResolutionFromChat,
+          effectiveWidth: effectiveRequestedResolution?.width,
+          effectiveHeight: effectiveRequestedResolution?.height,
+          preserveOriginalFrame,
+          allowResizeCrop,
+          editScope,
         },
       });
 
@@ -1980,8 +2001,8 @@ const handleDeleteProject = useCallback(
       pushUserMessage(instruction, attachments);
       setPromptInput("");
 
-      const placeholderWidth = baseReference.width;
-      const placeholderHeight = baseReference.height;
+      const placeholderWidth = effectiveRequestedResolution?.width ?? baseReference.width;
+      const placeholderHeight = effectiveRequestedResolution?.height ?? baseReference.height;
 
       setCanvasItems((current) => [
         ...current,
@@ -2006,9 +2027,19 @@ const handleDeleteProject = useCallback(
 
       const formData = new FormData();
       formData.append("reference_image", baseReference.file);
-      formData.append("formato", formato);
+      formData.append("formato", effectiveFormatoForRequest);
       formData.append("qualidade", qualidade);
       formData.append("instrucoes_edicao", instruction);
+
+      if (effectiveRequestedResolution) {
+        formData.append("width", String(effectiveRequestedResolution.width));
+        formData.append("height", String(effectiveRequestedResolution.height));
+        formData.append("resolution_source", requestedResolutionFromChat ? "chat_instruction" : "panel");
+      }
+
+      formData.append("preserve_original_frame", String(preserveOriginalFrame || Boolean(effectiveRequestedResolution)));
+      formData.append("allow_resize_crop", String(Boolean(allowResizeCrop && !preserveOriginalFrame && !effectiveRequestedResolution)));
+      formData.append("edit_scope", editScope);
 
       const token = getAuthToken();
 
@@ -2182,11 +2213,13 @@ const handleDeleteProject = useCallback(
     [
       allowResizeCrop,
       baseReference,
+      editScope,
+      effectiveFormato,
       finalizeJobOnCanvas,
-      formato,
       hasValidCustomDimensions,
       parsedCustomHeight,
       parsedCustomWidth,
+      preserveOriginalFrame,
       promptInput,
       pushAssistantMessage,
       pushUserMessage,
