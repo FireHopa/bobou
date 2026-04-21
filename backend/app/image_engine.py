@@ -1209,6 +1209,81 @@ def _resize_mask_to_cover(mask: Image.Image, target_width: int, target_height: i
 
 
 
+def _build_directional_alpha_mask(width: int, height: int, orientation: str) -> Image.Image:
+    if width <= 0 or height <= 0:
+        return Image.new("L", (max(1, width), max(1, height)), 0)
+
+    if orientation == "left":
+        gradient = np.linspace(1.0, 0.0, width, dtype=np.float32)
+        alpha = np.tile(gradient, (height, 1))
+    elif orientation == "right":
+        gradient = np.linspace(0.0, 1.0, width, dtype=np.float32)
+        alpha = np.tile(gradient, (height, 1))
+    elif orientation == "top":
+        gradient = np.linspace(1.0, 0.0, height, dtype=np.float32)
+        alpha = np.tile(gradient[:, None], (1, width))
+    else:
+        gradient = np.linspace(0.0, 1.0, height, dtype=np.float32)
+        alpha = np.tile(gradient[:, None], (1, width))
+
+    alpha = np.clip(np.round(alpha * 255.0), 0, 255).astype(np.uint8)
+    return Image.fromarray(alpha, mode="L")
+
+
+def _build_edge_repeat_fill(
+    strip: Image.Image,
+    target_width: int,
+    target_height: int,
+    orientation: str,
+) -> Image.Image:
+    rgba = strip.convert("RGBA")
+    if orientation in {"left", "right"}:
+        seam_column_x = 0 if orientation == "left" else max(0, rgba.width - 1)
+        seam_column = rgba.crop((seam_column_x, 0, seam_column_x + 1, rgba.height))
+        return seam_column.resize((target_width, target_height), Image.Resampling.BILINEAR)
+
+    seam_row_y = 0 if orientation == "top" else max(0, rgba.height - 1)
+    seam_row = rgba.crop((0, seam_row_y, rgba.width, seam_row_y + 1))
+    return seam_row.resize((target_width, target_height), Image.Resampling.BILINEAR)
+
+
+def _build_edge_texture_fill(
+    strip: Image.Image,
+    target_width: int,
+    target_height: int,
+) -> Image.Image:
+    rgba = strip.convert("RGBA")
+    return rgba.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+
+def _compose_edge_fill(
+    strip: Image.Image,
+    target_width: int,
+    target_height: int,
+    orientation: str,
+) -> Image.Image:
+    if target_width <= 0 or target_height <= 0:
+        return Image.new("RGBA", (max(1, target_width), max(1, target_height)), (0, 0, 0, 0))
+
+    repeat_fill = _build_edge_repeat_fill(
+        strip,
+        target_width=target_width,
+        target_height=target_height,
+        orientation=orientation,
+    )
+    texture_fill = _build_edge_texture_fill(
+        strip,
+        target_width=target_width,
+        target_height=target_height,
+    )
+    alpha_mask = _build_directional_alpha_mask(
+        width=target_width,
+        height=target_height,
+        orientation=orientation,
+    )
+    return Image.composite(texture_fill, repeat_fill, alpha_mask)
+
+
 def _edge_extend_fill(image: Image.Image, target_width: int, target_height: int) -> Image.Image:
     prepared = image.convert("RGBA")
     src_width, src_height = prepared.size
@@ -1224,43 +1299,35 @@ def _edge_extend_fill(image: Image.Image, target_width: int, target_height: int)
     fitted, placement = _resize_to_contain(prepared, target_width, target_height)
     x1, y1, x2, y2 = placement
     canvas = Image.new("RGBA", (target_width, target_height), (0, 0, 0, 255))
-    canvas.paste(fitted, (x1, y1))
+    canvas.alpha_composite(fitted, (x1, y1))
 
     if x1 > 0:
-        strip_width = min(fitted.width, max(18, fitted.width // 12))
+        strip_width = min(fitted.width, max(24, min(96, x1 * 2, fitted.width // 5 or fitted.width)))
         left_source = fitted.crop((0, 0, strip_width, fitted.height))
         right_source = fitted.crop((fitted.width - strip_width, 0, fitted.width, fitted.height))
-        left_fill = ImageOps.mirror(left_source).resize((x1, fitted.height), Image.Resampling.LANCZOS)
-        right_fill = ImageOps.mirror(right_source).resize((target_width - x2, fitted.height), Image.Resampling.LANCZOS)
-        blur_radius = max(2, min(10, x1 // 18))
-        left_fill = left_fill.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-        right_fill = right_fill.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-        canvas.paste(left_fill, (0, y1))
-        canvas.paste(right_fill, (x2, y1))
+        left_fill = _compose_edge_fill(left_source, x1, fitted.height, "left")
+        right_fill = _compose_edge_fill(right_source, target_width - x2, fitted.height, "right")
+        canvas.alpha_composite(left_fill, (0, y1))
+        canvas.alpha_composite(right_fill, (x2, y1))
 
     if y1 > 0:
-        strip_height = min(fitted.height, max(18, fitted.height // 12))
+        strip_height = min(fitted.height, max(24, min(96, y1 * 2, fitted.height // 5 or fitted.height)))
         top_source = fitted.crop((0, 0, fitted.width, strip_height))
         bottom_source = fitted.crop((0, fitted.height - strip_height, fitted.width, fitted.height))
-        top_fill = ImageOps.flip(top_source).resize((fitted.width, y1), Image.Resampling.LANCZOS)
-        bottom_fill = ImageOps.flip(bottom_source).resize((fitted.width, target_height - y2), Image.Resampling.LANCZOS)
-        blur_radius = max(2, min(10, y1 // 18))
-        top_fill = top_fill.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-        bottom_fill = bottom_fill.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-        canvas.paste(top_fill, (x1, 0))
-        canvas.paste(bottom_fill, (x1, y2))
+        top_fill = _compose_edge_fill(top_source, fitted.width, y1, "top")
+        bottom_fill = _compose_edge_fill(bottom_source, fitted.width, target_height - y2, "bottom")
+        canvas.alpha_composite(top_fill, (x1, 0))
+        canvas.alpha_composite(bottom_fill, (x1, y2))
 
-    # resolve corners when both axes expand
     if x1 > 0 and y1 > 0:
-        corners = [
-            ((0, 0, x1, y1), fitted.getpixel((0, 0))),
-            ((x2, 0, target_width, y1), fitted.getpixel((fitted.width - 1, 0))),
-            ((0, y2, x1, target_height), fitted.getpixel((0, fitted.height - 1))),
-            ((x2, y2, target_width, target_height), fitted.getpixel((fitted.width - 1, fitted.height - 1))),
-        ]
-        draw = ImageDraw.Draw(canvas)
-        for rect, color in corners:
-            draw.rectangle(rect, fill=color)
+        top_left = _compose_edge_fill(fitted.crop((0, 0, min(fitted.width, max(24, fitted.width // 6)), min(fitted.height, max(24, fitted.height // 6)))), x1, y1, "left")
+        top_right = _compose_edge_fill(fitted.crop((max(0, fitted.width - max(24, fitted.width // 6)), 0, fitted.width, min(fitted.height, max(24, fitted.height // 6)))), target_width - x2, y1, "right")
+        bottom_left = _compose_edge_fill(fitted.crop((0, max(0, fitted.height - max(24, fitted.height // 6)), min(fitted.width, max(24, fitted.width // 6)), fitted.height)), x1, target_height - y2, "left")
+        bottom_right = _compose_edge_fill(fitted.crop((max(0, fitted.width - max(24, fitted.width // 6)), max(0, fitted.height - max(24, fitted.height // 6)), fitted.width, fitted.height)), target_width - x2, target_height - y2, "right")
+        canvas.alpha_composite(top_left, (0, 0))
+        canvas.alpha_composite(top_right, (x2, 0))
+        canvas.alpha_composite(bottom_left, (0, y2))
+        canvas.alpha_composite(bottom_right, (x2, y2))
 
     return canvas
 
@@ -1657,9 +1724,8 @@ def _project_edited_changes_onto_reference(
         edited_target = _resize_to_cover(edited_rgba, target_width, target_height)
         mask_target = _resize_mask_to_cover(mask_in_edit_space, target_width, target_height)
     elif aspect_adaptation_needed:
-        base_target = _edge_extend_fill(original_rgba, target_width, target_height)
         edited_target = _edge_extend_fill(edited_rgba, target_width, target_height)
-        mask_target = _resize_mask_to_contain(mask_in_edit_space, target_width, target_height)
+        return edited_target
     else:
         base_target = original_rgba.resize((target_width, target_height), Image.Resampling.LANCZOS)
         edited_target = edited_rgba.resize((target_width, target_height), Image.Resampling.LANCZOS)
@@ -4035,12 +4101,12 @@ async def image_engine_edit_stream(
                                 "width": target_dimensions[0],
                                 "height": target_dimensions[1],
                             },
-                            "strategy": "exact_size_postprocess_after_edit",
+                            "strategy": "exact_size_postprocess_no_blur_after_edit",
                         },
                         "debug": _runtime_debug_payload(
                             request_id=request_id,
                             stage="exact_size_adaptation_started",
-                            message="A edição base foi concluída e a adaptação para o tamanho final exato começou.",
+                            message="A edição base foi concluída e a adaptação para o tamanho final exato sem blur começou.",
                             details={
                                 "working_dimensions": {
                                     "width": int(openai_size.split("x")[0]),
@@ -4050,7 +4116,7 @@ async def image_engine_edit_stream(
                                     "width": target_dimensions[0],
                                     "height": target_dimensions[1],
                                 },
-                                "strategy": "exact_size_postprocess_after_edit",
+                                "strategy": "exact_size_postprocess_no_blur_after_edit",
                             },
                         ),
                     })
