@@ -1507,6 +1507,415 @@ def _build_preserve_frame_expand_prompt(
     )
 
 
+
+def _largest_centered_exact_aspect_rect(
+    container_width: int,
+    container_height: int,
+    target_width: int,
+    target_height: int,
+) -> Tuple[int, int, int, int]:
+    if container_width <= 0 or container_height <= 0 or target_width <= 0 or target_height <= 0:
+        raise ValueError("Dimensões inválidas para calcular área exata de aspect ratio.")
+
+    common_divisor = math.gcd(int(target_width), int(target_height)) or 1
+    ratio_w = max(1, int(target_width) // common_divisor)
+    ratio_h = max(1, int(target_height) // common_divisor)
+
+    scale = min(container_width // ratio_w, container_height // ratio_h)
+    if scale <= 0:
+        target_ratio = target_width / max(1.0, float(target_height))
+        container_ratio = container_width / max(1.0, float(container_height))
+        if container_ratio >= target_ratio:
+            rect_height = max(1, container_height)
+            rect_width = max(1, int(round(rect_height * target_ratio)))
+        else:
+            rect_width = max(1, container_width)
+            rect_height = max(1, int(round(rect_width / max(1e-6, target_ratio))))
+    else:
+        rect_width = ratio_w * scale
+        rect_height = ratio_h * scale
+
+    rect_width = min(container_width, max(1, rect_width))
+    rect_height = min(container_height, max(1, rect_height))
+
+    x = max(0, (container_width - rect_width) // 2)
+    y = max(0, (container_height - rect_height) // 2)
+    return (x, y, x + rect_width, y + rect_height)
+
+
+
+def _build_exact_size_ai_canvas(
+    image_bytes: bytes,
+    requested_width: int,
+    requested_height: int,
+    base_width: int,
+    base_height: int,
+) -> Tuple[bytes, bytes, Dict[str, Any]]:
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        source = im.convert("RGBA")
+        target_rect = _largest_centered_exact_aspect_rect(
+            base_width,
+            base_height,
+            requested_width,
+            requested_height,
+        )
+
+        target_rect_width = max(1, target_rect[2] - target_rect[0])
+        target_rect_height = max(1, target_rect[3] - target_rect[1])
+
+        fitted, local_placement = _resize_to_contain(source, target_rect_width, target_rect_height)
+        source_rect = (
+            target_rect[0] + local_placement[0],
+            target_rect[1] + local_placement[1],
+            target_rect[0] + local_placement[2],
+            target_rect[1] + local_placement[3],
+        )
+
+        left_gap = max(0, source_rect[0] - target_rect[0])
+        right_gap = max(0, target_rect[2] - source_rect[2])
+        top_gap = max(0, source_rect[1] - target_rect[1])
+        bottom_gap = max(0, target_rect[3] - source_rect[3])
+
+        source_rect_width = max(1, source_rect[2] - source_rect[0])
+        source_rect_height = max(1, source_rect[3] - source_rect[1])
+
+        horizontal_overlap = min(
+            max(12, int(round(min(source_rect_width, source_rect_height) * 0.035))),
+            max(0, source_rect_width // 10),
+        )
+        vertical_overlap = min(
+            max(10, int(round(min(source_rect_width, source_rect_height) * 0.03))),
+            max(0, source_rect_height // 10),
+        )
+
+        overlap = {
+            "left": horizontal_overlap if left_gap > 0 else 0,
+            "right": horizontal_overlap if right_gap > 0 else 0,
+            "top": vertical_overlap if top_gap > 0 else 0,
+            "bottom": vertical_overlap if bottom_gap > 0 else 0,
+        }
+
+        protected_rect = (
+            source_rect[0] + overlap["left"],
+            source_rect[1] + overlap["top"],
+            source_rect[2] - overlap["right"],
+            source_rect[3] - overlap["bottom"],
+        )
+
+        min_protected_width = max(48, int(round(source_rect_width * 0.72)))
+        min_protected_height = max(48, int(round(source_rect_height * 0.72)))
+        if (protected_rect[2] - protected_rect[0]) < min_protected_width:
+            excess = min_protected_width - (protected_rect[2] - protected_rect[0])
+            shrink_left = min(overlap["left"], excess // 2 + excess % 2)
+            shrink_right = min(overlap["right"], excess // 2)
+            overlap["left"] -= shrink_left
+            overlap["right"] -= shrink_right
+        if (protected_rect[3] - protected_rect[1]) < min_protected_height:
+            excess = min_protected_height - (protected_rect[3] - protected_rect[1])
+            shrink_top = min(overlap["top"], excess // 2 + excess % 2)
+            shrink_bottom = min(overlap["bottom"], excess // 2)
+            overlap["top"] -= shrink_top
+            overlap["bottom"] -= shrink_bottom
+
+        protected_rect = (
+            source_rect[0] + overlap["left"],
+            source_rect[1] + overlap["top"],
+            source_rect[2] - overlap["right"],
+            source_rect[3] - overlap["bottom"],
+        )
+
+        canvas = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+        canvas.alpha_composite(fitted, (source_rect[0], source_rect[1]))
+
+        mask = Image.new("RGBA", (base_width, base_height), (255, 255, 255, 255))
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle(target_rect, fill=(0, 0, 0, 0))
+        draw.rectangle(protected_rect, fill=(255, 255, 255, 255))
+
+        return (
+            _encode_png_bytes(canvas),
+            _encode_png_bytes(mask),
+            {
+                "base_width": base_width,
+                "base_height": base_height,
+                "target_rect": {
+                    "x1": target_rect[0],
+                    "y1": target_rect[1],
+                    "x2": target_rect[2],
+                    "y2": target_rect[3],
+                    "width": target_rect_width,
+                    "height": target_rect_height,
+                },
+                "source_rect": {
+                    "x1": source_rect[0],
+                    "y1": source_rect[1],
+                    "x2": source_rect[2],
+                    "y2": source_rect[3],
+                    "width": source_rect_width,
+                    "height": source_rect_height,
+                },
+                "protected_rect": {
+                    "x1": protected_rect[0],
+                    "y1": protected_rect[1],
+                    "x2": protected_rect[2],
+                    "y2": protected_rect[3],
+                    "width": max(1, protected_rect[2] - protected_rect[0]),
+                    "height": max(1, protected_rect[3] - protected_rect[1]),
+                },
+                "overlap": overlap,
+                "requested_width": requested_width,
+                "requested_height": requested_height,
+            },
+        )
+
+
+
+def _build_exact_size_expand_prompt(
+    requested_width: int,
+    requested_height: int,
+    canvas_meta: Dict[str, Any],
+) -> str:
+    target_rect = canvas_meta.get("target_rect") or {}
+    source_rect = canvas_meta.get("source_rect") or {}
+    protected_rect = canvas_meta.get("protected_rect") or {}
+    overlap = canvas_meta.get("overlap") or {}
+
+    return (
+        "Você recebeu uma arte pronta posicionada dentro de um canvas maior. "
+        "Faça somente a extensão real do cenário nas áreas faltantes da moldura útil. "
+        "A região central protegida é autoritativa e deve permanecer visualmente idêntica. "
+        "Existe apenas uma faixa de transição muito estreita ao redor dela liberada para que a junção fique imperceptível; use essa faixa apenas para casar continuidade, nunca para mudar layout, tipografia, branding, objetos ou composição. "
+        "Não altere, não reescreva e não redesenhe nenhum texto, data, local, logo, ícone, tipografia, branding, bicicleta, luz, vitrine, prédio, chão, perspectiva ou qualquer outro elemento já presente na área protegida. "
+        "Continue apenas o que falta nas laterais e demais faixas vazias como continuação natural e fisicamente coerente da mesma cena. "
+        "Respeite rigorosamente a mesma escuridão, temperatura de cor, contraste, textura, linhas de fuga, reflexos, ruído fino e profundidade da arte original. "
+        "As áreas novas não podem ficar mais claras, mais limpas, mais saturadas ou com iluminação diferente do que os pixels vizinhos da arte original. "
+        "É proibido usar blur, glow, espelhamento, stretch, smear, duplicação de borda, repetição de coluna, repetição de faixa, padrão clonado, costura visível, preenchimento genérico ou reconstrução estilizada. "
+        "Não crie texto novo. Não duplique objetos inteiros. Não mude o enquadramento percebido da arte protegida. "
+        f"A moldura útil final corresponde a {requested_width}x{requested_height}. "
+        f"Área original aproximada: x={source_rect.get('x1', 0)}..{source_rect.get('x2', 0)}, y={source_rect.get('y1', 0)}..{source_rect.get('y2', 0)}. "
+        f"Área central protegida aproximada: x={protected_rect.get('x1', 0)}..{protected_rect.get('x2', 0)}, y={protected_rect.get('y1', 0)}..{protected_rect.get('y2', 0)}. "
+        f"Faixa de transição liberada aproximada: esquerda={overlap.get('left', 0)}px, direita={overlap.get('right', 0)}px, topo={overlap.get('top', 0)}px, base={overlap.get('bottom', 0)}px. "
+        f"Moldura útil aproximada: x={target_rect.get('x1', 0)}..{target_rect.get('x2', 0)}, y={target_rect.get('y1', 0)}..{target_rect.get('y2', 0)}. "
+        "Entregue uma expansão coerente e quase imperceptível, como se a arte inteira já tivesse sido criada nesse enquadramento final desde o início."
+    )
+
+
+def _harmonize_exact_expand_bands(
+    expanded: Image.Image,
+    canvas_meta: Dict[str, Any],
+) -> Image.Image:
+    target_rect = canvas_meta.get("target_rect") or {}
+    protected_rect = canvas_meta.get("protected_rect") or {}
+
+    target_x1 = int(target_rect.get("x1", 0))
+    target_y1 = int(target_rect.get("y1", 0))
+    target_x2 = int(target_rect.get("x2", 0))
+    target_y2 = int(target_rect.get("y2", 0))
+
+    protected_x1 = int(protected_rect.get("x1", target_x1))
+    protected_y1 = int(protected_rect.get("y1", target_y1))
+    protected_x2 = int(protected_rect.get("x2", target_x2))
+    protected_y2 = int(protected_rect.get("y2", target_y2))
+
+    if target_x2 <= target_x1 or target_y2 <= target_y1:
+        return expanded
+
+    arr = np.array(expanded.convert("RGBA"), dtype=np.float32)
+
+    def _region_stats(region: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
+        if region.size == 0:
+            return None
+        alpha = region[..., 3] > 0
+        if not np.any(alpha):
+            return None
+        rgb = region[..., :3][alpha].astype(np.float32)
+        if rgb.size == 0:
+            return None
+        mean = rgb.mean(axis=0)
+        std = np.maximum(rgb.std(axis=0), 1.0)
+        luma = float((rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)).mean())
+        return mean, std, luma
+
+    def _apply_band(bbox: Tuple[int, int, int, int], ref_bbox: Tuple[int, int, int, int], axis: int, boundary_at_start: bool) -> None:
+        x1, y1, x2, y2 = bbox
+        rx1, ry1, rx2, ry2 = ref_bbox
+        if x2 <= x1 or y2 <= y1 or rx2 <= rx1 or ry2 <= ry1:
+            return
+        band = arr[y1:y2, x1:x2]
+        ref = arr[ry1:ry2, rx1:rx2]
+        band_stats = _region_stats(band)
+        ref_stats = _region_stats(ref)
+        if not band_stats or not ref_stats:
+            return
+
+        band_mean, band_std, band_luma = band_stats
+        ref_mean, ref_std, ref_luma = ref_stats
+
+        luma_gain = float(np.clip(ref_luma / max(1e-3, band_luma), 0.88, 1.12))
+        std_gain = np.clip(ref_std / np.maximum(band_std, 1.0), 0.92, 1.08)
+        mean_delta = np.clip(ref_mean - band_mean, -18.0, 18.0)
+
+        rgb = band[..., :3]
+        transformed = (rgb - band_mean) * std_gain + band_mean
+        transformed = transformed * luma_gain + (mean_delta * 0.55)
+
+        length = (x2 - x1) if axis == 1 else (y2 - y1)
+        if length <= 1:
+            weight = np.ones((y2 - y1, x2 - x1, 1), dtype=np.float32)
+        else:
+            ramp = np.linspace(0.55, 1.0, length, dtype=np.float32)
+            if boundary_at_start:
+                ramp = ramp[::-1]
+            if axis == 1:
+                weight = np.tile(ramp.reshape(1, length, 1), (y2 - y1, 1, 1))
+            else:
+                weight = np.tile(ramp.reshape(length, 1, 1), (1, x2 - x1, 1))
+
+        band[..., :3] = np.clip((rgb * (1.0 - weight)) + (transformed * weight), 0.0, 255.0)
+        arr[y1:y2, x1:x2] = band
+
+    ref_strip_w = max(10, min(24, int(round(max(1, protected_x2 - protected_x1) * 0.03))))
+    ref_strip_h = max(10, min(24, int(round(max(1, protected_y2 - protected_y1) * 0.03))))
+
+    if protected_x1 > target_x1:
+        _apply_band(
+            (target_x1, target_y1, protected_x1, target_y2),
+            (protected_x1, max(target_y1, protected_y1), min(protected_x1 + ref_strip_w, protected_x2), min(target_y2, protected_y2)),
+            axis=1,
+            boundary_at_start=False,
+        )
+    if protected_x2 < target_x2:
+        _apply_band(
+            (protected_x2, target_y1, target_x2, target_y2),
+            (max(protected_x1, protected_x2 - ref_strip_w), max(target_y1, protected_y1), protected_x2, min(target_y2, protected_y2)),
+            axis=1,
+            boundary_at_start=True,
+        )
+    if protected_y1 > target_y1:
+        _apply_band(
+            (target_x1, target_y1, target_x2, protected_y1),
+            (max(target_x1, protected_x1), protected_y1, min(target_x2, protected_x2), min(protected_y1 + ref_strip_h, protected_y2)),
+            axis=0,
+            boundary_at_start=False,
+        )
+    if protected_y2 < target_y2:
+        _apply_band(
+            (target_x1, protected_y2, target_x2, target_y2),
+            (max(target_x1, protected_x1), max(protected_y1, protected_y2 - ref_strip_h), min(target_x2, protected_x2), protected_y2),
+            axis=0,
+            boundary_at_start=True,
+        )
+
+    return Image.fromarray(np.clip(arr, 0.0, 255.0).astype(np.uint8), mode="RGBA")
+
+
+
+def _finalize_exact_size_ai_expand(
+    expanded_canvas_bytes: bytes,
+    preserved_source_bytes: bytes,
+    canvas_meta: Dict[str, Any],
+) -> bytes:
+    target_rect = canvas_meta["target_rect"]
+    source_rect = canvas_meta["source_rect"]
+    protected_rect = canvas_meta.get("protected_rect") or source_rect
+    requested_width = int(canvas_meta["requested_width"])
+    requested_height = int(canvas_meta["requested_height"])
+
+    with Image.open(io.BytesIO(expanded_canvas_bytes)) as expanded_im, Image.open(io.BytesIO(preserved_source_bytes)) as source_im:
+        expanded = expanded_im.convert("RGBA")
+        source = source_im.convert("RGBA")
+        preserved_fitted, _ = _resize_to_contain(
+            source,
+            int(target_rect["width"]),
+            int(target_rect["height"]),
+        )
+
+        local_protected_rect = (
+            max(0, int(protected_rect["x1"]) - int(source_rect["x1"])),
+            max(0, int(protected_rect["y1"]) - int(source_rect["y1"])),
+            min(int(source_rect["width"]), int(protected_rect["x2"]) - int(source_rect["x1"])),
+            min(int(source_rect["height"]), int(protected_rect["y2"]) - int(source_rect["y1"])),
+        )
+
+        if local_protected_rect[2] > local_protected_rect[0] and local_protected_rect[3] > local_protected_rect[1]:
+            preserved_core = preserved_fitted.crop(local_protected_rect)
+            expanded.alpha_composite(
+                preserved_core,
+                (int(protected_rect["x1"]), int(protected_rect["y1"])),
+            )
+
+        expanded = _harmonize_exact_expand_bands(expanded, canvas_meta)
+
+        cropped = expanded.crop((
+            int(target_rect["x1"]),
+            int(target_rect["y1"]),
+            int(target_rect["x2"]),
+            int(target_rect["y2"]),
+        ))
+        if cropped.size != (requested_width, requested_height):
+            cropped = cropped.resize((requested_width, requested_height), Image.Resampling.LANCZOS)
+        return _encode_png_bytes(cropped.convert("RGBA"))
+
+
+
+async def _expand_image_to_exact_size_with_ai(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    openai_key: str,
+    openai_quality: str,
+    requested_width: int,
+    requested_height: int,
+) -> Dict[str, Any]:
+    base_width, base_height = _choose_best_supported_base_size(requested_width, requested_height)
+    canvas_bytes, mask_bytes, canvas_meta = _build_exact_size_ai_canvas(
+        image_bytes=image_bytes,
+        requested_width=requested_width,
+        requested_height=requested_height,
+        base_width=base_width,
+        base_height=base_height,
+    )
+
+    result = await _edit_openai_image(
+        client=client,
+        image_bytes=canvas_bytes,
+        filename="exact-size-expand.png",
+        content_type="image/png",
+        final_prompt=_build_exact_size_expand_prompt(
+            requested_width=requested_width,
+            requested_height=requested_height,
+            canvas_meta=canvas_meta,
+        ),
+        aspect_ratio=_base_size_to_aspect_ratio(base_width, base_height),
+        quality=openai_quality,
+        openai_key=openai_key,
+        openai_size=f"{base_width}x{base_height}",
+        mask_bytes=mask_bytes,
+        input_fidelity="high",
+    )
+
+    expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
+    final_bytes = _finalize_exact_size_ai_expand(
+        expanded_canvas_bytes=expanded_bytes,
+        preserved_source_bytes=image_bytes,
+        canvas_meta=canvas_meta,
+    )
+
+    next_result = dict(result)
+    next_result["engine_id"] = "openai_exact_canvas_expand"
+    next_result["motor"] = f"{result.get('motor', 'OpenAI GPT Image 1.5 Edit')} + Extensão real por IA"
+    next_result["url"] = _result_url_from_image_bytes(final_bytes, "image/png")
+    next_result["exact_canvas_expand"] = {
+        "requested_width": requested_width,
+        "requested_height": requested_height,
+        "base_width": base_width,
+        "base_height": base_height,
+        "target_rect": dict(canvas_meta.get("target_rect") or {}),
+        "source_rect": dict(canvas_meta.get("source_rect") or {}),
+        "strategy": "ai_exact_canvas_expand",
+    }
+    return next_result
+
+
 async def _expand_image_to_supported_canvas_preserve(
     client: httpx.AsyncClient,
     image_bytes: bytes,
@@ -4045,91 +4454,222 @@ async def image_engine_edit_stream(
                     ),
                 })
 
-                improved = await _improve_edit_prompt_with_openai(
-                    client=client,
-                    payload=body,
-                    aspect_ratio=aspect_ratio,
-                    openai_key=openai_key,
+                normalized_allow_resize_crop = bool(body.allow_resize_crop and not body.preserve_original_frame)
+                canvas_only_request = bool(
+                    target_dimensions
+                    and body.preserve_original_frame
+                    and not normalized_allow_resize_crop
+                    and _is_canvas_only_edit_request(body)
                 )
 
-                final_prompt = _build_final_edit_prompt(
-                    payload=body,
-                    aspect_ratio=aspect_ratio,
-                    improved=improved,
-                )
+                if canvas_only_request:
+                    expand_without_crop_needed = _needs_exact_canvas_expand(
+                        source_width,
+                        source_height,
+                        target_dimensions[0],
+                        target_dimensions[1],
+                        allow_resize_crop=normalized_allow_resize_crop,
+                    )
+                    improved = _build_fast_canvas_only_improvement(
+                        target_dimensions=target_dimensions,
+                        expand_without_crop_needed=expand_without_crop_needed,
+                    )
+                    final_prompt = (
+                        "Fluxo direto de adaptação de canvas com preservação integral da base original."
+                        if expand_without_crop_needed
+                        else "Fluxo direto de resize exato sem crop e sem edição criativa."
+                    )
 
-                yield _sse({
-                    "status": "Prompt refinado. Enviando a imagem-base para edição direta.",
-                    "progress": 42,
-                    "improved_prompt": improved["prompt_final"],
-                    "negative_prompt": improved["negative_prompt"],
-                    "creative_direction": improved["creative_direction"],
-                    "layout_notes": improved["layout_notes"],
-                    "preservation_rules": improved["preservation_rules"],
-                    "edit_strategy": improved["edit_strategy"],
-                    "micro_detail_rules": improved["micro_detail_rules"],
-                    "consistency_rules": improved["consistency_rules"],
-                    "final_prompt": final_prompt,
-                    "aspect_ratio": aspect_ratio,
-                    "quality": openai_quality,
-                    "openai_size": openai_size,
-                })
-
-                result = await _edit_openai_image(
-                    client=client,
-                    image_bytes=image_bytes,
-                    filename=image_filename,
-                    content_type=image_content_type,
-                    final_prompt=final_prompt,
-                    aspect_ratio=aspect_ratio,
-                    quality=openai_quality,
-                    openai_key=openai_key,
-                    input_fidelity="high",
-                    openai_size=openai_size,
-                )
-
-                if target_dimensions:
                     yield _sse({
-                        "status": f"Edição concluída. Adaptando para o tamanho final exato {target_dimensions[0]}x{target_dimensions[1]} sem crop.",
-                        "progress": 82,
-                        "meta": {
-                            "working_dimensions": {
-                                "width": int(openai_size.split("x")[0]),
-                                "height": int(openai_size.split("x")[1]),
-                            },
-                            "target_dimensions": {
-                                "width": target_dimensions[0],
-                                "height": target_dimensions[1],
-                            },
-                            "strategy": "exact_size_postprocess_no_blur_after_edit",
-                        },
-                        "debug": _runtime_debug_payload(
-                            request_id=request_id,
-                            stage="exact_size_adaptation_started",
-                            message="A edição base foi concluída e a adaptação para o tamanho final exato sem blur começou.",
-                            details={
+                        "status": (
+                            "Solicitação identificada como adaptação pura de canvas. Preparando extensão real por IA."
+                            if expand_without_crop_needed
+                            else "Solicitação identificada como resize puro. Preparando ajuste exato sem crop."
+                        ),
+                        "progress": 42,
+                        "improved_prompt": improved["prompt_final"],
+                        "negative_prompt": improved["negative_prompt"],
+                        "creative_direction": improved["creative_direction"],
+                        "layout_notes": improved["layout_notes"],
+                        "preservation_rules": improved["preservation_rules"],
+                        "edit_strategy": improved["edit_strategy"],
+                        "micro_detail_rules": improved["micro_detail_rules"],
+                        "consistency_rules": improved["consistency_rules"],
+                        "final_prompt": final_prompt,
+                        "aspect_ratio": aspect_ratio,
+                        "quality": openai_quality,
+                        "openai_size": openai_size,
+                    })
+
+                    if expand_without_crop_needed:
+                        yield _sse({
+                            "status": f"Fazendo extensão real por IA para o tamanho final exato {target_dimensions[0]}x{target_dimensions[1]}.",
+                            "progress": 82,
+                            "meta": {
                                 "working_dimensions": {
-                                    "width": int(openai_size.split("x")[0]),
-                                    "height": int(openai_size.split("x")[1]),
+                                    "width": source_width,
+                                    "height": source_height,
                                 },
                                 "target_dimensions": {
                                     "width": target_dimensions[0],
                                     "height": target_dimensions[1],
                                 },
-                                "strategy": "exact_size_postprocess_no_blur_after_edit",
+                                "strategy": "exact_size_ai_canvas_extension",
                             },
-                        ),
-                    })
+                            "debug": _runtime_debug_payload(
+                                request_id=request_id,
+                                stage="exact_size_adaptation_started",
+                                message="Extensão real por IA iniciada para o tamanho final exato.",
+                                details={
+                                    "working_dimensions": {
+                                        "width": source_width,
+                                        "height": source_height,
+                                    },
+                                    "target_dimensions": {
+                                        "width": target_dimensions[0],
+                                        "height": target_dimensions[1],
+                                    },
+                                    "strategy": "exact_size_ai_canvas_extension",
+                                    "canvas_only_request": True,
+                                },
+                            ),
+                        })
 
-                    result = await _apply_postprocess_if_needed(
+                        result = await _expand_image_to_exact_size_with_ai(
+                            client=client,
+                            image_bytes=image_bytes,
+                            openai_key=openai_key,
+                            openai_quality=openai_quality,
+                            requested_width=target_dimensions[0],
+                            requested_height=target_dimensions[1],
+                        )
+                    else:
+                        result = _build_canvas_only_resize_result(
+                            image_bytes=image_bytes,
+                            payload=body,
+                            target_dimensions=target_dimensions,
+                        )
+                else:
+                    improved = await _improve_edit_prompt_with_openai(
                         client=client,
-                        result=result,
-                        target_dimensions=target_dimensions,
-                        preserve_original_frame=body.preserve_original_frame,
-                        allow_resize_crop=body.allow_resize_crop,
-                        original_reference_bytes=image_bytes,
+                        payload=body,
+                        aspect_ratio=aspect_ratio,
+                        openai_key=openai_key,
                     )
 
+                    final_prompt = _build_final_edit_prompt(
+                        payload=body,
+                        aspect_ratio=aspect_ratio,
+                        improved=improved,
+                    )
+
+                    yield _sse({
+                        "status": "Prompt refinado. Enviando a imagem-base para edição direta.",
+                        "progress": 42,
+                        "improved_prompt": improved["prompt_final"],
+                        "negative_prompt": improved["negative_prompt"],
+                        "creative_direction": improved["creative_direction"],
+                        "layout_notes": improved["layout_notes"],
+                        "preservation_rules": improved["preservation_rules"],
+                        "edit_strategy": improved["edit_strategy"],
+                        "micro_detail_rules": improved["micro_detail_rules"],
+                        "consistency_rules": improved["consistency_rules"],
+                        "final_prompt": final_prompt,
+                        "aspect_ratio": aspect_ratio,
+                        "quality": openai_quality,
+                        "openai_size": openai_size,
+                    })
+
+                    result = await _edit_openai_image(
+                        client=client,
+                        image_bytes=image_bytes,
+                        filename=image_filename,
+                        content_type=image_content_type,
+                        final_prompt=final_prompt,
+                        aspect_ratio=aspect_ratio,
+                        quality=openai_quality,
+                        openai_key=openai_key,
+                        input_fidelity="high",
+                        openai_size=openai_size,
+                    )
+
+                    if target_dimensions:
+                        base_result_bytes, _ = await _read_result_bytes(client, result)
+                        base_result_width, base_result_height = _read_image_dimensions(base_result_bytes)
+                        exact_expand_needed = _needs_exact_canvas_expand(
+                            base_result_width,
+                            base_result_height,
+                            target_dimensions[0],
+                            target_dimensions[1],
+                            allow_resize_crop=normalized_allow_resize_crop,
+                        )
+                        resize_strategy = (
+                            "exact_size_ai_canvas_extension"
+                            if exact_expand_needed
+                            else "exact_size_deterministic_resize"
+                        )
+
+                        yield _sse({
+                            "status": (
+                                f"Edição concluída. Fazendo extensão real por IA para o tamanho final exato {target_dimensions[0]}x{target_dimensions[1]}."
+                                if exact_expand_needed
+                                else f"Edição concluída. Ajustando para o tamanho final exato {target_dimensions[0]}x{target_dimensions[1]} sem crop."
+                            ),
+                            "progress": 82,
+                            "meta": {
+                                "working_dimensions": {
+                                    "width": base_result_width,
+                                    "height": base_result_height,
+                                },
+                                "target_dimensions": {
+                                    "width": target_dimensions[0],
+                                    "height": target_dimensions[1],
+                                },
+                                "strategy": resize_strategy,
+                            },
+                            "debug": _runtime_debug_payload(
+                                request_id=request_id,
+                                stage="exact_size_adaptation_started",
+                                message=(
+                                    "Extensão real por IA iniciada para o tamanho final exato."
+                                    if exact_expand_needed
+                                    else "Adaptação determinística iniciada para o tamanho final exato."
+                                ),
+                                details={
+                                    "working_dimensions": {
+                                        "width": base_result_width,
+                                        "height": base_result_height,
+                                    },
+                                    "target_dimensions": {
+                                        "width": target_dimensions[0],
+                                        "height": target_dimensions[1],
+                                    },
+                                    "strategy": resize_strategy,
+                                    "canvas_only_request": False,
+                                },
+                            ),
+                        })
+
+                        if exact_expand_needed:
+                            result = await _expand_image_to_exact_size_with_ai(
+                                client=client,
+                                image_bytes=base_result_bytes,
+                                openai_key=openai_key,
+                                openai_quality=openai_quality,
+                                requested_width=target_dimensions[0],
+                                requested_height=target_dimensions[1],
+                            )
+                        else:
+                            result = await _apply_postprocess_if_needed(
+                                client=client,
+                                result=result,
+                                target_dimensions=target_dimensions,
+                                preserve_original_frame=body.preserve_original_frame,
+                                allow_resize_crop=body.allow_resize_crop,
+                                original_reference_bytes=image_bytes,
+                            )
+
+                if target_dimensions:
                     final_result_bytes, _ = await _read_result_bytes(client, result)
                     final_result_width, final_result_height = _read_image_dimensions(final_result_bytes)
                     _append_runtime_image_edit_log(
@@ -4147,6 +4687,9 @@ async def image_engine_edit_stream(
                             },
                             "preserve_original_frame": body.preserve_original_frame,
                             "allow_resize_crop": body.allow_resize_crop,
+                            "canvas_only_request": canvas_only_request,
+                            "engine_id": result.get("engine_id"),
+                            "motor": result.get("motor"),
                         },
                     )
 
