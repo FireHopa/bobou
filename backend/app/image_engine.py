@@ -1550,6 +1550,7 @@ def _build_exact_size_ai_canvas(
     requested_height: int,
     base_width: int,
     base_height: int,
+    overlap_profile: str = "balanced",
 ) -> Tuple[bytes, bytes, Dict[str, Any]]:
     with Image.open(io.BytesIO(image_bytes)) as im:
         source = im.convert("RGBA")
@@ -1578,21 +1579,23 @@ def _build_exact_size_ai_canvas(
 
         source_rect_width = max(1, source_rect[2] - source_rect[0])
         source_rect_height = max(1, source_rect[3] - source_rect[1])
+        min_side = max(1, min(source_rect_width, source_rect_height))
+        normalized_profile = (overlap_profile or "balanced").strip().lower()
 
-        horizontal_overlap = min(
-            max(12, int(round(min(source_rect_width, source_rect_height) * 0.035))),
-            max(0, source_rect_width // 10),
-        )
-        vertical_overlap = min(
-            max(10, int(round(min(source_rect_width, source_rect_height) * 0.03))),
-            max(0, source_rect_height // 10),
-        )
+        if normalized_profile == "strict":
+            horizontal_overlap = max(8, min(16, int(round(min_side * 0.014))))
+            vertical_overlap = max(8, min(14, int(round(min_side * 0.013))))
+            min_protected_ratio = 0.90
+        else:
+            horizontal_overlap = max(10, min(18, int(round(min_side * 0.018))))
+            vertical_overlap = max(8, min(16, int(round(min_side * 0.016))))
+            min_protected_ratio = 0.86
 
         overlap = {
-            "left": horizontal_overlap if left_gap > 0 else 0,
-            "right": horizontal_overlap if right_gap > 0 else 0,
-            "top": vertical_overlap if top_gap > 0 else 0,
-            "bottom": vertical_overlap if bottom_gap > 0 else 0,
+            "left": min(horizontal_overlap, max(0, source_rect_width // 8)) if left_gap > 0 else 0,
+            "right": min(horizontal_overlap, max(0, source_rect_width // 8)) if right_gap > 0 else 0,
+            "top": min(vertical_overlap, max(0, source_rect_height // 8)) if top_gap > 0 else 0,
+            "bottom": min(vertical_overlap, max(0, source_rect_height // 8)) if bottom_gap > 0 else 0,
         }
 
         protected_rect = (
@@ -1602,8 +1605,8 @@ def _build_exact_size_ai_canvas(
             source_rect[3] - overlap["bottom"],
         )
 
-        min_protected_width = max(48, int(round(source_rect_width * 0.72)))
-        min_protected_height = max(48, int(round(source_rect_height * 0.72)))
+        min_protected_width = max(48, int(round(source_rect_width * min_protected_ratio)))
+        min_protected_height = max(48, int(round(source_rect_height * min_protected_ratio)))
         if (protected_rect[2] - protected_rect[0]) < min_protected_width:
             excess = min_protected_width - (protected_rect[2] - protected_rect[0])
             shrink_left = min(overlap["left"], excess // 2 + excess % 2)
@@ -1627,10 +1630,33 @@ def _build_exact_size_ai_canvas(
         canvas = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
         canvas.alpha_composite(fitted, (source_rect[0], source_rect[1]))
 
-        mask = Image.new("RGBA", (base_width, base_height), (255, 255, 255, 255))
-        draw = ImageDraw.Draw(mask)
-        draw.rectangle(target_rect, fill=(0, 0, 0, 0))
-        draw.rectangle(protected_rect, fill=(255, 255, 255, 255))
+        mask_l = Image.new("L", (base_width, base_height), 255)
+        draw = ImageDraw.Draw(mask_l)
+        draw.rectangle(target_rect, fill=0)
+        draw.rectangle(source_rect, fill=255)
+
+        if overlap["left"] > 0:
+            draw.rectangle(
+                (source_rect[0], source_rect[1], min(source_rect[2], source_rect[0] + overlap["left"]), source_rect[3]),
+                fill=0,
+            )
+        if overlap["right"] > 0:
+            draw.rectangle(
+                (max(source_rect[0], source_rect[2] - overlap["right"]), source_rect[1], source_rect[2], source_rect[3]),
+                fill=0,
+            )
+        if overlap["top"] > 0:
+            draw.rectangle(
+                (source_rect[0], source_rect[1], source_rect[2], min(source_rect[3], source_rect[1] + overlap["top"])),
+                fill=0,
+            )
+        if overlap["bottom"] > 0:
+            draw.rectangle(
+                (source_rect[0], max(source_rect[1], source_rect[3] - overlap["bottom"]), source_rect[2], source_rect[3]),
+                fill=0,
+            )
+
+        mask = Image.merge("RGBA", (mask_l, mask_l, mask_l, mask_l))
 
         return (
             _encode_png_bytes(canvas),
@@ -1665,6 +1691,13 @@ def _build_exact_size_ai_canvas(
                 "overlap": overlap,
                 "requested_width": requested_width,
                 "requested_height": requested_height,
+                "profile": normalized_profile,
+                "gaps": {
+                    "left": left_gap,
+                    "right": right_gap,
+                    "top": top_gap,
+                    "bottom": bottom_gap,
+                },
             },
         )
 
@@ -1674,30 +1707,208 @@ def _build_exact_size_expand_prompt(
     requested_width: int,
     requested_height: int,
     canvas_meta: Dict[str, Any],
+    prompt_mode: str = "balanced",
 ) -> str:
     target_rect = canvas_meta.get("target_rect") or {}
     source_rect = canvas_meta.get("source_rect") or {}
     protected_rect = canvas_meta.get("protected_rect") or {}
     overlap = canvas_meta.get("overlap") or {}
+    gaps = canvas_meta.get("gaps") or {}
+    normalized_mode = (prompt_mode or canvas_meta.get("profile") or "balanced").strip().lower()
+
+    strict_clause = (
+        "Trate a área original inteira como congelada e imutável, com exceção exclusiva das microfaixas de transição junto às bordas liberadas na máscara. "
+        "Mesmo nessas microfaixas, ajuste apenas continuidade de textura, perspectiva e luz; nunca mexa no desenho, alinhamento ou proporção de elementos existentes. "
+        if normalized_mode == "strict"
+        else "A área original inteira deve continuar com o mesmo desenho e alinhamento percebido, usando as faixas liberadas apenas para costura invisível. "
+    )
 
     return (
         "Você recebeu uma arte pronta posicionada dentro de um canvas maior. "
         "Faça somente a extensão real do cenário nas áreas faltantes da moldura útil. "
-        "A região central protegida é autoritativa e deve permanecer visualmente idêntica. "
-        "Existe apenas uma faixa de transição muito estreita ao redor dela liberada para que a junção fique imperceptível; use essa faixa apenas para casar continuidade, nunca para mudar layout, tipografia, branding, objetos ou composição. "
-        "Não altere, não reescreva e não redesenhe nenhum texto, data, local, logo, ícone, tipografia, branding, bicicleta, luz, vitrine, prédio, chão, perspectiva ou qualquer outro elemento já presente na área protegida. "
-        "Continue apenas o que falta nas laterais e demais faixas vazias como continuação natural e fisicamente coerente da mesma cena. "
-        "Respeite rigorosamente a mesma escuridão, temperatura de cor, contraste, textura, linhas de fuga, reflexos, ruído fino e profundidade da arte original. "
-        "As áreas novas não podem ficar mais claras, mais limpas, mais saturadas ou com iluminação diferente do que os pixels vizinhos da arte original. "
+        "A região original já presente no canvas é a referência dominante e deve continuar praticamente idêntica. "
+        + strict_clause +
+        "Não altere, não reescreva e não redesenhe nenhum texto, data, local, logo, ícone, tipografia, branding, bicicleta, luz, vitrine, prédio, chão, perspectiva ou qualquer outro elemento já presente na área original. "
+        "Continue apenas o que falta nas laterais e demais faixas vazias como continuação natural, física e visual da mesma cena. "
+        "Respeite rigorosamente a mesma escuridão, temperatura de cor, contraste, textura, linhas de fuga, reflexos, ruído fino, nitidez e profundidade da arte original. "
+        "As áreas novas não podem ficar mais claras, mais limpas, mais saturadas, mais suaves ou com iluminação diferente dos pixels vizinhos da arte original. "
         "É proibido usar blur, glow, espelhamento, stretch, smear, duplicação de borda, repetição de coluna, repetição de faixa, padrão clonado, costura visível, preenchimento genérico ou reconstrução estilizada. "
         "Não crie texto novo. Não duplique objetos inteiros. Não mude o enquadramento percebido da arte protegida. "
         f"A moldura útil final corresponde a {requested_width}x{requested_height}. "
         f"Área original aproximada: x={source_rect.get('x1', 0)}..{source_rect.get('x2', 0)}, y={source_rect.get('y1', 0)}..{source_rect.get('y2', 0)}. "
-        f"Área central protegida aproximada: x={protected_rect.get('x1', 0)}..{protected_rect.get('x2', 0)}, y={protected_rect.get('y1', 0)}..{protected_rect.get('y2', 0)}. "
-        f"Faixa de transição liberada aproximada: esquerda={overlap.get('left', 0)}px, direita={overlap.get('right', 0)}px, topo={overlap.get('top', 0)}px, base={overlap.get('bottom', 0)}px. "
+        f"Área central totalmente protegida aproximada: x={protected_rect.get('x1', 0)}..{protected_rect.get('x2', 0)}, y={protected_rect.get('y1', 0)}..{protected_rect.get('y2', 0)}. "
+        f"Faixas de transição liberadas aproximadas: esquerda={overlap.get('left', 0)}px, direita={overlap.get('right', 0)}px, topo={overlap.get('top', 0)}px, base={overlap.get('bottom', 0)}px. "
+        f"Áreas faltantes aproximadas fora da arte original: esquerda={gaps.get('left', 0)}px, direita={gaps.get('right', 0)}px, topo={gaps.get('top', 0)}px, base={gaps.get('bottom', 0)}px. "
         f"Moldura útil aproximada: x={target_rect.get('x1', 0)}..{target_rect.get('x2', 0)}, y={target_rect.get('y1', 0)}..{target_rect.get('y2', 0)}. "
         "Entregue uma expansão coerente e quase imperceptível, como se a arte inteira já tivesse sido criada nesse enquadramento final desde o início."
     )
+
+
+def _build_exact_expand_preservation_alpha(
+    source_width: int,
+    source_height: int,
+    overlap: Dict[str, Any],
+) -> Image.Image:
+    alpha = np.ones((max(1, source_height), max(1, source_width)), dtype=np.float32)
+
+    def _smoothstep_ramp(length: int, invert: bool = False) -> np.ndarray:
+        if length <= 1:
+            ramp = np.ones((max(1, length),), dtype=np.float32)
+        else:
+            t = np.linspace(0.0, 1.0, length, dtype=np.float32)
+            ramp = t * t * (3.0 - 2.0 * t)
+        if invert:
+            ramp = ramp[::-1]
+        return ramp
+
+    left = int(overlap.get("left", 0) or 0)
+    right = int(overlap.get("right", 0) or 0)
+    top = int(overlap.get("top", 0) or 0)
+    bottom = int(overlap.get("bottom", 0) or 0)
+
+    if left > 0:
+        band = min(source_width, left)
+        ramp = _smoothstep_ramp(band, invert=False)
+        alpha[:, :band] = np.minimum(alpha[:, :band], ramp.reshape(1, band))
+    if right > 0:
+        band = min(source_width, right)
+        ramp = _smoothstep_ramp(band, invert=True)
+        alpha[:, source_width - band:source_width] = np.minimum(alpha[:, source_width - band:source_width], ramp.reshape(1, band))
+    if top > 0:
+        band = min(source_height, top)
+        ramp = _smoothstep_ramp(band, invert=False)
+        alpha[:band, :] = np.minimum(alpha[:band, :], ramp.reshape(band, 1))
+    if bottom > 0:
+        band = min(source_height, bottom)
+        ramp = _smoothstep_ramp(band, invert=True)
+        alpha[source_height - band:source_height, :] = np.minimum(alpha[source_height - band:source_height, :], ramp.reshape(band, 1))
+
+    alpha_u8 = np.clip(np.round(alpha * 255.0), 0, 255).astype(np.uint8)
+    return Image.fromarray(alpha_u8, mode="L")
+
+
+
+def _overlay_preserved_source_with_adaptive_alpha(
+    expanded: Image.Image,
+    preserved_fitted: Image.Image,
+    canvas_meta: Dict[str, Any],
+) -> Image.Image:
+    source_rect = canvas_meta.get("source_rect") or {}
+    overlap = canvas_meta.get("overlap") or {}
+
+    source_x1 = int(source_rect.get("x1", 0))
+    source_y1 = int(source_rect.get("y1", 0))
+    source_width = int(source_rect.get("width", preserved_fitted.width))
+    source_height = int(source_rect.get("height", preserved_fitted.height))
+
+    if source_width <= 0 or source_height <= 0:
+        return expanded
+
+    alpha_mask = _build_exact_expand_preservation_alpha(source_width, source_height, overlap)
+    preserved_rgba = preserved_fitted.convert("RGBA")
+    preserved_rgba.putalpha(alpha_mask)
+
+    merged = expanded.convert("RGBA")
+    merged.alpha_composite(preserved_rgba, (source_x1, source_y1))
+    return merged
+
+
+
+def _exact_expand_quality_score(
+    final_bytes: bytes,
+    preserved_source_bytes: bytes,
+    canvas_meta: Dict[str, Any],
+) -> float:
+    source_rect = canvas_meta.get("source_rect") or {}
+    overlap = canvas_meta.get("overlap") or {}
+    target_rect = canvas_meta.get("target_rect") or {}
+
+    target_x1 = int(target_rect.get("x1", 0))
+    target_y1 = int(target_rect.get("y1", 0))
+    target_x2 = int(target_rect.get("x2", 0))
+    target_y2 = int(target_rect.get("y2", 0))
+    source_x1 = int(source_rect.get("x1", 0)) - target_x1
+    source_y1 = int(source_rect.get("y1", 0)) - target_y1
+    source_x2 = int(source_rect.get("x2", 0)) - target_x1
+    source_y2 = int(source_rect.get("y2", 0)) - target_y1
+    target_x1 = 0
+    target_y1 = 0
+    target_x2 = max(0, target_x2 - int(target_rect.get("x1", 0)))
+    target_y2 = max(0, target_y2 - int(target_rect.get("y1", 0)))
+
+    if source_x2 <= source_x1 or source_y2 <= source_y1:
+        return 999.0
+
+    with Image.open(io.BytesIO(final_bytes)) as final_im, Image.open(io.BytesIO(preserved_source_bytes)) as source_im:
+        final_rgba = final_im.convert("RGBA")
+        preserved_fitted, _ = _resize_to_contain(
+            source_im.convert("RGBA"),
+            max(1, source_x2 - source_x1),
+            max(1, source_y2 - source_y1),
+        )
+
+        final_arr = np.array(final_rgba, dtype=np.float32)
+        source_arr = np.array(preserved_fitted, dtype=np.float32)
+        scores: List[float] = []
+
+        def _collect(inner_bbox: Tuple[int, int, int, int], outer_bbox: Tuple[int, int, int, int], axis: int) -> None:
+            ix1, iy1, ix2, iy2 = inner_bbox
+            ox1, oy1, ox2, oy2 = outer_bbox
+            if ix2 <= ix1 or iy2 <= iy1 or ox2 <= ox1 or oy2 <= oy1:
+                return
+            inner = source_arr[iy1:iy2, ix1:ix2, :3]
+            outer = final_arr[oy1:oy2, ox1:ox2, :3]
+            if inner.size == 0 or outer.size == 0:
+                return
+            if inner.shape[:2] != outer.shape[:2]:
+                inner_img = Image.fromarray(np.clip(inner, 0.0, 255.0).astype(np.uint8), mode="RGB")
+                inner = np.array(inner_img.resize((outer.shape[1], outer.shape[0]), Image.Resampling.BILINEAR), dtype=np.float32)
+            inner_mean = inner.mean(axis=(0, 1))
+            outer_mean = outer.mean(axis=(0, 1))
+            inner_std = np.maximum(inner.std(axis=(0, 1)), 1.0)
+            outer_std = np.maximum(outer.std(axis=(0, 1)), 1.0)
+            mean_gap = float(np.mean(np.abs(inner_mean - outer_mean)))
+            std_gap = float(np.mean(np.abs(inner_std - outer_std)))
+            if axis == 1:
+                inner_edge = inner[:, -1, :] if inner.shape[1] > 0 else inner.reshape(-1, 3)
+                outer_edge = outer[:, 0, :] if outer.shape[1] > 0 else outer.reshape(-1, 3)
+            else:
+                inner_edge = inner[-1, :, :] if inner.shape[0] > 0 else inner.reshape(-1, 3)
+                outer_edge = outer[0, :, :] if outer.shape[0] > 0 else outer.reshape(-1, 3)
+            edge_gap = float(np.mean(np.abs(inner_edge - outer_edge)))
+            scores.append((mean_gap * 0.45) + (std_gap * 0.15) + (edge_gap * 0.40))
+
+        left_gap = max(0, source_x1 - target_x1)
+        right_gap = max(0, target_x2 - source_x2)
+        top_gap = max(0, source_y1 - target_y1)
+        bottom_gap = max(0, target_y2 - source_y2)
+
+        if left_gap > 0:
+            strip = max(6, min(24, left_gap, source_arr.shape[1], int(overlap.get("left", 0) or 0) * 2 or 12))
+            _collect((0, 0, strip, source_arr.shape[0]), (source_x1 - strip, source_y1, source_x1, source_y2), axis=1)
+        if right_gap > 0:
+            strip = max(6, min(24, right_gap, source_arr.shape[1], int(overlap.get("right", 0) or 0) * 2 or 12))
+            _collect((source_arr.shape[1] - strip, 0, source_arr.shape[1], source_arr.shape[0]), (source_x2, source_y1, source_x2 + strip, source_y2), axis=1)
+        if top_gap > 0:
+            strip = max(6, min(20, top_gap, source_arr.shape[0], int(overlap.get("top", 0) or 0) * 2 or 10))
+            _collect((0, 0, source_arr.shape[1], strip), (source_x1, source_y1 - strip, source_x2, source_y1), axis=0)
+        if bottom_gap > 0:
+            strip = max(6, min(20, bottom_gap, source_arr.shape[0], int(overlap.get("bottom", 0) or 0) * 2 or 10))
+            _collect((0, source_arr.shape[0] - strip, source_arr.shape[1], source_arr.shape[0]), (source_x1, source_y2, source_x2, source_y2 + strip), axis=0)
+
+    if not scores:
+        return 999.0
+    return float(np.mean(scores))
+
+
+
+def _should_retry_exact_expand(first_score: float, requested_width: int, requested_height: int, source_width: int, source_height: int) -> bool:
+    if first_score <= 11.5:
+        return False
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = requested_width / max(1.0, float(requested_height))
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    return bool(first_score >= 14.0 or ratio_delta >= 0.28)
 
 
 def _harmonize_exact_expand_bands(
@@ -1817,7 +2028,6 @@ def _finalize_exact_size_ai_expand(
 ) -> bytes:
     target_rect = canvas_meta["target_rect"]
     source_rect = canvas_meta["source_rect"]
-    protected_rect = canvas_meta.get("protected_rect") or source_rect
     requested_width = int(canvas_meta["requested_width"])
     requested_height = int(canvas_meta["requested_height"])
 
@@ -1826,24 +2036,15 @@ def _finalize_exact_size_ai_expand(
         source = source_im.convert("RGBA")
         preserved_fitted, _ = _resize_to_contain(
             source,
-            int(target_rect["width"]),
-            int(target_rect["height"]),
+            int(source_rect["width"]),
+            int(source_rect["height"]),
         )
 
-        local_protected_rect = (
-            max(0, int(protected_rect["x1"]) - int(source_rect["x1"])),
-            max(0, int(protected_rect["y1"]) - int(source_rect["y1"])),
-            min(int(source_rect["width"]), int(protected_rect["x2"]) - int(source_rect["x1"])),
-            min(int(source_rect["height"]), int(protected_rect["y2"]) - int(source_rect["y1"])),
+        expanded = _overlay_preserved_source_with_adaptive_alpha(
+            expanded=expanded,
+            preserved_fitted=preserved_fitted,
+            canvas_meta=canvas_meta,
         )
-
-        if local_protected_rect[2] > local_protected_rect[0] and local_protected_rect[3] > local_protected_rect[1]:
-            preserved_core = preserved_fitted.crop(local_protected_rect)
-            expanded.alpha_composite(
-                preserved_core,
-                (int(protected_rect["x1"]), int(protected_rect["y1"])),
-            )
-
         expanded = _harmonize_exact_expand_bands(expanded, canvas_meta)
 
         cropped = expanded.crop((
@@ -1867,53 +2068,101 @@ async def _expand_image_to_exact_size_with_ai(
     requested_height: int,
 ) -> Dict[str, Any]:
     base_width, base_height = _choose_best_supported_base_size(requested_width, requested_height)
-    canvas_bytes, mask_bytes, canvas_meta = _build_exact_size_ai_canvas(
-        image_bytes=image_bytes,
-        requested_width=requested_width,
-        requested_height=requested_height,
-        base_width=base_width,
-        base_height=base_height,
-    )
+    source_width, source_height = _read_image_dimensions(image_bytes)
+    attempt_profiles = ["balanced", "strict"]
+    attempt_summaries: List[Dict[str, Any]] = []
+    best_result: Optional[Dict[str, Any]] = None
+    best_score = float("inf")
 
-    result = await _edit_openai_image(
-        client=client,
-        image_bytes=canvas_bytes,
-        filename="exact-size-expand.png",
-        content_type="image/png",
-        final_prompt=_build_exact_size_expand_prompt(
+    for attempt_index, profile in enumerate(attempt_profiles, start=1):
+        canvas_bytes, mask_bytes, canvas_meta = _build_exact_size_ai_canvas(
+            image_bytes=image_bytes,
             requested_width=requested_width,
             requested_height=requested_height,
+            base_width=base_width,
+            base_height=base_height,
+            overlap_profile=profile,
+        )
+
+        result = await _edit_openai_image(
+            client=client,
+            image_bytes=canvas_bytes,
+            filename="exact-size-expand.png",
+            content_type="image/png",
+            final_prompt=_build_exact_size_expand_prompt(
+                requested_width=requested_width,
+                requested_height=requested_height,
+                canvas_meta=canvas_meta,
+                prompt_mode=profile,
+            ),
+            aspect_ratio=_base_size_to_aspect_ratio(base_width, base_height),
+            quality=openai_quality,
+            openai_key=openai_key,
+            openai_size=f"{base_width}x{base_height}",
+            mask_bytes=mask_bytes,
+            input_fidelity="high",
+        )
+
+        expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
+        final_bytes = _finalize_exact_size_ai_expand(
+            expanded_canvas_bytes=expanded_bytes,
+            preserved_source_bytes=image_bytes,
             canvas_meta=canvas_meta,
-        ),
-        aspect_ratio=_base_size_to_aspect_ratio(base_width, base_height),
-        quality=openai_quality,
-        openai_key=openai_key,
-        openai_size=f"{base_width}x{base_height}",
-        mask_bytes=mask_bytes,
-        input_fidelity="high",
-    )
+        )
+        quality_score = _exact_expand_quality_score(
+            final_bytes=final_bytes,
+            preserved_source_bytes=image_bytes,
+            canvas_meta=canvas_meta,
+        )
 
-    expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
-    final_bytes = _finalize_exact_size_ai_expand(
-        expanded_canvas_bytes=expanded_bytes,
-        preserved_source_bytes=image_bytes,
-        canvas_meta=canvas_meta,
-    )
+        candidate_result = dict(result)
+        candidate_result["engine_id"] = "openai_exact_canvas_expand"
+        candidate_result["motor"] = f"{result.get('motor', 'OpenAI GPT Image 1.5 Edit')} + Extensão real por IA"
+        candidate_result["url"] = _result_url_from_image_bytes(final_bytes, "image/png")
+        candidate_result["exact_canvas_expand"] = {
+            "requested_width": requested_width,
+            "requested_height": requested_height,
+            "base_width": base_width,
+            "base_height": base_height,
+            "target_rect": dict(canvas_meta.get("target_rect") or {}),
+            "source_rect": dict(canvas_meta.get("source_rect") or {}),
+            "protected_rect": dict(canvas_meta.get("protected_rect") or {}),
+            "overlap": dict(canvas_meta.get("overlap") or {}),
+            "gaps": dict(canvas_meta.get("gaps") or {}),
+            "profile": profile,
+            "quality_score": round(float(quality_score), 3),
+            "attempt_index": attempt_index,
+            "strategy": "ai_exact_canvas_expand",
+        }
+        attempt_summaries.append({
+            "attempt_index": attempt_index,
+            "profile": profile,
+            "quality_score": round(float(quality_score), 3),
+        })
 
-    next_result = dict(result)
-    next_result["engine_id"] = "openai_exact_canvas_expand"
-    next_result["motor"] = f"{result.get('motor', 'OpenAI GPT Image 1.5 Edit')} + Extensão real por IA"
-    next_result["url"] = _result_url_from_image_bytes(final_bytes, "image/png")
-    next_result["exact_canvas_expand"] = {
-        "requested_width": requested_width,
-        "requested_height": requested_height,
-        "base_width": base_width,
-        "base_height": base_height,
-        "target_rect": dict(canvas_meta.get("target_rect") or {}),
-        "source_rect": dict(canvas_meta.get("source_rect") or {}),
-        "strategy": "ai_exact_canvas_expand",
+        if quality_score < best_score:
+            best_score = quality_score
+            best_result = candidate_result
+
+        if attempt_index == 1 and not _should_retry_exact_expand(
+            first_score=quality_score,
+            requested_width=requested_width,
+            requested_height=requested_height,
+            source_width=source_width,
+            source_height=source_height,
+        ):
+            break
+
+    if best_result is None:
+        raise ValueError("Falha ao concluir a expansão exata por IA.")
+
+    best_result["exact_canvas_expand"] = {
+        **dict(best_result.get("exact_canvas_expand") or {}),
+        "attempts": attempt_summaries,
+        "selected_quality_score": round(float(best_score), 3),
+        "selected_attempt": int((best_result.get("exact_canvas_expand") or {}).get("attempt_index", 1)),
     }
-    return next_result
+    return best_result
 
 
 async def _expand_image_to_supported_canvas_preserve(
