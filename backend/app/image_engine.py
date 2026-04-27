@@ -1581,21 +1581,50 @@ def _build_exact_size_ai_canvas(
         source_rect_height = max(1, source_rect[3] - source_rect[1])
         min_side = max(1, min(source_rect_width, source_rect_height))
         normalized_profile = (overlap_profile or "balanced").strip().lower()
+        ratio_delta = abs(
+            math.log(
+                max(1e-6, (requested_width / max(1.0, float(requested_height))))
+                / max(1e-6, (source.width / max(1.0, float(source.height))))
+            )
+        )
+        dominant_gap = max(left_gap, right_gap, top_gap, bottom_gap)
 
         if normalized_profile == "strict":
-            horizontal_overlap = max(8, min(16, int(round(min_side * 0.014))))
-            vertical_overlap = max(8, min(14, int(round(min_side * 0.013))))
-            min_protected_ratio = 0.90
+            horizontal_overlap = max(16, min(30, int(round(min_side * 0.024))))
+            vertical_overlap = max(14, min(26, int(round(min_side * 0.021))))
+            min_protected_ratio = 0.91
+        elif normalized_profile == "wide":
+            horizontal_overlap = max(24, min(46, int(round(min_side * 0.038))))
+            vertical_overlap = max(20, min(40, int(round(min_side * 0.034))))
+            min_protected_ratio = 0.80
+        elif normalized_profile == "coverage":
+            horizontal_overlap = max(30, min(56, int(round(min_side * 0.048))))
+            vertical_overlap = max(24, min(48, int(round(min_side * 0.042))))
+            min_protected_ratio = 0.74
         else:
-            horizontal_overlap = max(10, min(18, int(round(min_side * 0.018))))
-            vertical_overlap = max(8, min(16, int(round(min_side * 0.016))))
+            horizontal_overlap = max(18, min(34, int(round(min_side * 0.030))))
+            vertical_overlap = max(16, min(30, int(round(min_side * 0.026))))
             min_protected_ratio = 0.86
 
+        geometry_boost = 0
+        if ratio_delta >= 0.18:
+            geometry_boost += 4
+        if ratio_delta >= 0.30:
+            geometry_boost += 4
+        if dominant_gap >= max(source_rect_width, source_rect_height) * 0.12:
+            geometry_boost += 4
+        if dominant_gap >= max(source_rect_width, source_rect_height) * 0.20:
+            geometry_boost += 4
+        horizontal_overlap += geometry_boost
+        vertical_overlap += geometry_boost
+
+        max_h_overlap = max(0, source_rect_width // 5)
+        max_v_overlap = max(0, source_rect_height // 5)
         overlap = {
-            "left": min(horizontal_overlap, max(0, source_rect_width // 8)) if left_gap > 0 else 0,
-            "right": min(horizontal_overlap, max(0, source_rect_width // 8)) if right_gap > 0 else 0,
-            "top": min(vertical_overlap, max(0, source_rect_height // 8)) if top_gap > 0 else 0,
-            "bottom": min(vertical_overlap, max(0, source_rect_height // 8)) if bottom_gap > 0 else 0,
+            "left": min(horizontal_overlap, max_h_overlap) if left_gap > 0 else 0,
+            "right": min(horizontal_overlap, max_h_overlap) if right_gap > 0 else 0,
+            "top": min(vertical_overlap, max_v_overlap) if top_gap > 0 else 0,
+            "bottom": min(vertical_overlap, max_v_overlap) if bottom_gap > 0 else 0,
         }
 
         protected_rect = (
@@ -1627,7 +1656,9 @@ def _build_exact_size_ai_canvas(
             source_rect[3] - overlap["bottom"],
         )
 
+        scaffold_patch = _edge_extend_fill(source, target_rect_width, target_rect_height)
         canvas = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+        canvas.alpha_composite(scaffold_patch, (target_rect[0], target_rect[1]))
         canvas.alpha_composite(fitted, (source_rect[0], source_rect[1]))
 
         mask_l = Image.new("L", (base_width, base_height), 255)
@@ -1698,9 +1729,10 @@ def _build_exact_size_ai_canvas(
                     "top": top_gap,
                     "bottom": bottom_gap,
                 },
+                "ratio_delta": float(ratio_delta),
+                "scaffold_used": True,
             },
         )
-
 
 
 def _build_exact_size_expand_prompt(
@@ -1716,23 +1748,38 @@ def _build_exact_size_expand_prompt(
     gaps = canvas_meta.get("gaps") or {}
     normalized_mode = (prompt_mode or canvas_meta.get("profile") or "balanced").strip().lower()
 
-    strict_clause = (
-        "Trate a área original inteira como congelada e imutável, com exceção exclusiva das microfaixas de transição junto às bordas liberadas na máscara. "
-        "Mesmo nessas microfaixas, ajuste apenas continuidade de textura, perspectiva e luz; nunca mexa no desenho, alinhamento ou proporção de elementos existentes. "
-        if normalized_mode == "strict"
-        else "A área original inteira deve continuar com o mesmo desenho e alinhamento percebido, usando as faixas liberadas apenas para costura invisível. "
-    )
+    if normalized_mode == "strict":
+        mode_clause = (
+            "Trate a área original inteira como congelada e imutável, com exceção exclusiva das faixas mínimas liberadas na máscara. "
+            "Mesmo nessas faixas, ajuste apenas continuidade de textura, perspectiva, microcontraste e luz. "
+        )
+    elif normalized_mode == "wide":
+        mode_clause = (
+            "Use as faixas de transição um pouco mais largas apenas para costura invisível e continuidade estrutural. "
+            "Aproveite esse espaço para dissipar qualquer diferença de iluminação, grão, ruído fino e textura perto da junção. "
+        )
+    elif normalized_mode == "coverage":
+        mode_clause = (
+            "Priorize cobertura perfeita da moldura útil inteira, sem buracos, sem barras pretas, sem áreas transparentes e sem regiões chapadas. "
+            "Mesmo priorizando cobertura total, mantenha a identidade visual da área original praticamente intacta. "
+        )
+    else:
+        mode_clause = (
+            "A área original inteira deve continuar com o mesmo desenho e alinhamento percebido, usando as faixas liberadas apenas para costura invisível. "
+        )
 
     return (
         "Você recebeu uma arte pronta posicionada dentro de um canvas maior. "
         "Faça somente a extensão real do cenário nas áreas faltantes da moldura útil. "
         "A região original já presente no canvas é a referência dominante e deve continuar praticamente idêntica. "
-        + strict_clause +
+        + mode_clause +
         "Não altere, não reescreva e não redesenhe nenhum texto, data, local, logo, ícone, tipografia, branding, bicicleta, luz, vitrine, prédio, chão, perspectiva ou qualquer outro elemento já presente na área original. "
         "Continue apenas o que falta nas laterais e demais faixas vazias como continuação natural, física e visual da mesma cena. "
         "Respeite rigorosamente a mesma escuridão, temperatura de cor, contraste, textura, linhas de fuga, reflexos, ruído fino, nitidez e profundidade da arte original. "
         "As áreas novas não podem ficar mais claras, mais limpas, mais saturadas, mais suaves ou com iluminação diferente dos pixels vizinhos da arte original. "
+        "A junção entre área original e área nova precisa ficar contínua, sem linha vertical, sem linha horizontal, sem halo, sem degrau de luminância e sem quebra de textura. "
         "É proibido usar blur, glow, espelhamento, stretch, smear, duplicação de borda, repetição de coluna, repetição de faixa, padrão clonado, costura visível, preenchimento genérico ou reconstrução estilizada. "
+        "É proibido devolver barras pretas, padding preto, moldura vazia, áreas transparentes, faixas escuras artificiais ou regiões subpreenchidas. "
         "Não crie texto novo. Não duplique objetos inteiros. Não mude o enquadramento percebido da arte protegida. "
         f"A moldura útil final corresponde a {requested_width}x{requested_height}. "
         f"Área original aproximada: x={source_rect.get('x1', 0)}..{source_rect.get('x2', 0)}, y={source_rect.get('y1', 0)}..{source_rect.get('y2', 0)}. "
@@ -1751,12 +1798,13 @@ def _build_exact_expand_preservation_alpha(
 ) -> Image.Image:
     alpha = np.ones((max(1, source_height), max(1, source_width)), dtype=np.float32)
 
-    def _smoothstep_ramp(length: int, invert: bool = False) -> np.ndarray:
+    def _smootherstep_ramp(length: int, invert: bool = False) -> np.ndarray:
         if length <= 1:
             ramp = np.ones((max(1, length),), dtype=np.float32)
         else:
             t = np.linspace(0.0, 1.0, length, dtype=np.float32)
-            ramp = t * t * (3.0 - 2.0 * t)
+            ramp = t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+            ramp = np.clip((ramp - 0.015) / 0.985, 0.0, 1.0)
         if invert:
             ramp = ramp[::-1]
         return ramp
@@ -1766,27 +1814,30 @@ def _build_exact_expand_preservation_alpha(
     top = int(overlap.get("top", 0) or 0)
     bottom = int(overlap.get("bottom", 0) or 0)
 
-    if left > 0:
-        band = min(source_width, left)
-        ramp = _smoothstep_ramp(band, invert=False)
-        alpha[:, :band] = np.minimum(alpha[:, :band], ramp.reshape(1, band))
-    if right > 0:
-        band = min(source_width, right)
-        ramp = _smoothstep_ramp(band, invert=True)
-        alpha[:, source_width - band:source_width] = np.minimum(alpha[:, source_width - band:source_width], ramp.reshape(1, band))
-    if top > 0:
-        band = min(source_height, top)
-        ramp = _smoothstep_ramp(band, invert=False)
-        alpha[:band, :] = np.minimum(alpha[:band, :], ramp.reshape(band, 1))
-    if bottom > 0:
-        band = min(source_height, bottom)
-        ramp = _smoothstep_ramp(band, invert=True)
-        alpha[source_height - band:source_height, :] = np.minimum(alpha[source_height - band:source_height, :], ramp.reshape(band, 1))
+    feather_left = min(source_width, max(left, int(round(left * 1.30)))) if left > 0 else 0
+    feather_right = min(source_width, max(right, int(round(right * 1.30)))) if right > 0 else 0
+    feather_top = min(source_height, max(top, int(round(top * 1.30)))) if top > 0 else 0
+    feather_bottom = min(source_height, max(bottom, int(round(bottom * 1.30)))) if bottom > 0 else 0
+
+    if feather_left > 0:
+        ramp = _smootherstep_ramp(feather_left, invert=False)
+        alpha[:, :feather_left] = np.minimum(alpha[:, :feather_left], ramp.reshape(1, feather_left))
+    if feather_right > 0:
+        ramp = _smootherstep_ramp(feather_right, invert=True)
+        alpha[:, source_width - feather_right:source_width] = np.minimum(alpha[:, source_width - feather_right:source_width], ramp.reshape(1, feather_right))
+    if feather_top > 0:
+        ramp = _smootherstep_ramp(feather_top, invert=False)
+        alpha[:feather_top, :] = np.minimum(alpha[:feather_top, :], ramp.reshape(feather_top, 1))
+    if feather_bottom > 0:
+        ramp = _smootherstep_ramp(feather_bottom, invert=True)
+        alpha[source_height - feather_bottom:source_height, :] = np.minimum(alpha[source_height - feather_bottom:source_height, :], ramp.reshape(feather_bottom, 1))
 
     alpha_u8 = np.clip(np.round(alpha * 255.0), 0, 255).astype(np.uint8)
-    return Image.fromarray(alpha_u8, mode="L")
-
-
+    alpha_img = Image.fromarray(alpha_u8, mode="L")
+    blur_radius = 0.8 if max(feather_left, feather_right, feather_top, feather_bottom) >= 14 else 0.5
+    if blur_radius > 0.0:
+        alpha_img = alpha_img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+    return alpha_img
 
 def _overlay_preserved_source_with_adaptive_alpha(
     expanded: Image.Image,
@@ -1814,33 +1865,73 @@ def _overlay_preserved_source_with_adaptive_alpha(
 
 
 
-def _exact_expand_quality_score(
+def _final_space_source_rect_from_canvas_meta(
+    final_width: int,
+    final_height: int,
+    canvas_meta: Dict[str, Any],
+) -> Tuple[int, int, int, int]:
+    target_rect = canvas_meta.get("target_rect") or {}
+    source_rect = canvas_meta.get("source_rect") or {}
+
+    tx1 = float(target_rect.get("x1", 0) or 0)
+    ty1 = float(target_rect.get("y1", 0) or 0)
+    tx2 = float(target_rect.get("x2", final_width) or final_width)
+    ty2 = float(target_rect.get("y2", final_height) or final_height)
+    tw = max(1.0, tx2 - tx1)
+    th = max(1.0, ty2 - ty1)
+
+    sx1 = float(source_rect.get("x1", tx1) or tx1)
+    sy1 = float(source_rect.get("y1", ty1) or ty1)
+    sx2 = float(source_rect.get("x2", tx2) or tx2)
+    sy2 = float(source_rect.get("y2", ty2) or ty2)
+
+    fx1 = int(round(((sx1 - tx1) / tw) * final_width))
+    fy1 = int(round(((sy1 - ty1) / th) * final_height))
+    fx2 = int(round(((sx2 - tx1) / tw) * final_width))
+    fy2 = int(round(((sy2 - ty1) / th) * final_height))
+
+    fx1 = max(0, min(final_width, fx1))
+    fy1 = max(0, min(final_height, fy1))
+    fx2 = max(0, min(final_width, fx2))
+    fy2 = max(0, min(final_height, fy2))
+
+    if fx2 <= fx1:
+        fx1, fx2 = 0, final_width
+    if fy2 <= fy1:
+        fy1, fy2 = 0, final_height
+
+    return fx1, fy1, fx2, fy2
+
+
+def _exact_expand_quality_diagnostics(
     final_bytes: bytes,
     preserved_source_bytes: bytes,
     canvas_meta: Dict[str, Any],
-) -> float:
-    source_rect = canvas_meta.get("source_rect") or {}
+) -> Dict[str, Any]:
+    diagnostics: Dict[str, Any] = {
+        "quality_score": 999.0,
+        "border_score": 0.0,
+        "seam_score": 999.0,
+        "seam_max": 999.0,
+        "generated_region_penalty": 0.0,
+        "seam_details": [],
+        "flagged_sides": [],
+    }
+
     overlap = canvas_meta.get("overlap") or {}
-    target_rect = canvas_meta.get("target_rect") or {}
-
-    target_x1 = int(target_rect.get("x1", 0))
-    target_y1 = int(target_rect.get("y1", 0))
-    target_x2 = int(target_rect.get("x2", 0))
-    target_y2 = int(target_rect.get("y2", 0))
-    source_x1 = int(source_rect.get("x1", 0)) - target_x1
-    source_y1 = int(source_rect.get("y1", 0)) - target_y1
-    source_x2 = int(source_rect.get("x2", 0)) - target_x1
-    source_y2 = int(source_rect.get("y2", 0)) - target_y1
-    target_x1 = 0
-    target_y1 = 0
-    target_x2 = max(0, target_x2 - int(target_rect.get("x1", 0)))
-    target_y2 = max(0, target_y2 - int(target_rect.get("y1", 0)))
-
-    if source_x2 <= source_x1 or source_y2 <= source_y1:
-        return 999.0
 
     with Image.open(io.BytesIO(final_bytes)) as final_im, Image.open(io.BytesIO(preserved_source_bytes)) as source_im:
         final_rgba = final_im.convert("RGBA")
+        final_width, final_height = final_rgba.size
+        source_x1, source_y1, source_x2, source_y2 = _final_space_source_rect_from_canvas_meta(
+            final_width=final_width,
+            final_height=final_height,
+            canvas_meta=canvas_meta,
+        )
+
+        if source_x2 <= source_x1 or source_y2 <= source_y1:
+            return diagnostics
+
         preserved_fitted, _ = _resize_to_contain(
             source_im.convert("RGBA"),
             max(1, source_x2 - source_x1),
@@ -1849,15 +1940,30 @@ def _exact_expand_quality_score(
 
         final_arr = np.array(final_rgba, dtype=np.float32)
         source_arr = np.array(preserved_fitted, dtype=np.float32)
+        final_rgb = final_arr[..., :3]
+        final_alpha = final_arr[..., 3]
         scores: List[float] = []
+        border_penalties: List[float] = []
+        generated_penalties: List[float] = []
+        seam_penalties: List[float] = []
+        seam_details: List[Dict[str, Any]] = []
+        luma_weights = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
         def _collect(inner_bbox: Tuple[int, int, int, int], outer_bbox: Tuple[int, int, int, int], axis: int) -> None:
             ix1, iy1, ix2, iy2 = inner_bbox
             ox1, oy1, ox2, oy2 = outer_bbox
+            ix1 = max(0, min(source_arr.shape[1], ix1))
+            ix2 = max(0, min(source_arr.shape[1], ix2))
+            iy1 = max(0, min(source_arr.shape[0], iy1))
+            iy2 = max(0, min(source_arr.shape[0], iy2))
+            ox1 = max(0, min(final_rgb.shape[1], ox1))
+            ox2 = max(0, min(final_rgb.shape[1], ox2))
+            oy1 = max(0, min(final_rgb.shape[0], oy1))
+            oy2 = max(0, min(final_rgb.shape[0], oy2))
             if ix2 <= ix1 or iy2 <= iy1 or ox2 <= ox1 or oy2 <= oy1:
                 return
             inner = source_arr[iy1:iy2, ix1:ix2, :3]
-            outer = final_arr[oy1:oy2, ox1:ox2, :3]
+            outer = final_rgb[oy1:oy2, ox1:ox2, :3]
             if inner.size == 0 or outer.size == 0:
                 return
             if inner.shape[:2] != outer.shape[:2]:
@@ -1876,31 +1982,154 @@ def _exact_expand_quality_score(
                 inner_edge = inner[-1, :, :] if inner.shape[0] > 0 else inner.reshape(-1, 3)
                 outer_edge = outer[0, :, :] if outer.shape[0] > 0 else outer.reshape(-1, 3)
             edge_gap = float(np.mean(np.abs(inner_edge - outer_edge)))
-            scores.append((mean_gap * 0.45) + (std_gap * 0.15) + (edge_gap * 0.40))
+            luma_gap = float(np.mean(np.abs((inner_edge @ luma_weights) - (outer_edge @ luma_weights))))
+            penalty = (mean_gap * 0.34) + (std_gap * 0.12) + (edge_gap * 0.34) + (luma_gap * 0.20)
+            scores.append(penalty)
+            generated_penalties.append(float(penalty))
 
-        left_gap = max(0, source_x1 - target_x1)
-        right_gap = max(0, target_x2 - source_x2)
-        top_gap = max(0, source_y1 - target_y1)
-        bottom_gap = max(0, target_y2 - source_y2)
+        left_gap = max(0, source_x1)
+        right_gap = max(0, final_width - source_x2)
+        top_gap = max(0, source_y1)
+        bottom_gap = max(0, final_height - source_y2)
 
         if left_gap > 0:
-            strip = max(6, min(24, left_gap, source_arr.shape[1], int(overlap.get("left", 0) or 0) * 2 or 12))
+            strip = max(8, min(28, left_gap, source_arr.shape[1], int(overlap.get("left", 0) or 0) * 2 or 14))
             _collect((0, 0, strip, source_arr.shape[0]), (source_x1 - strip, source_y1, source_x1, source_y2), axis=1)
         if right_gap > 0:
-            strip = max(6, min(24, right_gap, source_arr.shape[1], int(overlap.get("right", 0) or 0) * 2 or 12))
+            strip = max(8, min(28, right_gap, source_arr.shape[1], int(overlap.get("right", 0) or 0) * 2 or 14))
             _collect((source_arr.shape[1] - strip, 0, source_arr.shape[1], source_arr.shape[0]), (source_x2, source_y1, source_x2 + strip, source_y2), axis=1)
         if top_gap > 0:
-            strip = max(6, min(20, top_gap, source_arr.shape[0], int(overlap.get("top", 0) or 0) * 2 or 10))
+            strip = max(8, min(24, top_gap, source_arr.shape[0], int(overlap.get("top", 0) or 0) * 2 or 12))
             _collect((0, 0, source_arr.shape[1], strip), (source_x1, source_y1 - strip, source_x2, source_y1), axis=0)
         if bottom_gap > 0:
-            strip = max(6, min(20, bottom_gap, source_arr.shape[0], int(overlap.get("bottom", 0) or 0) * 2 or 10))
+            strip = max(8, min(24, bottom_gap, source_arr.shape[0], int(overlap.get("bottom", 0) or 0) * 2 or 12))
             _collect((0, source_arr.shape[0] - strip, source_arr.shape[1], source_arr.shape[0]), (source_x1, source_y2, source_x2, source_y2 + strip), axis=0)
 
+        generated_mask = np.ones((final_height, final_width), dtype=bool)
+        generated_mask[source_y1:source_y2, source_x1:source_x2] = False
+        if np.any(generated_mask):
+            region_rgb = final_rgb[generated_mask]
+            region_alpha = final_alpha[generated_mask]
+            luma = region_rgb @ luma_weights
+            black_ratio = float(np.mean(luma < 8.0))
+            low_alpha_ratio = float(np.mean(region_alpha < 8.0))
+            if black_ratio > 0.0:
+                penalty = black_ratio * 150.0
+                scores.append(penalty)
+                generated_penalties.append(float(penalty))
+            if low_alpha_ratio > 0.0:
+                penalty = low_alpha_ratio * 180.0
+                scores.append(penalty)
+                generated_penalties.append(float(penalty))
+            if region_rgb.shape[0] > 16:
+                flat_penalty = max(0.0, 11.0 - float(np.mean(region_rgb.std(axis=0)))) * 0.35
+                if flat_penalty > 0.0:
+                    scores.append(flat_penalty)
+                    generated_penalties.append(float(flat_penalty))
+
+        border_w = min(6, final_width)
+        border_h = min(6, final_height)
+        if border_w > 0:
+            left_border = final_rgb[:, :border_w, :].reshape(-1, 3)
+            right_border = final_rgb[:, final_width - border_w:, :].reshape(-1, 3)
+            border_penalties.append(float(np.mean((left_border @ luma_weights) < 6.0)) * 120.0)
+            border_penalties.append(float(np.mean((right_border @ luma_weights) < 6.0)) * 120.0)
+        if border_h > 0:
+            top_border = final_rgb[:border_h, :, :].reshape(-1, 3)
+            bottom_border = final_rgb[final_height - border_h:, :, :].reshape(-1, 3)
+            border_penalties.append(float(np.mean((top_border @ luma_weights) < 6.0)) * 120.0)
+            border_penalties.append(float(np.mean((bottom_border @ luma_weights) < 6.0)) * 120.0)
+        scores.extend(border_penalties)
+
+        def _vertical_seam_penalty(side: str, seam_x: int, y1: int, y2: int) -> None:
+            if seam_x <= 0 or seam_x >= final_rgb.shape[1] or y2 <= y1:
+                return
+            y1 = max(0, min(final_rgb.shape[0], y1))
+            y2 = max(0, min(final_rgb.shape[0], y2))
+            left = final_rgb[y1:y2, max(0, seam_x - 3):seam_x, :]
+            right = final_rgb[y1:y2, seam_x:min(final_rgb.shape[1], seam_x + 3), :]
+            if left.size == 0 or right.size == 0:
+                return
+            left_mean = left.mean(axis=1)
+            right_mean = right.mean(axis=1)
+            color_gap = float(np.mean(np.abs(left_mean - right_mean)))
+            luma_gap = float(np.mean(np.abs((left_mean @ luma_weights) - (right_mean @ luma_weights))))
+            penalty = (color_gap * 0.55) + (luma_gap * 0.95)
+            scores.append(penalty)
+            seam_penalties.append(float(penalty))
+            seam_details.append({
+                "side": side,
+                "orientation": "vertical",
+                "color_gap": round(color_gap, 4),
+                "luma_gap": round(luma_gap, 4),
+                "score": round(float(penalty), 4),
+            })
+
+        def _horizontal_seam_penalty(side: str, seam_y: int, x1: int, x2: int) -> None:
+            if seam_y <= 0 or seam_y >= final_rgb.shape[0] or x2 <= x1:
+                return
+            x1 = max(0, min(final_rgb.shape[1], x1))
+            x2 = max(0, min(final_rgb.shape[1], x2))
+            top = final_rgb[max(0, seam_y - 3):seam_y, x1:x2, :]
+            bottom = final_rgb[seam_y:min(final_rgb.shape[0], seam_y + 3), x1:x2, :]
+            if top.size == 0 or bottom.size == 0:
+                return
+            top_mean = top.mean(axis=0)
+            bottom_mean = bottom.mean(axis=0)
+            color_gap = float(np.mean(np.abs(top_mean - bottom_mean)))
+            luma_gap = float(np.mean(np.abs((top_mean @ luma_weights) - (bottom_mean @ luma_weights))))
+            penalty = (color_gap * 0.55) + (luma_gap * 0.95)
+            scores.append(penalty)
+            seam_penalties.append(float(penalty))
+            seam_details.append({
+                "side": side,
+                "orientation": "horizontal",
+                "color_gap": round(color_gap, 4),
+                "luma_gap": round(luma_gap, 4),
+                "score": round(float(penalty), 4),
+            })
+
+        if left_gap > 0:
+            _vertical_seam_penalty("left", source_x1, source_y1, source_y2)
+        if right_gap > 0:
+            _vertical_seam_penalty("right", source_x2, source_y1, source_y2)
+        if top_gap > 0:
+            _horizontal_seam_penalty("top", source_y1, source_x1, source_x2)
+        if bottom_gap > 0:
+            _horizontal_seam_penalty("bottom", source_y2, source_x1, source_x2)
+
     if not scores:
-        return 999.0
-    return float(np.mean(scores))
+        return diagnostics
 
+    seam_score = float(np.mean(seam_penalties)) if seam_penalties else 999.0
+    seam_max = float(max(seam_penalties)) if seam_penalties else 999.0
+    quality_score = float(np.mean(scores))
+    flagged_sides = [item["side"] for item in seam_details if float(item.get("score", 0.0)) >= 7.2]
+    if not flagged_sides and seam_max >= 6.4:
+        flagged_sides = [item["side"] for item in seam_details if float(item.get("score", 0.0)) >= seam_max - 0.35]
 
+    diagnostics.update({
+        "quality_score": quality_score,
+        "border_score": float(np.mean(border_penalties)) if border_penalties else 0.0,
+        "seam_score": seam_score,
+        "seam_max": seam_max,
+        "generated_region_penalty": float(np.mean(generated_penalties)) if generated_penalties else 0.0,
+        "seam_details": seam_details,
+        "flagged_sides": flagged_sides,
+    })
+    return diagnostics
+
+def _exact_expand_quality_score(
+    final_bytes: bytes,
+    preserved_source_bytes: bytes,
+    canvas_meta: Dict[str, Any],
+) -> float:
+    diagnostics = _exact_expand_quality_diagnostics(
+        final_bytes=final_bytes,
+        preserved_source_bytes=preserved_source_bytes,
+        canvas_meta=canvas_meta,
+    )
+    return float(diagnostics.get("quality_score", 999.0))
 
 def _should_retry_exact_expand(first_score: float, requested_width: int, requested_height: int, source_width: int, source_height: int) -> bool:
     if first_score <= 11.5:
@@ -1915,111 +2144,516 @@ def _harmonize_exact_expand_bands(
     expanded: Image.Image,
     canvas_meta: Dict[str, Any],
 ) -> Image.Image:
+    # v8: evita correção estatística em bandas largas, que podia criar painéis retangulares visíveis.
+    # A harmonização fina fica concentrada em _locally_harmonize_exact_expand_seams e _microblend_exact_expand_seams.
+    return expanded
+
+
+def _smooth_matrix_along_axis(values: np.ndarray, radius: int = 6) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float32)
+    if arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    if arr.shape[0] <= 2 or radius <= 0:
+        return arr.astype(np.float32, copy=True)
+
+    kernel_size = max(1, radius * 2 + 1)
+    kernel = np.ones((kernel_size,), dtype=np.float32) / float(kernel_size)
+    padded = np.pad(arr, ((radius, radius), (0, 0)), mode="edge")
+    out = np.empty_like(arr, dtype=np.float32)
+    for c in range(arr.shape[1]):
+        out[:, c] = np.convolve(padded[:, c], kernel, mode="valid")
+    return out
+
+
+def _locally_harmonize_exact_expand_seams(
+    expanded: Image.Image,
+    preserved_fitted: Image.Image,
+    canvas_meta: Dict[str, Any],
+) -> Image.Image:
+    source_rect = canvas_meta.get("source_rect") or {}
     target_rect = canvas_meta.get("target_rect") or {}
-    protected_rect = canvas_meta.get("protected_rect") or {}
-
-    target_x1 = int(target_rect.get("x1", 0))
-    target_y1 = int(target_rect.get("y1", 0))
-    target_x2 = int(target_rect.get("x2", 0))
-    target_y2 = int(target_rect.get("y2", 0))
-
-    protected_x1 = int(protected_rect.get("x1", target_x1))
-    protected_y1 = int(protected_rect.get("y1", target_y1))
-    protected_x2 = int(protected_rect.get("x2", target_x2))
-    protected_y2 = int(protected_rect.get("y2", target_y2))
-
-    if target_x2 <= target_x1 or target_y2 <= target_y1:
+    sx1 = int(source_rect.get("x1", 0)); sy1 = int(source_rect.get("y1", 0))
+    sx2 = int(source_rect.get("x2", 0)); sy2 = int(source_rect.get("y2", 0))
+    tx1 = int(target_rect.get("x1", 0)); ty1 = int(target_rect.get("y1", 0))
+    tx2 = int(target_rect.get("x2", 0)); ty2 = int(target_rect.get("y2", 0))
+    if sx2 <= sx1 or sy2 <= sy1 or tx2 <= tx1 or ty2 <= ty1:
         return expanded
 
     arr = np.array(expanded.convert("RGBA"), dtype=np.float32)
+    src = np.array(preserved_fitted.convert("RGBA"), dtype=np.float32)[..., :3]
 
-    def _region_stats(region: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
-        if region.size == 0:
-            return None
-        alpha = region[..., 3] > 0
-        if not np.any(alpha):
-            return None
-        rgb = region[..., :3][alpha].astype(np.float32)
-        if rgb.size == 0:
-            return None
-        mean = rgb.mean(axis=0)
-        std = np.maximum(rgb.std(axis=0), 1.0)
-        luma = float((rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)).mean())
-        return mean, std, luma
+    def _row_smooth(delta: np.ndarray, height: int) -> np.ndarray:
+        return _smooth_matrix_along_axis(delta, radius=max(2, min(10, height // 56)))
 
-    def _apply_band(bbox: Tuple[int, int, int, int], ref_bbox: Tuple[int, int, int, int], axis: int, boundary_at_start: bool) -> None:
-        x1, y1, x2, y2 = bbox
-        rx1, ry1, rx2, ry2 = ref_bbox
-        if x2 <= x1 or y2 <= y1 or rx2 <= rx1 or ry2 <= ry1:
-            return
-        band = arr[y1:y2, x1:x2]
-        ref = arr[ry1:ry2, rx1:rx2]
-        band_stats = _region_stats(band)
-        ref_stats = _region_stats(ref)
-        if not band_stats or not ref_stats:
-            return
+    def _col_smooth(delta: np.ndarray, width: int) -> np.ndarray:
+        return _smooth_matrix_along_axis(delta, radius=max(2, min(10, width // 72)))
 
-        band_mean, band_std, band_luma = band_stats
-        ref_mean, ref_std, ref_luma = ref_stats
-
-        luma_gain = float(np.clip(ref_luma / max(1e-3, band_luma), 0.88, 1.12))
-        std_gain = np.clip(ref_std / np.maximum(band_std, 1.0), 0.92, 1.08)
-        mean_delta = np.clip(ref_mean - band_mean, -18.0, 18.0)
-
-        rgb = band[..., :3]
-        transformed = (rgb - band_mean) * std_gain + band_mean
-        transformed = transformed * luma_gain + (mean_delta * 0.55)
-
-        length = (x2 - x1) if axis == 1 else (y2 - y1)
-        if length <= 1:
-            weight = np.ones((y2 - y1, x2 - x1, 1), dtype=np.float32)
+    def _vertical(side: str) -> None:
+        if side == "left":
+            gap = max(0, sx1 - tx1); zone = min(gap, max(10, min(26, gap // 4 if gap else 10)))
+            x0, x1 = max(tx1, sx1 - zone), sx1
+            if x1 <= x0: return
+            band = arr[sy1:sy2, x0:x1, :3]
+            ref = src[:, :min(src.shape[1], max(6, min(16, band.shape[1] + 4))), :]
+            if band.size == 0 or ref.size == 0: return
+            boundary = band[:, -min(6, band.shape[1]):, :]
+            ref_boundary = ref[:, :min(boundary.shape[1], ref.shape[1]), :]
+            if ref_boundary.shape[1] != boundary.shape[1]:
+                ref_boundary = np.repeat(ref[:, :1, :], boundary.shape[1], axis=1)
+            delta = _row_smooth(ref_boundary.mean(axis=1) - boundary.mean(axis=1), band.shape[0])
+            w = np.linspace(0.04, 0.34, band.shape[1], dtype=np.float32).reshape(1, band.shape[1], 1)
+            arr[sy1:sy2, x0:x1, :3] = np.clip(band + delta[:, None, :] * w, 0.0, 255.0)
         else:
-            ramp = np.linspace(0.55, 1.0, length, dtype=np.float32)
-            if boundary_at_start:
-                ramp = ramp[::-1]
-            if axis == 1:
-                weight = np.tile(ramp.reshape(1, length, 1), (y2 - y1, 1, 1))
-            else:
-                weight = np.tile(ramp.reshape(length, 1, 1), (1, x2 - x1, 1))
+            gap = max(0, tx2 - sx2); zone = min(gap, max(10, min(26, gap // 4 if gap else 10)))
+            x0, x1 = sx2, min(tx2, sx2 + zone)
+            if x1 <= x0: return
+            band = arr[sy1:sy2, x0:x1, :3]
+            ref = src[:, max(0, src.shape[1] - max(6, min(16, band.shape[1] + 4))):, :]
+            if band.size == 0 or ref.size == 0: return
+            boundary = band[:, :min(6, band.shape[1]), :]
+            ref_boundary = ref[:, max(0, ref.shape[1] - boundary.shape[1]):, :]
+            if ref_boundary.shape[1] != boundary.shape[1]:
+                ref_boundary = np.repeat(ref[:, -1:, :], boundary.shape[1], axis=1)
+            delta = _row_smooth(ref_boundary.mean(axis=1) - boundary.mean(axis=1), band.shape[0])
+            w = np.linspace(0.34, 0.04, band.shape[1], dtype=np.float32).reshape(1, band.shape[1], 1)
+            arr[sy1:sy2, x0:x1, :3] = np.clip(band + delta[:, None, :] * w, 0.0, 255.0)
 
-        band[..., :3] = np.clip((rgb * (1.0 - weight)) + (transformed * weight), 0.0, 255.0)
-        arr[y1:y2, x1:x2] = band
+    def _horizontal(side: str) -> None:
+        if side == "top":
+            gap = max(0, sy1 - ty1); zone = min(gap, max(8, min(22, gap // 4 if gap else 8)))
+            y0, y1 = max(ty1, sy1 - zone), sy1
+            if y1 <= y0: return
+            band = arr[y0:y1, sx1:sx2, :3]
+            ref = src[:min(src.shape[0], max(6, min(14, band.shape[0] + 4))), :, :]
+            if band.size == 0 or ref.size == 0: return
+            boundary = band[-min(6, band.shape[0]):, :, :]
+            ref_boundary = ref[:min(boundary.shape[0], ref.shape[0]), :, :]
+            if ref_boundary.shape[0] != boundary.shape[0]:
+                ref_boundary = np.repeat(ref[:1, :, :], boundary.shape[0], axis=0)
+            delta = _col_smooth(ref_boundary.mean(axis=0) - boundary.mean(axis=0), band.shape[1])
+            w = np.linspace(0.04, 0.30, band.shape[0], dtype=np.float32).reshape(band.shape[0], 1, 1)
+            arr[y0:y1, sx1:sx2, :3] = np.clip(band + delta[None, :, :] * w, 0.0, 255.0)
+        else:
+            gap = max(0, ty2 - sy2); zone = min(gap, max(8, min(22, gap // 4 if gap else 8)))
+            y0, y1 = sy2, min(ty2, sy2 + zone)
+            if y1 <= y0: return
+            band = arr[y0:y1, sx1:sx2, :3]
+            ref = src[max(0, src.shape[0] - max(6, min(14, band.shape[0] + 4))):, :, :]
+            if band.size == 0 or ref.size == 0: return
+            boundary = band[:min(6, band.shape[0]), :, :]
+            ref_boundary = ref[max(0, ref.shape[0] - boundary.shape[0]):, :, :]
+            if ref_boundary.shape[0] != boundary.shape[0]:
+                ref_boundary = np.repeat(ref[-1:, :, :], boundary.shape[0], axis=0)
+            delta = _col_smooth(ref_boundary.mean(axis=0) - boundary.mean(axis=0), band.shape[1])
+            w = np.linspace(0.30, 0.04, band.shape[0], dtype=np.float32).reshape(band.shape[0], 1, 1)
+            arr[y0:y1, sx1:sx2, :3] = np.clip(band + delta[None, :, :] * w, 0.0, 255.0)
 
-    ref_strip_w = max(10, min(24, int(round(max(1, protected_x2 - protected_x1) * 0.03))))
-    ref_strip_h = max(10, min(24, int(round(max(1, protected_y2 - protected_y1) * 0.03))))
-
-    if protected_x1 > target_x1:
-        _apply_band(
-            (target_x1, target_y1, protected_x1, target_y2),
-            (protected_x1, max(target_y1, protected_y1), min(protected_x1 + ref_strip_w, protected_x2), min(target_y2, protected_y2)),
-            axis=1,
-            boundary_at_start=False,
-        )
-    if protected_x2 < target_x2:
-        _apply_band(
-            (protected_x2, target_y1, target_x2, target_y2),
-            (max(protected_x1, protected_x2 - ref_strip_w), max(target_y1, protected_y1), protected_x2, min(target_y2, protected_y2)),
-            axis=1,
-            boundary_at_start=True,
-        )
-    if protected_y1 > target_y1:
-        _apply_band(
-            (target_x1, target_y1, target_x2, protected_y1),
-            (max(target_x1, protected_x1), protected_y1, min(target_x2, protected_x2), min(protected_y1 + ref_strip_h, protected_y2)),
-            axis=0,
-            boundary_at_start=False,
-        )
-    if protected_y2 < target_y2:
-        _apply_band(
-            (target_x1, protected_y2, target_x2, target_y2),
-            (max(target_x1, protected_x1), max(protected_y1, protected_y2 - ref_strip_h), min(target_x2, protected_x2), protected_y2),
-            axis=0,
-            boundary_at_start=True,
-        )
-
+    _vertical("left"); _vertical("right"); _horizontal("top"); _horizontal("bottom")
     return Image.fromarray(np.clip(arr, 0.0, 255.0).astype(np.uint8), mode="RGBA")
 
 
+def _microblend_exact_expand_seams(
+    expanded: Image.Image,
+    preserved_fitted: Image.Image,
+    canvas_meta: Dict[str, Any],
+) -> Image.Image:
+    source_rect = canvas_meta.get("source_rect") or {}
+    target_rect = canvas_meta.get("target_rect") or {}
+    overlap = canvas_meta.get("overlap") or {}
+
+    sx1 = int(source_rect.get("x1", 0))
+    sy1 = int(source_rect.get("y1", 0))
+    sx2 = int(source_rect.get("x2", 0))
+    sy2 = int(source_rect.get("y2", 0))
+    tx1 = int(target_rect.get("x1", 0))
+    ty1 = int(target_rect.get("y1", 0))
+    tx2 = int(target_rect.get("x2", 0))
+    ty2 = int(target_rect.get("y2", 0))
+
+    if sx2 <= sx1 or sy2 <= sy1 or tx2 <= tx1 or ty2 <= ty1:
+        return expanded
+
+    arr = np.array(expanded.convert("RGBA"), dtype=np.float32)
+    src = np.array(preserved_fitted.convert("RGBA"), dtype=np.float32)[..., :3]
+
+    def _blend_vertical(side: str) -> None:
+        if side == "left":
+            gap = max(0, sx1 - tx1)
+            if gap <= 0:
+                return
+            outer = min(gap, max(14, min(34, int((int(overlap.get("left", 0) or 0) * 1.8) or 18))))
+            inner = min(src.shape[1], max(10, min(26, int((int(overlap.get("left", 0) or 0) * 1.2) or 14))))
+            x0 = max(tx1, sx1 - outer)
+            x1 = min(tx2, sx1 + inner)
+            seam = sx1 - x0
+            strip = arr[sy1:sy2, x0:x1, :3]
+            if strip.size == 0 or seam <= 0 or seam >= strip.shape[1]:
+                return
+            bw_out = min(6, seam)
+            bw_in = min(6, inner)
+            outside_ref = strip[:, seam - bw_out:seam, :]
+            inside_ref = src[:, :bw_in, :]
+            if outside_ref.size == 0 or inside_ref.size == 0:
+                return
+            delta = inside_ref.mean(axis=1) - outside_ref.mean(axis=1)
+            delta = _smooth_matrix_along_axis(delta, radius=max(2, min(10, strip.shape[0] // 48)))
+            target = strip.copy()
+            if seam > 0:
+                w_out = np.linspace(0.16, 0.78, seam, dtype=np.float32).reshape(1, seam, 1)
+                target[:, :seam, :] = np.clip(target[:, :seam, :] + (delta[:, None, :] * w_out), 0.0, 255.0)
+            if inner > 0 and strip.shape[1] > seam:
+                use_inner = min(inner, strip.shape[1] - seam)
+                src_slice = src[:, :use_inner, :]
+                w_in = np.linspace(0.26, 0.06, use_inner, dtype=np.float32).reshape(1, use_inner, 1)
+                current_in = target[:, seam:seam + use_inner, :]
+                target[:, seam:seam + use_inner, :] = np.clip((current_in * (1.0 - w_in)) + (src_slice * w_in), 0.0, 255.0)
+            weights = np.concatenate([
+                np.linspace(0.10, 0.60, seam, dtype=np.float32),
+                np.linspace(0.28, 0.04, max(0, strip.shape[1] - seam), dtype=np.float32),
+            ], axis=0).reshape(1, strip.shape[1], 1)
+            arr[sy1:sy2, x0:x1, :3] = np.clip((strip * (1.0 - weights)) + (target * weights), 0.0, 255.0)
+        else:
+            gap = max(0, tx2 - sx2)
+            if gap <= 0:
+                return
+            outer = min(gap, max(14, min(34, int((int(overlap.get("right", 0) or 0) * 1.8) or 18))))
+            inner = min(src.shape[1], max(10, min(26, int((int(overlap.get("right", 0) or 0) * 1.2) or 14))))
+            x0 = max(tx1, sx2 - inner)
+            x1 = min(tx2, sx2 + outer)
+            seam = sx2 - x0
+            strip = arr[sy1:sy2, x0:x1, :3]
+            if strip.size == 0 or seam <= 0 or seam >= strip.shape[1]:
+                return
+            bw_out = min(6, strip.shape[1] - seam)
+            bw_in = min(6, inner)
+            outside_ref = strip[:, seam:seam + bw_out, :]
+            inside_ref = src[:, src.shape[1] - bw_in:src.shape[1], :]
+            if outside_ref.size == 0 or inside_ref.size == 0:
+                return
+            delta = inside_ref.mean(axis=1) - outside_ref.mean(axis=1)
+            delta = _smooth_matrix_along_axis(delta, radius=max(2, min(10, strip.shape[0] // 48)))
+            target = strip.copy()
+            outer_len = strip.shape[1] - seam
+            if outer_len > 0:
+                w_out = np.linspace(0.78, 0.16, outer_len, dtype=np.float32).reshape(1, outer_len, 1)
+                target[:, seam:, :] = np.clip(target[:, seam:, :] + (delta[:, None, :] * w_out), 0.0, 255.0)
+            if seam > 0:
+                use_inner = min(inner, seam)
+                src_slice = src[:, src.shape[1] - use_inner:src.shape[1], :]
+                w_in = np.linspace(0.06, 0.26, use_inner, dtype=np.float32).reshape(1, use_inner, 1)
+                current_in = target[:, seam - use_inner:seam, :]
+                target[:, seam - use_inner:seam, :] = np.clip((current_in * (1.0 - w_in)) + (src_slice * w_in), 0.0, 255.0)
+            weights = np.concatenate([
+                np.linspace(0.04, 0.28, seam, dtype=np.float32),
+                np.linspace(0.60, 0.10, max(0, strip.shape[1] - seam), dtype=np.float32),
+            ], axis=0).reshape(1, strip.shape[1], 1)
+            arr[sy1:sy2, x0:x1, :3] = np.clip((strip * (1.0 - weights)) + (target * weights), 0.0, 255.0)
+
+    def _blend_horizontal(side: str) -> None:
+        if side == "top":
+            gap = max(0, sy1 - ty1)
+            if gap <= 0:
+                return
+            outer = min(gap, max(12, min(30, int((int(overlap.get("top", 0) or 0) * 1.8) or 16))))
+            inner = min(src.shape[0], max(10, min(24, int((int(overlap.get("top", 0) or 0) * 1.2) or 14))))
+            y0 = max(ty1, sy1 - outer)
+            y1 = min(ty2, sy1 + inner)
+            seam = sy1 - y0
+            strip = arr[y0:y1, sx1:sx2, :3]
+            if strip.size == 0 or seam <= 0 or seam >= strip.shape[0]:
+                return
+            bh_out = min(6, seam)
+            bh_in = min(6, inner)
+            outside_ref = strip[seam - bh_out:seam, :, :]
+            inside_ref = src[:bh_in, :, :]
+            if outside_ref.size == 0 or inside_ref.size == 0:
+                return
+            delta = inside_ref.mean(axis=0) - outside_ref.mean(axis=0)
+            delta = _smooth_matrix_along_axis(delta, radius=max(2, min(10, strip.shape[1] // 48)))
+            target = strip.copy()
+            if seam > 0:
+                w_out = np.linspace(0.16, 0.76, seam, dtype=np.float32).reshape(seam, 1, 1)
+                target[:seam, :, :] = np.clip(target[:seam, :, :] + (delta[None, :, :] * w_out), 0.0, 255.0)
+            if inner > 0 and strip.shape[0] > seam:
+                use_inner = min(inner, strip.shape[0] - seam)
+                src_slice = src[:use_inner, :, :]
+                w_in = np.linspace(0.24, 0.06, use_inner, dtype=np.float32).reshape(use_inner, 1, 1)
+                current_in = target[seam:seam + use_inner, :, :]
+                target[seam:seam + use_inner, :, :] = np.clip((current_in * (1.0 - w_in)) + (src_slice * w_in), 0.0, 255.0)
+            weights = np.concatenate([
+                np.linspace(0.10, 0.58, seam, dtype=np.float32),
+                np.linspace(0.26, 0.04, max(0, strip.shape[0] - seam), dtype=np.float32),
+            ], axis=0).reshape(strip.shape[0], 1, 1)
+            arr[y0:y1, sx1:sx2, :3] = np.clip((strip * (1.0 - weights)) + (target * weights), 0.0, 255.0)
+        else:
+            gap = max(0, ty2 - sy2)
+            if gap <= 0:
+                return
+            outer = min(gap, max(12, min(30, int((int(overlap.get("bottom", 0) or 0) * 1.8) or 16))))
+            inner = min(src.shape[0], max(10, min(24, int((int(overlap.get("bottom", 0) or 0) * 1.2) or 14))))
+            y0 = max(ty1, sy2 - inner)
+            y1 = min(ty2, sy2 + outer)
+            seam = sy2 - y0
+            strip = arr[y0:y1, sx1:sx2, :3]
+            if strip.size == 0 or seam <= 0 or seam >= strip.shape[0]:
+                return
+            bh_out = min(6, strip.shape[0] - seam)
+            bh_in = min(6, inner)
+            outside_ref = strip[seam:seam + bh_out, :, :]
+            inside_ref = src[src.shape[0] - bh_in:src.shape[0], :, :]
+            if outside_ref.size == 0 or inside_ref.size == 0:
+                return
+            delta = inside_ref.mean(axis=0) - outside_ref.mean(axis=0)
+            delta = _smooth_matrix_along_axis(delta, radius=max(2, min(10, strip.shape[1] // 48)))
+            target = strip.copy()
+            outer_len = strip.shape[0] - seam
+            if outer_len > 0:
+                w_out = np.linspace(0.76, 0.16, outer_len, dtype=np.float32).reshape(outer_len, 1, 1)
+                target[seam:, :, :] = np.clip(target[seam:, :, :] + (delta[None, :, :] * w_out), 0.0, 255.0)
+            if seam > 0:
+                use_inner = min(inner, seam)
+                src_slice = src[src.shape[0] - use_inner:src.shape[0], :, :]
+                w_in = np.linspace(0.06, 0.24, use_inner, dtype=np.float32).reshape(use_inner, 1, 1)
+                current_in = target[seam - use_inner:seam, :, :]
+                target[seam - use_inner:seam, :, :] = np.clip((current_in * (1.0 - w_in)) + (src_slice * w_in), 0.0, 255.0)
+            weights = np.concatenate([
+                np.linspace(0.04, 0.26, seam, dtype=np.float32),
+                np.linspace(0.58, 0.10, max(0, strip.shape[0] - seam), dtype=np.float32),
+            ], axis=0).reshape(strip.shape[0], 1, 1)
+            arr[y0:y1, sx1:sx2, :3] = np.clip((strip * (1.0 - weights)) + (target * weights), 0.0, 255.0)
+
+    _blend_vertical("left")
+    _blend_vertical("right")
+    _blend_horizontal("top")
+    _blend_horizontal("bottom")
+
+    return Image.fromarray(np.clip(arr, 0.0, 255.0).astype(np.uint8), mode="RGBA")
+
+def _repair_underfilled_target_region(
+    expanded: Image.Image,
+    preserved_fitted: Image.Image,
+    canvas_meta: Dict[str, Any],
+) -> Image.Image:
+    target_rect = canvas_meta.get("target_rect") or {}
+    source_rect = canvas_meta.get("source_rect") or {}
+    tx1 = int(target_rect.get("x1", 0))
+    ty1 = int(target_rect.get("y1", 0))
+    tx2 = int(target_rect.get("x2", 0))
+    ty2 = int(target_rect.get("y2", 0))
+    sx1 = int(source_rect.get("x1", 0))
+    sy1 = int(source_rect.get("y1", 0))
+    sx2 = int(source_rect.get("x2", 0))
+    sy2 = int(source_rect.get("y2", 0))
+
+    if tx2 <= tx1 or ty2 <= ty1:
+        return expanded
+
+    rgba = expanded.convert("RGBA")
+    alpha = np.array(rgba.getchannel("A"), dtype=np.uint8)
+    rgb = np.array(rgba, dtype=np.uint8)
+    crop_alpha = alpha[ty1:ty2, tx1:tx2]
+    crop_rgb = rgb[ty1:ty2, tx1:tx2, :3]
+    luma = (crop_rgb[..., 0].astype(np.float32) * 0.2126) + (crop_rgb[..., 1].astype(np.float32) * 0.7152) + (crop_rgb[..., 2].astype(np.float32) * 0.0722)
+    underfilled = (crop_alpha < 6) | (luma <= 5.0)
+
+    if sy2 > sy1 and sx2 > sx1:
+        local_sx1 = max(0, sx1 - tx1)
+        local_sy1 = max(0, sy1 - ty1)
+        local_sx2 = max(local_sx1, sx2 - tx1)
+        local_sy2 = max(local_sy1, sy2 - ty1)
+        underfilled[local_sy1:local_sy2, local_sx1:local_sx2] = False
+
+    if not np.any(underfilled):
+        return expanded
+
+    scaffold = _edge_extend_fill(preserved_fitted, max(1, tx2 - tx1), max(1, ty2 - ty1)).convert("RGBA")
+    result = rgba.copy()
+    patch = result.crop((tx1, ty1, tx2, ty2)).convert("RGBA")
+    patch_arr = np.array(patch, dtype=np.uint8)
+    scaffold_arr = np.array(scaffold, dtype=np.uint8)
+    patch_arr[underfilled] = scaffold_arr[underfilled]
+    result.alpha_composite(Image.fromarray(patch_arr, mode="RGBA"), (tx1, ty1))
+    return result
+
+def _repair_visible_exact_expand_seams_in_final(
+    final_bytes: bytes,
+    preserved_source_bytes: bytes,
+    canvas_meta: Dict[str, Any],
+    diagnostics: Optional[Dict[str, Any]] = None,
+) -> bytes:
+    diagnostics = diagnostics or {}
+    flagged_sides = list(diagnostics.get("flagged_sides") or [])
+    if not flagged_sides:
+        return final_bytes
+
+    overlap = canvas_meta.get("overlap") or {}
+
+    with Image.open(io.BytesIO(final_bytes)) as final_im, Image.open(io.BytesIO(preserved_source_bytes)) as source_im:
+        final_img = final_im.convert("RGBA")
+        final_width, final_height = final_img.size
+        sx1, sy1, sx2, sy2 = _final_space_source_rect_from_canvas_meta(
+            final_width=final_width,
+            final_height=final_height,
+            canvas_meta=canvas_meta,
+        )
+
+        if sx2 <= sx1 or sy2 <= sy1:
+            return final_bytes
+
+        source_fitted, _ = _resize_to_contain(source_im.convert("RGBA"), max(1, sx2 - sx1), max(1, sy2 - sy1))
+        arr = np.array(final_img, dtype=np.float32)
+        ref = np.array(source_fitted, dtype=np.float32)[..., :3]
+
+        def _blend_vertical(side: str) -> None:
+            if side == "left":
+                seam = sx1
+                outer = min(seam, max(18, min(42, int((int(overlap.get("left", 0) or 0) * 2.2) or 22))))
+                inner = min(ref.shape[1], max(14, min(34, int((int(overlap.get("left", 0) or 0) * 1.5) or 18))))
+                x0 = max(0, seam - outer)
+                x1 = min(arr.shape[1], seam + inner)
+                split = seam - x0
+                if split <= 0 or split >= (x1 - x0):
+                    return
+                strip = arr[sy1:sy2, x0:x1, :3]
+                if strip.size == 0:
+                    return
+                out_bw = min(8, split)
+                in_bw = min(8, inner)
+                outside_ref = strip[:, split - out_bw:split, :]
+                inside_ref = ref[:, :in_bw, :]
+                if outside_ref.size == 0 or inside_ref.size == 0:
+                    return
+                delta = inside_ref.mean(axis=1) - outside_ref.mean(axis=1)
+                delta = _smooth_matrix_along_axis(delta, radius=max(2, min(12, strip.shape[0] // 40)))
+                target = strip.copy()
+                if split > 0:
+                    w_out = np.linspace(0.24, 0.92, split, dtype=np.float32).reshape(1, split, 1)
+                    target[:, :split, :] = np.clip(target[:, :split, :] + (delta[:, None, :] * w_out), 0.0, 255.0)
+                use_inner = min(inner, strip.shape[1] - split)
+                if use_inner > 0:
+                    src_slice = ref[:, :use_inner, :]
+                    w_in = np.linspace(0.38, 0.10, use_inner, dtype=np.float32).reshape(1, use_inner, 1)
+                    target[:, split:split + use_inner, :] = np.clip((target[:, split:split + use_inner, :] * (1.0 - w_in)) + (src_slice * w_in), 0.0, 255.0)
+                weights = np.concatenate([
+                    np.linspace(0.18, 0.82, split, dtype=np.float32),
+                    np.linspace(0.34, 0.06, max(0, strip.shape[1] - split), dtype=np.float32),
+                ], axis=0).reshape(1, strip.shape[1], 1)
+                arr[sy1:sy2, x0:x1, :3] = np.clip((strip * (1.0 - weights)) + (target * weights), 0.0, 255.0)
+            else:
+                seam = sx2
+                outer = min(max(0, arr.shape[1] - seam), max(18, min(42, int((int(overlap.get("right", 0) or 0) * 2.2) or 22))))
+                inner = min(ref.shape[1], max(14, min(34, int((int(overlap.get("right", 0) or 0) * 1.5) or 18))))
+                x0 = max(0, seam - inner)
+                x1 = min(arr.shape[1], seam + outer)
+                split = seam - x0
+                if split <= 0 or split >= (x1 - x0):
+                    return
+                strip = arr[sy1:sy2, x0:x1, :3]
+                if strip.size == 0:
+                    return
+                out_bw = min(8, strip.shape[1] - split)
+                in_bw = min(8, inner)
+                outside_ref = strip[:, split:split + out_bw, :]
+                inside_ref = ref[:, ref.shape[1] - in_bw:ref.shape[1], :]
+                if outside_ref.size == 0 or inside_ref.size == 0:
+                    return
+                delta = inside_ref.mean(axis=1) - outside_ref.mean(axis=1)
+                delta = _smooth_matrix_along_axis(delta, radius=max(2, min(12, strip.shape[0] // 40)))
+                target = strip.copy()
+                outer_len = strip.shape[1] - split
+                if outer_len > 0:
+                    w_out = np.linspace(0.92, 0.24, outer_len, dtype=np.float32).reshape(1, outer_len, 1)
+                    target[:, split:, :] = np.clip(target[:, split:, :] + (delta[:, None, :] * w_out), 0.0, 255.0)
+                use_inner = min(inner, split)
+                if use_inner > 0:
+                    src_slice = ref[:, ref.shape[1] - use_inner:ref.shape[1], :]
+                    w_in = np.linspace(0.10, 0.38, use_inner, dtype=np.float32).reshape(1, use_inner, 1)
+                    target[:, split - use_inner:split, :] = np.clip((target[:, split - use_inner:split, :] * (1.0 - w_in)) + (src_slice * w_in), 0.0, 255.0)
+                weights = np.concatenate([
+                    np.linspace(0.06, 0.34, split, dtype=np.float32),
+                    np.linspace(0.82, 0.18, max(0, strip.shape[1] - split), dtype=np.float32),
+                ], axis=0).reshape(1, strip.shape[1], 1)
+                arr[sy1:sy2, x0:x1, :3] = np.clip((strip * (1.0 - weights)) + (target * weights), 0.0, 255.0)
+
+        def _blend_horizontal(side: str) -> None:
+            if side == "top":
+                seam = sy1
+                outer = min(seam, max(16, min(38, int((int(overlap.get("top", 0) or 0) * 2.2) or 20))))
+                inner = min(ref.shape[0], max(12, min(30, int((int(overlap.get("top", 0) or 0) * 1.5) or 16))))
+                y0 = max(0, seam - outer)
+                y1 = min(arr.shape[0], seam + inner)
+                split = seam - y0
+                if split <= 0 or split >= (y1 - y0):
+                    return
+                strip = arr[y0:y1, sx1:sx2, :3]
+                if strip.size == 0:
+                    return
+                out_bw = min(8, split)
+                in_bw = min(8, inner)
+                outside_ref = strip[split - out_bw:split, :, :]
+                inside_ref = ref[:in_bw, :, :]
+                if outside_ref.size == 0 or inside_ref.size == 0:
+                    return
+                delta = inside_ref.mean(axis=0) - outside_ref.mean(axis=0)
+                delta = _smooth_matrix_along_axis(delta, radius=max(2, min(12, strip.shape[1] // 40)))
+                target = strip.copy()
+                if split > 0:
+                    w_out = np.linspace(0.22, 0.88, split, dtype=np.float32).reshape(split, 1, 1)
+                    target[:split, :, :] = np.clip(target[:split, :, :] + (delta[None, :, :] * w_out), 0.0, 255.0)
+                use_inner = min(inner, strip.shape[0] - split)
+                if use_inner > 0:
+                    src_slice = ref[:use_inner, :, :]
+                    w_in = np.linspace(0.34, 0.10, use_inner, dtype=np.float32).reshape(use_inner, 1, 1)
+                    target[split:split + use_inner, :, :] = np.clip((target[split:split + use_inner, :, :] * (1.0 - w_in)) + (src_slice * w_in), 0.0, 255.0)
+                weights = np.concatenate([
+                    np.linspace(0.18, 0.80, split, dtype=np.float32),
+                    np.linspace(0.32, 0.06, max(0, strip.shape[0] - split), dtype=np.float32),
+                ], axis=0).reshape(strip.shape[0], 1, 1)
+                arr[y0:y1, sx1:sx2, :3] = np.clip((strip * (1.0 - weights)) + (target * weights), 0.0, 255.0)
+            else:
+                seam = sy2
+                outer = min(max(0, arr.shape[0] - seam), max(16, min(38, int((int(overlap.get("bottom", 0) or 0) * 2.2) or 20))))
+                inner = min(ref.shape[0], max(12, min(30, int((int(overlap.get("bottom", 0) or 0) * 1.5) or 16))))
+                y0 = max(0, seam - inner)
+                y1 = min(arr.shape[0], seam + outer)
+                split = seam - y0
+                if split <= 0 or split >= (y1 - y0):
+                    return
+                strip = arr[y0:y1, sx1:sx2, :3]
+                if strip.size == 0:
+                    return
+                out_bw = min(8, strip.shape[0] - split)
+                in_bw = min(8, inner)
+                outside_ref = strip[split:split + out_bw, :, :]
+                inside_ref = ref[ref.shape[0] - in_bw:ref.shape[0], :, :]
+                if outside_ref.size == 0 or inside_ref.size == 0:
+                    return
+                delta = inside_ref.mean(axis=0) - outside_ref.mean(axis=0)
+                delta = _smooth_matrix_along_axis(delta, radius=max(2, min(12, strip.shape[1] // 40)))
+                target = strip.copy()
+                outer_len = strip.shape[0] - split
+                if outer_len > 0:
+                    w_out = np.linspace(0.88, 0.22, outer_len, dtype=np.float32).reshape(outer_len, 1, 1)
+                    target[split:, :, :] = np.clip(target[split:, :, :] + (delta[None, :, :] * w_out), 0.0, 255.0)
+                use_inner = min(inner, split)
+                if use_inner > 0:
+                    src_slice = ref[ref.shape[0] - use_inner:ref.shape[0], :, :]
+                    w_in = np.linspace(0.10, 0.34, use_inner, dtype=np.float32).reshape(use_inner, 1, 1)
+                    target[split - use_inner:split, :, :] = np.clip((target[split - use_inner:split, :, :] * (1.0 - w_in)) + (src_slice * w_in), 0.0, 255.0)
+                weights = np.concatenate([
+                    np.linspace(0.06, 0.32, split, dtype=np.float32),
+                    np.linspace(0.80, 0.18, max(0, strip.shape[0] - split), dtype=np.float32),
+                ], axis=0).reshape(strip.shape[0], 1, 1)
+                arr[y0:y1, sx1:sx2, :3] = np.clip((strip * (1.0 - weights)) + (target * weights), 0.0, 255.0)
+
+        for side in flagged_sides:
+            if side in {"left", "right"}:
+                _blend_vertical(side)
+            elif side in {"top", "bottom"}:
+                _blend_horizontal(side)
+
+        repaired = Image.fromarray(np.clip(arr, 0.0, 255.0).astype(np.uint8), mode="RGBA")
+        return _encode_png_bytes(repaired)
 
 def _finalize_exact_size_ai_expand(
     expanded_canvas_bytes: bytes,
@@ -2040,12 +2674,15 @@ def _finalize_exact_size_ai_expand(
             int(source_rect["height"]),
         )
 
+        expanded = _repair_underfilled_target_region(expanded, preserved_fitted, canvas_meta)
         expanded = _overlay_preserved_source_with_adaptive_alpha(
             expanded=expanded,
             preserved_fitted=preserved_fitted,
             canvas_meta=canvas_meta,
         )
         expanded = _harmonize_exact_expand_bands(expanded, canvas_meta)
+        expanded = _locally_harmonize_exact_expand_seams(expanded, preserved_fitted, canvas_meta)
+        expanded = _microblend_exact_expand_seams(expanded, preserved_fitted, canvas_meta)
 
         cropped = expanded.crop((
             int(target_rect["x1"]),
@@ -2058,7 +2695,6 @@ def _finalize_exact_size_ai_expand(
         return _encode_png_bytes(cropped.convert("RGBA"))
 
 
-
 async def _expand_image_to_exact_size_with_ai(
     client: httpx.AsyncClient,
     image_bytes: bytes,
@@ -2069,7 +2705,10 @@ async def _expand_image_to_exact_size_with_ai(
 ) -> Dict[str, Any]:
     base_width, base_height = _choose_best_supported_base_size(requested_width, requested_height)
     source_width, source_height = _read_image_dimensions(image_bytes)
-    attempt_profiles = ["balanced", "strict"]
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = requested_width / max(1.0, float(requested_height))
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    attempt_profiles = ["balanced", "wide", "coverage", "strict"] if ratio_delta >= 0.22 else ["balanced", "wide", "strict"]
     attempt_summaries: List[Dict[str, Any]] = []
     best_result: Optional[Dict[str, Any]] = None
     best_score = float("inf")
@@ -2109,11 +2748,55 @@ async def _expand_image_to_exact_size_with_ai(
             preserved_source_bytes=image_bytes,
             canvas_meta=canvas_meta,
         )
-        quality_score = _exact_expand_quality_score(
+        diagnostics = _exact_expand_quality_diagnostics(
             final_bytes=final_bytes,
             preserved_source_bytes=image_bytes,
             canvas_meta=canvas_meta,
         )
+        quality_score = float(diagnostics.get("quality_score", 999.0))
+        seam_score = float(diagnostics.get("seam_score", 999.0))
+        seam_max = float(diagnostics.get("seam_max", 999.0))
+        fallback_applied = False
+        fallback_improved = False
+        fallback_details: Dict[str, Any] = {}
+
+        should_try_fallback = bool(
+            diagnostics.get("flagged_sides")
+            and (seam_max >= 6.8 or seam_score >= 5.8 or quality_score >= 10.8)
+        )
+        if should_try_fallback:
+            repaired_bytes = _repair_visible_exact_expand_seams_in_final(
+                final_bytes=final_bytes,
+                preserved_source_bytes=image_bytes,
+                canvas_meta=canvas_meta,
+                diagnostics=diagnostics,
+            )
+            if repaired_bytes != final_bytes:
+                fallback_applied = True
+                repaired_diagnostics = _exact_expand_quality_diagnostics(
+                    final_bytes=repaired_bytes,
+                    preserved_source_bytes=image_bytes,
+                    canvas_meta=canvas_meta,
+                )
+                repaired_quality = float(repaired_diagnostics.get("quality_score", 999.0))
+                repaired_seam_score = float(repaired_diagnostics.get("seam_score", 999.0))
+                repaired_seam_max = float(repaired_diagnostics.get("seam_max", 999.0))
+                fallback_details = {
+                    "before_quality_score": round(quality_score, 3),
+                    "before_seam_score": round(seam_score, 3),
+                    "before_seam_max": round(seam_max, 3),
+                    "after_quality_score": round(repaired_quality, 3),
+                    "after_seam_score": round(repaired_seam_score, 3),
+                    "after_seam_max": round(repaired_seam_max, 3),
+                    "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+                }
+                if (repaired_quality <= quality_score - 0.18) or (repaired_seam_max <= seam_max - 0.35) or (repaired_seam_score <= seam_score - 0.25):
+                    fallback_improved = True
+                    final_bytes = repaired_bytes
+                    diagnostics = repaired_diagnostics
+                    quality_score = repaired_quality
+                    seam_score = repaired_seam_score
+                    seam_max = repaired_seam_max
 
         candidate_result = dict(result)
         candidate_result["engine_id"] = "openai_exact_canvas_expand"
@@ -2131,36 +2814,50 @@ async def _expand_image_to_exact_size_with_ai(
             "gaps": dict(canvas_meta.get("gaps") or {}),
             "profile": profile,
             "quality_score": round(float(quality_score), 3),
+            "seam_score": round(float(seam_score), 3),
+            "seam_max": round(float(seam_max), 3),
+            "border_score": round(float(diagnostics.get("border_score", 0.0)), 3),
+            "generated_region_penalty": round(float(diagnostics.get("generated_region_penalty", 0.0)), 3),
+            "seam_details": list(diagnostics.get("seam_details") or []),
+            "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+            "fallback_applied": bool(fallback_applied),
+            "fallback_improved": bool(fallback_improved),
+            "fallback_details": fallback_details,
             "attempt_index": attempt_index,
             "strategy": "ai_exact_canvas_expand",
+            "ratio_delta": round(float(ratio_delta), 4),
+            "scaffold_used": bool((canvas_meta.get("scaffold_used") is True)),
         }
         attempt_summaries.append({
             "attempt_index": attempt_index,
             "profile": profile,
             "quality_score": round(float(quality_score), 3),
+            "seam_score": round(float(seam_score), 3),
+            "seam_max": round(float(seam_max), 3),
+            "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+            "fallback_applied": bool(fallback_applied),
+            "fallback_improved": bool(fallback_improved),
         })
 
         if quality_score < best_score:
             best_score = quality_score
             best_result = candidate_result
 
-        if attempt_index == 1 and not _should_retry_exact_expand(
-            first_score=quality_score,
-            requested_width=requested_width,
-            requested_height=requested_height,
-            source_width=source_width,
-            source_height=source_height,
-        ):
+        if profile == "strict" and quality_score <= 8.5:
             break
 
     if best_result is None:
         raise ValueError("Falha ao concluir a expansão exata por IA.")
 
+    selected_expand = dict(best_result.get("exact_canvas_expand") or {})
     best_result["exact_canvas_expand"] = {
-        **dict(best_result.get("exact_canvas_expand") or {}),
+        **selected_expand,
         "attempts": attempt_summaries,
         "selected_quality_score": round(float(best_score), 3),
-        "selected_attempt": int((best_result.get("exact_canvas_expand") or {}).get("attempt_index", 1)),
+        "selected_attempt": int(selected_expand.get("attempt_index", 1)),
+        "selected_profile": str(selected_expand.get("profile", "balanced")),
+        "selected_seam_score": round(float(selected_expand.get("seam_score", 999.0)), 3),
+        "selected_seam_max": round(float(selected_expand.get("seam_max", 999.0)), 3),
     }
     return best_result
 
@@ -4706,10 +5403,14 @@ async def image_engine_edit_stream(
                 normalized_allow_resize_crop = bool(body.allow_resize_crop and not body.preserve_original_frame)
                 canvas_only_request = bool(
                     target_dimensions
-                    and body.preserve_original_frame
                     and not normalized_allow_resize_crop
                     and _is_canvas_only_edit_request(body)
                 )
+                # V9: quando o pedido é só adaptação de canvas/tamanho, forçamos preservação
+                # do enquadramento para evitar o fluxo caro: refinamento por chat + edição completa + expansão.
+                # Isso reduz o caso comum de expansão para 0 ou 1 chamada de imagem, em vez de 3 a 5 chamadas.
+                if canvas_only_request:
+                    body.preserve_original_frame = True
 
                 if canvas_only_request:
                     expand_without_crop_needed = _needs_exact_canvas_expand(
@@ -4918,6 +5619,45 @@ async def image_engine_edit_stream(
                                 original_reference_bytes=image_bytes,
                             )
 
+                exact_canvas_meta = result.get("exact_canvas_expand") if isinstance(result, dict) else None
+                if exact_canvas_meta:
+                    for attempt in list(exact_canvas_meta.get("attempts") or []):
+                        _append_runtime_image_edit_log(
+                            request_id=request_id,
+                            stage="exact_expand_attempt_evaluated",
+                            message="Tentativa de expansão exata avaliada.",
+                            details=attempt,
+                        )
+                    selected_summary = {
+                        "selected_attempt": exact_canvas_meta.get("selected_attempt"),
+                        "selected_profile": exact_canvas_meta.get("selected_profile"),
+                        "selected_quality_score": exact_canvas_meta.get("selected_quality_score"),
+                        "selected_seam_score": exact_canvas_meta.get("selected_seam_score"),
+                        "selected_seam_max": exact_canvas_meta.get("selected_seam_max"),
+                        "flagged_sides": exact_canvas_meta.get("flagged_sides"),
+                        "fallback_applied": exact_canvas_meta.get("fallback_applied"),
+                        "fallback_improved": exact_canvas_meta.get("fallback_improved"),
+                        "fallback_details": exact_canvas_meta.get("fallback_details"),
+                    }
+                    yield _sse({
+                        "status": (
+                            f"Expansão exata analisada. Score {exact_canvas_meta.get('selected_quality_score', exact_canvas_meta.get('quality_score'))} | "
+                            f"seam médio {exact_canvas_meta.get('selected_seam_score', exact_canvas_meta.get('seam_score'))} | "
+                            f"pior seam {exact_canvas_meta.get('selected_seam_max', exact_canvas_meta.get('seam_max'))}."
+                        ),
+                        "progress": 88,
+                        "meta": {
+                            "exact_canvas_expand": exact_canvas_meta,
+                        },
+                        "exact_canvas_expand": exact_canvas_meta,
+                        "debug": _runtime_debug_payload(
+                            request_id=request_id,
+                            stage="exact_expand_diagnostics",
+                            message="Diagnóstico detalhado da expansão exata consolidado.",
+                            details=selected_summary,
+                        ),
+                    })
+
                 if target_dimensions:
                     final_result_bytes, _ = await _read_result_bytes(client, result)
                     final_result_width, final_result_height = _read_image_dimensions(final_result_bytes)
@@ -4949,7 +5689,9 @@ async def image_engine_edit_stream(
                         "engine_id": result["engine_id"],
                         "motor": result["motor"],
                         "url": result["url"],
+                        "exact_canvas_expand": result.get("exact_canvas_expand"),
                     },
+                    "exact_canvas_expand": result.get("exact_canvas_expand"),
                     "warning": None,
                     "debug": _runtime_debug_payload(
                         request_id=request_id,
@@ -4963,6 +5705,7 @@ async def image_engine_edit_stream(
                                 if target_dimensions
                                 else None
                             ),
+                            "exact_canvas_expand": result.get("exact_canvas_expand"),
                         },
                         image=result.get("url"),
                         level="success",
@@ -4986,8 +5729,10 @@ async def image_engine_edit_stream(
                             "engine_id": result["engine_id"],
                             "motor": result["motor"],
                             "url": result["url"],
+                            "exact_canvas_expand": result.get("exact_canvas_expand"),
                         }
                     ],
+                    "exact_canvas_expand": result.get("exact_canvas_expand"),
                     "warning": None,
                     "debug": _runtime_debug_payload(
                         request_id=request_id,
@@ -5337,6 +6082,1256 @@ async def _synthesize_remove_text_with_ai_crop(
     }
     return next_result
 
+# >>> IMAGE_ENGINE_EXACT_CANVAS_V8_FULL_FILE
+# V8: expansão exata por IA com máscara mais conservadora, costura protegida
+# e pós-processamento de junção para reduzir linhas verticais/horizontais perceptíveis.
+# Este bloco sobrescreve apenas o pipeline de exact canvas expand, preservando o resto do backend.
+
+def _v8_exact_expand_selection_score(diagnostics: Dict[str, Any]) -> float:
+    seam_score = float(diagnostics.get("seam_score", 999.0))
+    seam_max = float(diagnostics.get("seam_max", 999.0))
+    generated = float(diagnostics.get("generated_region_penalty", 0.0))
+    border = float(diagnostics.get("border_score", 0.0))
+    quality = float(diagnostics.get("quality_score", 999.0))
+    flagged = len(list(diagnostics.get("flagged_sides") or []))
+    return (
+        seam_max * 0.56
+        + seam_score * 0.32
+        + generated * 0.22
+        + border * 0.16
+        + quality * 0.08
+        + flagged * 0.75
+    )
 
 
+def _v8_smoothstep(length: int, reverse: bool = False) -> np.ndarray:
+    length = max(1, int(length))
+    if length <= 1:
+        values = np.ones((1,), dtype=np.float32)
+    else:
+        t = np.linspace(0.0, 1.0, length, dtype=np.float32)
+        values = t * t * (3.0 - (2.0 * t))
+    if reverse:
+        values = values[::-1]
+    return np.clip(values, 0.0, 1.0)
 
+
+def _v8_edge_complexity(rgb: np.ndarray) -> float:
+    if rgb.size == 0:
+        return 0.0
+    luma = (rgb[..., 0] * 0.2126) + (rgb[..., 1] * 0.7152) + (rgb[..., 2] * 0.0722)
+    gx = np.abs(np.diff(luma, axis=1)).mean() if luma.shape[1] > 1 else 0.0
+    gy = np.abs(np.diff(luma, axis=0)).mean() if luma.shape[0] > 1 else 0.0
+    return float((gx * 0.55) + (gy * 0.45))
+
+
+def _v8_safe_graft_opacity(edge_rgb: np.ndarray) -> float:
+    # Quanto mais "texto/linha fina" na borda, menor a intervenção para não duplicar lettering.
+    complexity = _v8_edge_complexity(edge_rgb)
+    if complexity >= 30.0:
+        return 0.24
+    if complexity >= 22.0:
+        return 0.34
+    if complexity >= 16.0:
+        return 0.48
+    return 0.68
+
+
+def _v8_match_patch_luma_to_current(patch: np.ndarray, current: np.ndarray, axis: int) -> np.ndarray:
+    if patch.size == 0 or current.size == 0:
+        return patch
+    patch = patch.astype(np.float32, copy=True)
+    current = current.astype(np.float32, copy=False)
+
+    if axis == 1:
+        patch_edge = patch[:, -min(4, patch.shape[1]):, :] if patch.shape[1] else patch
+        current_edge = current[:, -min(4, current.shape[1]):, :] if current.shape[1] else current
+        patch_mean = patch_edge.mean(axis=1)
+        current_mean = current_edge.mean(axis=1)
+        delta = current_mean - patch_mean
+        delta = _smooth_matrix_along_axis(delta, radius=max(3, min(18, patch.shape[0] // 36)))
+        patch += delta[:, None, :] * 0.35
+    else:
+        patch_edge = patch[-min(4, patch.shape[0]):, :, :] if patch.shape[0] else patch
+        current_edge = current[-min(4, current.shape[0]):, :, :] if current.shape[0] else current
+        patch_mean = patch_edge.mean(axis=0)
+        current_mean = current_edge.mean(axis=0)
+        delta = current_mean - patch_mean
+        delta = _smooth_matrix_along_axis(delta, radius=max(3, min(18, patch.shape[1] // 36)))
+        patch += delta[None, :, :] * 0.35
+
+    return np.clip(patch, 0.0, 255.0)
+
+
+def _v8_graft_exact_expand_seams(
+    expanded: Image.Image,
+    preserved_fitted: Image.Image,
+    canvas_meta: Dict[str, Any],
+) -> Image.Image:
+    source_rect = canvas_meta.get("source_rect") or {}
+    target_rect = canvas_meta.get("target_rect") or {}
+    overlap = canvas_meta.get("overlap") or {}
+
+    sx1 = int(source_rect.get("x1", 0))
+    sy1 = int(source_rect.get("y1", 0))
+    sx2 = int(source_rect.get("x2", 0))
+    sy2 = int(source_rect.get("y2", 0))
+    tx1 = int(target_rect.get("x1", 0))
+    ty1 = int(target_rect.get("y1", 0))
+    tx2 = int(target_rect.get("x2", expanded.width))
+    ty2 = int(target_rect.get("y2", expanded.height))
+
+    if sx2 <= sx1 or sy2 <= sy1 or tx2 <= tx1 or ty2 <= ty1:
+        return expanded
+
+    arr = np.asarray(expanded.convert("RGBA"), dtype=np.float32).copy()
+    src = np.asarray(preserved_fitted.convert("RGBA"), dtype=np.float32)[..., :3]
+
+    if src.size == 0:
+        return expanded
+
+    def _vertical(side: str) -> None:
+        if side == "left":
+            gap = max(0, sx1 - tx1)
+            base_overlap = int(overlap.get("left", 0) or 0)
+            if gap <= 0:
+                return
+            width = min(gap, src.shape[1], max(18, min(56, int(round(max(base_overlap, 18) * 1.45)))))
+            if width <= 1:
+                return
+            x0, x1 = sx1 - width, sx1
+            current = arr[sy1:sy2, x0:x1, :3]
+            edge = src[:, :width, :]
+            patch = edge[:, ::-1, :]
+            patch = _v8_match_patch_luma_to_current(patch, current, axis=1)
+            opacity = _v8_safe_graft_opacity(edge)
+            weight = (_v8_smoothstep(width, reverse=False) * opacity).reshape(1, width, 1)
+            arr[sy1:sy2, x0:x1, :3] = np.clip((current * (1.0 - weight)) + (patch * weight), 0.0, 255.0)
+        else:
+            gap = max(0, tx2 - sx2)
+            base_overlap = int(overlap.get("right", 0) or 0)
+            if gap <= 0:
+                return
+            width = min(gap, src.shape[1], max(18, min(56, int(round(max(base_overlap, 18) * 1.45)))))
+            if width <= 1:
+                return
+            x0, x1 = sx2, sx2 + width
+            current = arr[sy1:sy2, x0:x1, :3]
+            edge = src[:, src.shape[1] - width:src.shape[1], :]
+            patch = edge[:, ::-1, :]
+            patch = _v8_match_patch_luma_to_current(patch[:, ::-1, :], current[:, ::-1, :], axis=1)[:, ::-1, :]
+            opacity = _v8_safe_graft_opacity(edge)
+            weight = (_v8_smoothstep(width, reverse=True) * opacity).reshape(1, width, 1)
+            arr[sy1:sy2, x0:x1, :3] = np.clip((current * (1.0 - weight)) + (patch * weight), 0.0, 255.0)
+
+    def _horizontal(side: str) -> None:
+        if side == "top":
+            gap = max(0, sy1 - ty1)
+            base_overlap = int(overlap.get("top", 0) or 0)
+            if gap <= 0:
+                return
+            height = min(gap, src.shape[0], max(16, min(48, int(round(max(base_overlap, 16) * 1.35)))))
+            if height <= 1:
+                return
+            y0, y1 = sy1 - height, sy1
+            current = arr[y0:y1, sx1:sx2, :3]
+            edge = src[:height, :, :]
+            patch = edge[::-1, :, :]
+            patch = _v8_match_patch_luma_to_current(patch, current, axis=0)
+            opacity = _v8_safe_graft_opacity(edge)
+            weight = (_v8_smoothstep(height, reverse=False) * opacity).reshape(height, 1, 1)
+            arr[y0:y1, sx1:sx2, :3] = np.clip((current * (1.0 - weight)) + (patch * weight), 0.0, 255.0)
+        else:
+            gap = max(0, ty2 - sy2)
+            base_overlap = int(overlap.get("bottom", 0) or 0)
+            if gap <= 0:
+                return
+            height = min(gap, src.shape[0], max(16, min(48, int(round(max(base_overlap, 16) * 1.35)))))
+            if height <= 1:
+                return
+            y0, y1 = sy2, sy2 + height
+            current = arr[y0:y1, sx1:sx2, :3]
+            edge = src[src.shape[0] - height:src.shape[0], :, :]
+            patch = edge[::-1, :, :]
+            patch = _v8_match_patch_luma_to_current(patch[::-1, :, :], current[::-1, :, :], axis=0)[::-1, :, :]
+            opacity = _v8_safe_graft_opacity(edge)
+            weight = (_v8_smoothstep(height, reverse=True) * opacity).reshape(height, 1, 1)
+            arr[y0:y1, sx1:sx2, :3] = np.clip((current * (1.0 - weight)) + (patch * weight), 0.0, 255.0)
+
+    _vertical("left")
+    _vertical("right")
+    _horizontal("top")
+    _horizontal("bottom")
+
+    repaired = Image.fromarray(np.clip(arr, 0.0, 255.0).astype(np.uint8), mode="RGBA")
+    # Blur mínimo só na transição já mesclada, para retirar degrau de luminância sem desfocar a arte.
+    return repaired
+
+
+def _build_exact_size_ai_canvas(
+    image_bytes: bytes,
+    requested_width: int,
+    requested_height: int,
+    base_width: int,
+    base_height: int,
+    overlap_profile: str = "strict",
+) -> Tuple[bytes, bytes, Dict[str, Any]]:
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        source = im.convert("RGBA")
+        target_rect = _largest_centered_exact_aspect_rect(
+            base_width,
+            base_height,
+            requested_width,
+            requested_height,
+        )
+
+        target_rect_width = max(1, target_rect[2] - target_rect[0])
+        target_rect_height = max(1, target_rect[3] - target_rect[1])
+
+        fitted, local_placement = _resize_to_contain(source, target_rect_width, target_rect_height)
+        source_rect = (
+            target_rect[0] + local_placement[0],
+            target_rect[1] + local_placement[1],
+            target_rect[0] + local_placement[2],
+            target_rect[1] + local_placement[3],
+        )
+
+        left_gap = max(0, source_rect[0] - target_rect[0])
+        right_gap = max(0, target_rect[2] - source_rect[2])
+        top_gap = max(0, source_rect[1] - target_rect[1])
+        bottom_gap = max(0, target_rect[3] - source_rect[3])
+
+        source_rect_width = max(1, source_rect[2] - source_rect[0])
+        source_rect_height = max(1, source_rect[3] - source_rect[1])
+        min_side = max(1, min(source_rect_width, source_rect_height))
+        normalized_profile = (overlap_profile or "strict").strip().lower()
+        ratio_delta = abs(
+            math.log(
+                max(1e-6, (requested_width / max(1.0, float(requested_height))))
+                / max(1e-6, (source.width / max(1.0, float(source.height))))
+            )
+        )
+        dominant_gap = max(left_gap, right_gap, top_gap, bottom_gap)
+
+        if normalized_profile == "wide":
+            horizontal_overlap = max(44, min(82, int(round(min_side * 0.070))))
+            vertical_overlap = max(34, min(68, int(round(min_side * 0.058))))
+            min_protected_ratio = 0.76
+        elif normalized_profile == "balanced":
+            horizontal_overlap = max(34, min(64, int(round(min_side * 0.052))))
+            vertical_overlap = max(28, min(54, int(round(min_side * 0.045))))
+            min_protected_ratio = 0.82
+        else:
+            normalized_profile = "strict"
+            horizontal_overlap = max(26, min(48, int(round(min_side * 0.042))))
+            vertical_overlap = max(22, min(42, int(round(min_side * 0.036))))
+            min_protected_ratio = 0.87
+
+        geometry_boost = 0
+        if ratio_delta >= 0.18:
+            geometry_boost += 4
+        if ratio_delta >= 0.30:
+            geometry_boost += 5
+        if dominant_gap >= max(source_rect_width, source_rect_height) * 0.12:
+            geometry_boost += 4
+        if dominant_gap >= max(source_rect_width, source_rect_height) * 0.20:
+            geometry_boost += 5
+        horizontal_overlap += geometry_boost
+        vertical_overlap += geometry_boost
+
+        max_h_overlap = max(0, int(round(source_rect_width * 0.16)))
+        max_v_overlap = max(0, int(round(source_rect_height * 0.16)))
+        overlap = {
+            "left": min(horizontal_overlap, max_h_overlap, max(0, left_gap // 2 + 36)) if left_gap > 0 else 0,
+            "right": min(horizontal_overlap, max_h_overlap, max(0, right_gap // 2 + 36)) if right_gap > 0 else 0,
+            "top": min(vertical_overlap, max_v_overlap, max(0, top_gap // 2 + 28)) if top_gap > 0 else 0,
+            "bottom": min(vertical_overlap, max_v_overlap, max(0, bottom_gap // 2 + 28)) if bottom_gap > 0 else 0,
+        }
+
+        protected_rect = (
+            source_rect[0] + overlap["left"],
+            source_rect[1] + overlap["top"],
+            source_rect[2] - overlap["right"],
+            source_rect[3] - overlap["bottom"],
+        )
+
+        min_protected_width = max(64, int(round(source_rect_width * min_protected_ratio)))
+        min_protected_height = max(64, int(round(source_rect_height * min_protected_ratio)))
+        if (protected_rect[2] - protected_rect[0]) < min_protected_width:
+            excess = min_protected_width - (protected_rect[2] - protected_rect[0])
+            shrink_left = min(overlap["left"], excess // 2 + excess % 2)
+            shrink_right = min(overlap["right"], excess // 2)
+            overlap["left"] -= shrink_left
+            overlap["right"] -= shrink_right
+        if (protected_rect[3] - protected_rect[1]) < min_protected_height:
+            excess = min_protected_height - (protected_rect[3] - protected_rect[1])
+            shrink_top = min(overlap["top"], excess // 2 + excess % 2)
+            shrink_bottom = min(overlap["bottom"], excess // 2)
+            overlap["top"] -= shrink_top
+            overlap["bottom"] -= shrink_bottom
+
+        protected_rect = (
+            source_rect[0] + overlap["left"],
+            source_rect[1] + overlap["top"],
+            source_rect[2] - overlap["right"],
+            source_rect[3] - overlap["bottom"],
+        )
+
+        scaffold_patch = _edge_extend_fill(source, target_rect_width, target_rect_height)
+        canvas = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+        canvas.alpha_composite(scaffold_patch, (target_rect[0], target_rect[1]))
+        canvas.alpha_composite(fitted, (source_rect[0], source_rect[1]))
+
+        mask_l = Image.new("L", (base_width, base_height), 255)
+        draw = ImageDraw.Draw(mask_l)
+        draw.rectangle(target_rect, fill=0)
+        draw.rectangle(source_rect, fill=255)
+
+        if overlap["left"] > 0:
+            draw.rectangle(
+                (source_rect[0], source_rect[1], min(source_rect[2], source_rect[0] + overlap["left"]), source_rect[3]),
+                fill=0,
+            )
+        if overlap["right"] > 0:
+            draw.rectangle(
+                (max(source_rect[0], source_rect[2] - overlap["right"]), source_rect[1], source_rect[2], source_rect[3]),
+                fill=0,
+            )
+        if overlap["top"] > 0:
+            draw.rectangle(
+                (source_rect[0], source_rect[1], source_rect[2], min(source_rect[3], source_rect[1] + overlap["top"])),
+                fill=0,
+            )
+        if overlap["bottom"] > 0:
+            draw.rectangle(
+                (source_rect[0], max(source_rect[1], source_rect[3] - overlap["bottom"]), source_rect[2], source_rect[3]),
+                fill=0,
+            )
+
+        mask = Image.merge("RGBA", (mask_l, mask_l, mask_l, mask_l))
+
+        return (
+            _encode_png_bytes(canvas),
+            _encode_png_bytes(mask),
+            {
+                "base_width": base_width,
+                "base_height": base_height,
+                "target_rect": {
+                    "x1": target_rect[0],
+                    "y1": target_rect[1],
+                    "x2": target_rect[2],
+                    "y2": target_rect[3],
+                    "width": target_rect_width,
+                    "height": target_rect_height,
+                },
+                "source_rect": {
+                    "x1": source_rect[0],
+                    "y1": source_rect[1],
+                    "x2": source_rect[2],
+                    "y2": source_rect[3],
+                    "width": source_rect_width,
+                    "height": source_rect_height,
+                },
+                "protected_rect": {
+                    "x1": protected_rect[0],
+                    "y1": protected_rect[1],
+                    "x2": protected_rect[2],
+                    "y2": protected_rect[3],
+                    "width": max(1, protected_rect[2] - protected_rect[0]),
+                    "height": max(1, protected_rect[3] - protected_rect[1]),
+                },
+                "overlap": overlap,
+                "requested_width": requested_width,
+                "requested_height": requested_height,
+                "profile": normalized_profile,
+                "gaps": {
+                    "left": left_gap,
+                    "right": right_gap,
+                    "top": top_gap,
+                    "bottom": bottom_gap,
+                },
+                "ratio_delta": float(ratio_delta),
+                "scaffold_used": True,
+                "algorithm_version": "v8_seam_guard",
+            },
+        )
+
+
+def _build_exact_size_expand_prompt(
+    requested_width: int,
+    requested_height: int,
+    canvas_meta: Dict[str, Any],
+    prompt_mode: str = "strict",
+) -> str:
+    target_rect = canvas_meta.get("target_rect") or {}
+    source_rect = canvas_meta.get("source_rect") or {}
+    protected_rect = canvas_meta.get("protected_rect") or {}
+    overlap = canvas_meta.get("overlap") or {}
+    gaps = canvas_meta.get("gaps") or {}
+    normalized_mode = (prompt_mode or canvas_meta.get("profile") or "strict").strip().lower()
+
+    if normalized_mode == "wide":
+        mode_clause = (
+            "Use a faixa de transição liberada somente para dissipar costura, igualar textura, igualar sombra e continuar linhas de fuga. "
+            "Não use essa liberdade para redesenhar a peça. "
+        )
+    elif normalized_mode == "balanced":
+        mode_clause = (
+            "Use a faixa de transição como área técnica de acabamento. "
+            "O centro da arte deve permanecer congelado e as laterais devem continuar o mesmo cenário sem destaque novo. "
+        )
+    else:
+        mode_clause = (
+            "Trabalhe de modo extremamente conservador. "
+            "Apenas complete o que falta e harmonize a junção. "
+        )
+
+    return (
+        "Você recebeu uma arte comercial já pronta dentro de um canvas técnico. "
+        "Sua tarefa é somente completar as áreas transparentes ou mascaradas para adaptar o enquadramento final, sem recriar a peça. "
+        + mode_clause
+        + "A imagem original é a autoridade máxima. "
+        "Não altere, não reescreva, não reposicione e não redesenhe textos, datas, cidade, local, logo, marca, ícones, CTA, botão, bicicleta, produto, pessoa, objeto principal, vitrines, prédios, chão, luzes ou qualquer elemento já existente na arte. "
+        "Não invente novos elementos gráficos, não adicione novos brilhos, não crie lettering, não coloque objetos extras e não mude a iluminação geral. "
+        "As áreas novas devem parecer apenas continuação natural do mesmo fundo, com a mesma escuridão, temperatura de cor, contraste, granulação, nitidez, perspectiva, sombra, reflexo e textura dos pixels vizinhos. "
+        "A junção entre a área original e a área expandida deve ficar invisível, sem linha vertical, sem linha horizontal, sem halo, sem degrau de luminância, sem faixa chapada e sem mudança de textura. "
+        "É proibido usar aparência de expansão por IA: nada de glow artificial, smear, blur visível, moldura escura, padding, repetição de faixa, clone perceptível ou fundo genérico. "
+        "Não melhore a arte, não estilize novamente e não interprete criativamente. Preserve. Complete. Harmonize. "
+        f"Saída final útil: {requested_width}x{requested_height}. "
+        f"Área útil aproximada: x={target_rect.get('x1', 0)}..{target_rect.get('x2', 0)}, y={target_rect.get('y1', 0)}..{target_rect.get('y2', 0)}. "
+        f"Área original aproximada: x={source_rect.get('x1', 0)}..{source_rect.get('x2', 0)}, y={source_rect.get('y1', 0)}..{source_rect.get('y2', 0)}. "
+        f"Área totalmente protegida aproximada: x={protected_rect.get('x1', 0)}..{protected_rect.get('x2', 0)}, y={protected_rect.get('y1', 0)}..{protected_rect.get('y2', 0)}. "
+        f"Faixas técnicas de transição: esquerda={overlap.get('left', 0)}px, direita={overlap.get('right', 0)}px, topo={overlap.get('top', 0)}px, base={overlap.get('bottom', 0)}px. "
+        f"Áreas que faltam: esquerda={gaps.get('left', 0)}px, direita={gaps.get('right', 0)}px, topo={gaps.get('top', 0)}px, base={gaps.get('bottom', 0)}px. "
+        "O resultado deve parecer que a arte original já nasceu nesse formato."
+    )
+
+
+def _finalize_exact_size_ai_expand(
+    expanded_canvas_bytes: bytes,
+    preserved_source_bytes: bytes,
+    canvas_meta: Dict[str, Any],
+) -> bytes:
+    target_rect = canvas_meta["target_rect"]
+    source_rect = canvas_meta["source_rect"]
+    requested_width = int(canvas_meta["requested_width"])
+    requested_height = int(canvas_meta["requested_height"])
+
+    with Image.open(io.BytesIO(expanded_canvas_bytes)) as expanded_im, Image.open(io.BytesIO(preserved_source_bytes)) as source_im:
+        expanded = expanded_im.convert("RGBA")
+        source = source_im.convert("RGBA")
+        preserved_fitted, _ = _resize_to_contain(
+            source,
+            int(source_rect["width"]),
+            int(source_rect["height"]),
+        )
+
+        expanded = _repair_underfilled_target_region(expanded, preserved_fitted, canvas_meta)
+        expanded = _overlay_preserved_source_with_adaptive_alpha(
+            expanded=expanded,
+            preserved_fitted=preserved_fitted,
+            canvas_meta=canvas_meta,
+        )
+        expanded = _harmonize_exact_expand_bands(expanded, canvas_meta)
+        expanded = _locally_harmonize_exact_expand_seams(expanded, preserved_fitted, canvas_meta)
+        expanded = _microblend_exact_expand_seams(expanded, preserved_fitted, canvas_meta)
+        expanded = _v8_graft_exact_expand_seams(expanded, preserved_fitted, canvas_meta)
+
+        cropped = expanded.crop((
+            int(target_rect["x1"]),
+            int(target_rect["y1"]),
+            int(target_rect["x2"]),
+            int(target_rect["y2"]),
+        ))
+        if cropped.size != (requested_width, requested_height):
+            cropped = cropped.resize((requested_width, requested_height), Image.Resampling.LANCZOS)
+        return _encode_png_bytes(cropped.convert("RGBA"))
+
+
+async def _expand_image_to_exact_size_with_ai(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    openai_key: str,
+    openai_quality: str,
+    requested_width: int,
+    requested_height: int,
+) -> Dict[str, Any]:
+    base_width, base_height = _choose_best_supported_base_size(requested_width, requested_height)
+    source_width, source_height = _read_image_dimensions(image_bytes)
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = requested_width / max(1.0, float(requested_height))
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    orientation_changed = (source_width >= source_height) != (requested_width >= requested_height)
+
+    attempt_profiles = ["strict", "balanced"]
+    if orientation_changed or ratio_delta >= 0.34:
+        attempt_profiles.append("wide")
+
+    attempt_summaries: List[Dict[str, Any]] = []
+    best_result: Optional[Dict[str, Any]] = None
+    best_selection_score = float("inf")
+
+    for attempt_index, profile in enumerate(attempt_profiles, start=1):
+        canvas_bytes, mask_bytes, canvas_meta = _build_exact_size_ai_canvas(
+            image_bytes=image_bytes,
+            requested_width=requested_width,
+            requested_height=requested_height,
+            base_width=base_width,
+            base_height=base_height,
+            overlap_profile=profile,
+        )
+
+        result = await _edit_openai_image(
+            client=client,
+            image_bytes=canvas_bytes,
+            filename="exact-size-expand-v8.png",
+            content_type="image/png",
+            final_prompt=_build_exact_size_expand_prompt(
+                requested_width=requested_width,
+                requested_height=requested_height,
+                canvas_meta=canvas_meta,
+                prompt_mode=profile,
+            ),
+            aspect_ratio=_base_size_to_aspect_ratio(base_width, base_height),
+            quality=openai_quality,
+            openai_key=openai_key,
+            openai_size=f"{base_width}x{base_height}",
+            mask_bytes=mask_bytes,
+            input_fidelity="high",
+        )
+
+        expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
+        final_bytes = _finalize_exact_size_ai_expand(
+            expanded_canvas_bytes=expanded_bytes,
+            preserved_source_bytes=image_bytes,
+            canvas_meta=canvas_meta,
+        )
+        diagnostics = _exact_expand_quality_diagnostics(
+            final_bytes=final_bytes,
+            preserved_source_bytes=image_bytes,
+            canvas_meta=canvas_meta,
+        )
+        quality_score = float(diagnostics.get("quality_score", 999.0))
+        seam_score = float(diagnostics.get("seam_score", 999.0))
+        seam_max = float(diagnostics.get("seam_max", 999.0))
+        selection_score = _v8_exact_expand_selection_score(diagnostics)
+
+        fallback_applied = False
+        fallback_improved = False
+        fallback_details: Dict[str, Any] = {}
+
+        should_try_fallback = bool(
+            diagnostics.get("flagged_sides")
+            and (seam_max >= 7.5 or seam_score >= 6.6 or selection_score >= 11.5)
+        )
+        if should_try_fallback:
+            repaired_bytes = _repair_visible_exact_expand_seams_in_final(
+                final_bytes=final_bytes,
+                preserved_source_bytes=image_bytes,
+                canvas_meta=canvas_meta,
+                diagnostics=diagnostics,
+            )
+            if repaired_bytes != final_bytes:
+                fallback_applied = True
+                repaired_diagnostics = _exact_expand_quality_diagnostics(
+                    final_bytes=repaired_bytes,
+                    preserved_source_bytes=image_bytes,
+                    canvas_meta=canvas_meta,
+                )
+                repaired_quality = float(repaired_diagnostics.get("quality_score", 999.0))
+                repaired_seam_score = float(repaired_diagnostics.get("seam_score", 999.0))
+                repaired_seam_max = float(repaired_diagnostics.get("seam_max", 999.0))
+                repaired_selection_score = _v8_exact_expand_selection_score(repaired_diagnostics)
+                fallback_details = {
+                    "before_quality_score": round(quality_score, 3),
+                    "before_seam_score": round(seam_score, 3),
+                    "before_seam_max": round(seam_max, 3),
+                    "before_selection_score": round(selection_score, 3),
+                    "after_quality_score": round(repaired_quality, 3),
+                    "after_seam_score": round(repaired_seam_score, 3),
+                    "after_seam_max": round(repaired_seam_max, 3),
+                    "after_selection_score": round(repaired_selection_score, 3),
+                    "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+                }
+                if repaired_selection_score <= selection_score - 0.35:
+                    fallback_improved = True
+                    final_bytes = repaired_bytes
+                    diagnostics = repaired_diagnostics
+                    quality_score = repaired_quality
+                    seam_score = repaired_seam_score
+                    seam_max = repaired_seam_max
+                    selection_score = repaired_selection_score
+
+        candidate_result = dict(result)
+        candidate_result["engine_id"] = "openai_exact_canvas_expand"
+        candidate_result["motor"] = f"{result.get('motor', 'OpenAI GPT Image 1.5 Edit')} + Extensão real por IA V8"
+        candidate_result["url"] = _result_url_from_image_bytes(final_bytes, "image/png")
+        candidate_result["exact_canvas_expand"] = {
+            "requested_width": requested_width,
+            "requested_height": requested_height,
+            "base_width": base_width,
+            "base_height": base_height,
+            "target_rect": dict(canvas_meta.get("target_rect") or {}),
+            "source_rect": dict(canvas_meta.get("source_rect") or {}),
+            "protected_rect": dict(canvas_meta.get("protected_rect") or {}),
+            "overlap": dict(canvas_meta.get("overlap") or {}),
+            "gaps": dict(canvas_meta.get("gaps") or {}),
+            "profile": profile,
+            "quality_score": round(float(quality_score), 3),
+            "selection_score": round(float(selection_score), 3),
+            "seam_score": round(float(seam_score), 3),
+            "seam_max": round(float(seam_max), 3),
+            "border_score": round(float(diagnostics.get("border_score", 0.0)), 3),
+            "generated_region_penalty": round(float(diagnostics.get("generated_region_penalty", 0.0)), 3),
+            "seam_details": list(diagnostics.get("seam_details") or []),
+            "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+            "fallback_applied": bool(fallback_applied),
+            "fallback_improved": bool(fallback_improved),
+            "fallback_details": fallback_details,
+            "attempt_index": attempt_index,
+            "strategy": "ai_exact_canvas_expand_v8_seam_guard",
+            "ratio_delta": round(float(ratio_delta), 4),
+            "scaffold_used": bool((canvas_meta.get("scaffold_used") is True)),
+            "algorithm_version": "v8_seam_guard",
+        }
+        attempt_summaries.append({
+            "attempt_index": attempt_index,
+            "profile": profile,
+            "quality_score": round(float(quality_score), 3),
+            "selection_score": round(float(selection_score), 3),
+            "seam_score": round(float(seam_score), 3),
+            "seam_max": round(float(seam_max), 3),
+            "generated_region_penalty": round(float(diagnostics.get("generated_region_penalty", 0.0)), 3),
+            "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+            "fallback_applied": bool(fallback_applied),
+            "fallback_improved": bool(fallback_improved),
+        })
+
+        if selection_score < best_selection_score:
+            best_selection_score = selection_score
+            best_result = candidate_result
+
+        if seam_max <= 5.6 and seam_score <= 5.0 and float(diagnostics.get("generated_region_penalty", 0.0)) <= 4.4:
+            break
+
+    if best_result is None:
+        raise ValueError("Falha ao concluir a expansão exata por IA.")
+
+    selected_expand = dict(best_result.get("exact_canvas_expand") or {})
+    best_result["exact_canvas_expand"] = {
+        **selected_expand,
+        "attempts": attempt_summaries,
+        "selected_quality_score": round(float(selected_expand.get("quality_score", 999.0)), 3),
+        "selected_selection_score": round(float(best_selection_score), 3),
+        "selected_attempt": int(selected_expand.get("attempt_index", 1)),
+        "selected_profile": str(selected_expand.get("profile", "strict")),
+        "selected_seam_score": round(float(selected_expand.get("seam_score", 999.0)), 3),
+        "selected_seam_max": round(float(selected_expand.get("seam_max", 999.0)), 3),
+        "algorithm_version": "v8_seam_guard",
+    }
+    return best_result
+
+# <<< IMAGE_ENGINE_EXACT_CANVAS_V8_FULL_FILE
+
+# >>> IMAGE_ENGINE_EXACT_CANVAS_V9_COST_CONTROL
+# V9 objetivo:
+# 1) reduzir custo do fluxo de expansão exata;
+# 2) evitar refinamento por chat + edição completa quando o pedido é apenas canvas/tamanho;
+# 3) tentar um candidato local sem custo antes da IA;
+# 4) limitar a expansão por IA a 1 chamada por padrão, com segunda tentativa só via env.
+
+
+def _v9_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(str(os.getenv(name, str(default))).strip())
+    except Exception:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _v9_exact_expand_effective_quality(openai_quality: str) -> str:
+    """
+    Extensão de canvas não precisa usar alta qualidade por padrão.
+    O centro da peça é preservado por overlay local, então a IA trabalha só nas bordas.
+
+    Para forçar outro comportamento no servidor:
+    IMAGE_ENGINE_EXACT_EXPAND_QUALITY=high|medium|low|auto
+    """
+    raw = str(os.getenv("IMAGE_ENGINE_EXACT_EXPAND_QUALITY", "medium")).strip().lower()
+    if raw in {"low", "medium", "high"}:
+        return raw
+    normalized = (openai_quality or "medium").strip().lower()
+    if normalized == "high":
+        return "medium"
+    if normalized in {"low", "medium"}:
+        return normalized
+    return "medium"
+
+
+def _v9_is_blank_or_canvas_instruction(normalized: str) -> bool:
+    if not normalized:
+        return True
+    canvas_intent_terms = [
+        "expandir", "estender", "extender", "aumentar canvas", "aumentar o canvas",
+        "aumentar area", "aumentar área", "preencher bordas", "preencher as bordas",
+        "adaptar", "converter", "redimensionar", "resize", "reenquadrar", "reencaixar",
+        "sem crop", "sem cortar", "não cortar", "nao cortar", "preservar", "mantenha",
+        "mantendo", "mesma arte", "mesmo layout", "só expandir", "so expandir",
+        "somente expandir", "apenas expandir", "formato", "proporção", "proporcao",
+        "horizontal", "vertical", "quadrado", "banner", "stories", "story", "reels", "reel",
+        "16:9", "9:16", "1:1", "1376x768", "768x1376", "1024x1024",
+    ]
+    return any(term in normalized for term in canvas_intent_terms)
+
+
+def _is_canvas_only_edit_request(
+    payload: ImageEditRequest,
+    instruction_info: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """
+    Override V9.
+    A versão anterior exigia preserve_original_frame=True e frequentemente caía no fluxo caro.
+    Aqui a classificação é mais prática: se há tamanho/formato e não existe intenção destrutiva,
+    tratamos como adaptação de canvas.
+    """
+    instruction_info = instruction_info or {}
+    normalized = _normalize_instruction_text(payload.instrucoes_edicao)
+
+    if instruction_info.get("is_pure_text_edit"):
+        return False
+    if _has_explicit_destructive_edit_intent(normalized):
+        return False
+
+    destructive_patterns = [
+        "trocar o texto", "trocar texto", "mudar o texto", "alterar o texto",
+        "remover o texto", "apagar o texto", "corrigir o texto", "reescrever o texto",
+        "traduzir o texto", "adicionar texto", "inserir texto", "mudar a cor",
+        "alterar a cor", "trocar o logo", "mudar o logo", "alterar o logo",
+        "remover logo", "tirar logo", "trocar a marca", "alterar a marca",
+        "trocar produto", "mudar produto", "alterar produto", "remover pessoa",
+        "trocar fundo", "mudar fundo", "substituir fundo", "refazer a arte",
+        "recriar a arte", "criar outra arte", "mudar a headline", "mudar headline",
+    ]
+    if _contains_instruction_phrase(normalized, destructive_patterns):
+        return False
+
+    has_explicit_target_size = payload.width is not None and payload.height is not None
+    has_canvas_format = (payload.formato or "").strip().lower() in {
+        "quadrado_1_1", "vertical_9_16", "horizontal_16_9"
+    }
+
+    if has_explicit_target_size and _v9_is_blank_or_canvas_instruction(normalized):
+        return True
+    if has_canvas_format and _v9_is_blank_or_canvas_instruction(normalized):
+        return True
+
+    preserve_phrases = [
+        "mantenha todos os elementos", "mantendo todos os elementos",
+        "preserve todos os elementos", "sem alterar o conteúdo", "sem mudar o conteúdo",
+        "somente as adaptações necessárias", "apenas as adaptações necessárias",
+        "nao inventar", "não inventar", "sem inventar", "mesma composição",
+    ]
+    return _contains_instruction_phrase(normalized, preserve_phrases)
+
+
+def _v9_compute_transition_overlap(
+    gap: int,
+    source_side: int,
+    min_side: int,
+    profile: str,
+) -> int:
+    if gap <= 0:
+        return 0
+    normalized_profile = (profile or "balanced").strip().lower()
+    if normalized_profile in {"strict", "cost"}:
+        base = max(44, int(round(min_side * 0.058)))
+    elif normalized_profile == "wide":
+        base = max(64, int(round(min_side * 0.082)))
+    else:
+        base = max(54, int(round(min_side * 0.070)))
+    # O ponto crítico dos testes era a linha vertical. Uma transição maior custa zero
+    # e dá mais margem para a IA/local blending desaparecer com a divisão.
+    boosted = max(base, int(round(gap * 0.52)))
+    return max(0, min(source_side // 4, gap + max(18, gap // 4), boosted, 112))
+
+
+def _v9_build_exact_size_ai_canvas(
+    image_bytes: bytes,
+    requested_width: int,
+    requested_height: int,
+    base_width: int,
+    base_height: int,
+    overlap_profile: str = "cost",
+) -> Tuple[bytes, bytes, Dict[str, Any]]:
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        source = im.convert("RGBA")
+        target_rect = _largest_centered_exact_aspect_rect(
+            base_width,
+            base_height,
+            requested_width,
+            requested_height,
+        )
+        target_rect_width = max(1, target_rect[2] - target_rect[0])
+        target_rect_height = max(1, target_rect[3] - target_rect[1])
+
+        fitted, local_placement = _resize_to_contain(source, target_rect_width, target_rect_height)
+        source_rect = (
+            target_rect[0] + local_placement[0],
+            target_rect[1] + local_placement[1],
+            target_rect[0] + local_placement[2],
+            target_rect[1] + local_placement[3],
+        )
+
+        left_gap = max(0, source_rect[0] - target_rect[0])
+        right_gap = max(0, target_rect[2] - source_rect[2])
+        top_gap = max(0, source_rect[1] - target_rect[1])
+        bottom_gap = max(0, target_rect[3] - source_rect[3])
+
+        source_rect_width = max(1, source_rect[2] - source_rect[0])
+        source_rect_height = max(1, source_rect[3] - source_rect[1])
+        min_side = max(1, min(source_rect_width, source_rect_height))
+        normalized_profile = (overlap_profile or "cost").strip().lower()
+        ratio_delta = abs(
+            math.log(
+                max(1e-6, (requested_width / max(1.0, float(requested_height))))
+                / max(1e-6, (source.width / max(1.0, float(source.height))))
+            )
+        )
+
+        overlap = {
+            "left": _v9_compute_transition_overlap(left_gap, source_rect_width, min_side, normalized_profile),
+            "right": _v9_compute_transition_overlap(right_gap, source_rect_width, min_side, normalized_profile),
+            "top": _v9_compute_transition_overlap(top_gap, source_rect_height, min_side, normalized_profile),
+            "bottom": _v9_compute_transition_overlap(bottom_gap, source_rect_height, min_side, normalized_profile),
+        }
+
+        protected_rect = (
+            source_rect[0] + overlap["left"],
+            source_rect[1] + overlap["top"],
+            source_rect[2] - overlap["right"],
+            source_rect[3] - overlap["bottom"],
+        )
+
+        # Scaffold determinístico primeiro. A IA recebe uma imagem quase pronta e precisa
+        # apenas corrigir continuidade, não inventar cenário do zero.
+        scaffold_patch = _edge_extend_fill(source, target_rect_width, target_rect_height)
+        canvas = Image.new("RGBA", (base_width, base_height), (0, 0, 0, 0))
+        canvas.alpha_composite(scaffold_patch, (target_rect[0], target_rect[1]))
+        canvas.alpha_composite(fitted, (source_rect[0], source_rect[1]))
+
+        mask_l = Image.new("L", (base_width, base_height), 255)
+        draw = ImageDraw.Draw(mask_l)
+        draw.rectangle(target_rect, fill=0)
+        draw.rectangle(source_rect, fill=255)
+
+        if overlap["left"] > 0:
+            draw.rectangle((source_rect[0], source_rect[1], min(source_rect[2], source_rect[0] + overlap["left"]), source_rect[3]), fill=0)
+        if overlap["right"] > 0:
+            draw.rectangle((max(source_rect[0], source_rect[2] - overlap["right"]), source_rect[1], source_rect[2], source_rect[3]), fill=0)
+        if overlap["top"] > 0:
+            draw.rectangle((source_rect[0], source_rect[1], source_rect[2], min(source_rect[3], source_rect[1] + overlap["top"])), fill=0)
+        if overlap["bottom"] > 0:
+            draw.rectangle((source_rect[0], max(source_rect[1], source_rect[3] - overlap["bottom"]), source_rect[2], source_rect[3]), fill=0)
+
+        mask = Image.merge("RGBA", (mask_l, mask_l, mask_l, mask_l))
+        return (
+            _encode_png_bytes(canvas),
+            _encode_png_bytes(mask),
+            {
+                "base_width": base_width,
+                "base_height": base_height,
+                "target_rect": {
+                    "x1": target_rect[0], "y1": target_rect[1], "x2": target_rect[2], "y2": target_rect[3],
+                    "width": target_rect_width, "height": target_rect_height,
+                },
+                "source_rect": {
+                    "x1": source_rect[0], "y1": source_rect[1], "x2": source_rect[2], "y2": source_rect[3],
+                    "width": source_rect_width, "height": source_rect_height,
+                },
+                "protected_rect": {
+                    "x1": protected_rect[0], "y1": protected_rect[1], "x2": protected_rect[2], "y2": protected_rect[3],
+                    "width": max(1, protected_rect[2] - protected_rect[0]),
+                    "height": max(1, protected_rect[3] - protected_rect[1]),
+                },
+                "overlap": overlap,
+                "requested_width": requested_width,
+                "requested_height": requested_height,
+                "profile": normalized_profile,
+                "gaps": {"left": left_gap, "right": right_gap, "top": top_gap, "bottom": bottom_gap},
+                "ratio_delta": float(ratio_delta),
+                "scaffold_used": True,
+                "algorithm_version": "v9_cost_control_canvas_builder",
+            },
+        )
+
+
+def _v9_build_local_exact_size_expand_result(
+    image_bytes: bytes,
+    requested_width: int,
+    requested_height: int,
+) -> Dict[str, Any]:
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        source = im.convert("RGBA")
+        fitted, placement = _resize_to_contain(source, requested_width, requested_height)
+        x1, y1, x2, y2 = placement
+        left_gap = max(0, x1)
+        right_gap = max(0, requested_width - x2)
+        top_gap = max(0, y1)
+        bottom_gap = max(0, requested_height - y2)
+        source_rect_width = max(1, x2 - x1)
+        source_rect_height = max(1, y2 - y1)
+        min_side = max(1, min(source_rect_width, source_rect_height))
+        overlap = {
+            "left": _v9_compute_transition_overlap(left_gap, source_rect_width, min_side, "wide"),
+            "right": _v9_compute_transition_overlap(right_gap, source_rect_width, min_side, "wide"),
+            "top": _v9_compute_transition_overlap(top_gap, source_rect_height, min_side, "wide"),
+            "bottom": _v9_compute_transition_overlap(bottom_gap, source_rect_height, min_side, "wide"),
+        }
+        canvas_meta = {
+            "base_width": requested_width,
+            "base_height": requested_height,
+            "target_rect": {"x1": 0, "y1": 0, "x2": requested_width, "y2": requested_height, "width": requested_width, "height": requested_height},
+            "source_rect": {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "width": source_rect_width, "height": source_rect_height},
+            "protected_rect": {
+                "x1": x1 + overlap["left"], "y1": y1 + overlap["top"],
+                "x2": x2 - overlap["right"], "y2": y2 - overlap["bottom"],
+                "width": max(1, source_rect_width - overlap["left"] - overlap["right"]),
+                "height": max(1, source_rect_height - overlap["top"] - overlap["bottom"]),
+            },
+            "overlap": overlap,
+            "requested_width": requested_width,
+            "requested_height": requested_height,
+            "profile": "local_cost_gate",
+            "gaps": {"left": left_gap, "right": right_gap, "top": top_gap, "bottom": bottom_gap},
+            "ratio_delta": abs(math.log(max(1e-6, (requested_width / max(1.0, float(requested_height)))) / max(1e-6, (source.width / max(1.0, float(source.height)))))),
+            "scaffold_used": True,
+            "algorithm_version": "v9_local_cost_gate",
+        }
+
+        expanded = _edge_extend_fill(source, requested_width, requested_height)
+        expanded = _repair_underfilled_target_region(expanded, fitted, canvas_meta)
+        expanded = _overlay_preserved_source_with_adaptive_alpha(expanded, fitted, canvas_meta)
+        expanded = _harmonize_exact_expand_bands(expanded, canvas_meta)
+        expanded = _locally_harmonize_exact_expand_seams(expanded, fitted, canvas_meta)
+        expanded = _microblend_exact_expand_seams(expanded, fitted, canvas_meta)
+        expanded = _v8_graft_exact_expand_seams(expanded, fitted, canvas_meta)
+        final_bytes = _encode_png_bytes(expanded.convert("RGBA"))
+
+    diagnostics = _exact_expand_quality_diagnostics(
+        final_bytes=final_bytes,
+        preserved_source_bytes=image_bytes,
+        canvas_meta=canvas_meta,
+    )
+    diagnostics["selection_score"] = round(float(_v8_exact_expand_selection_score(diagnostics)), 3)
+    return {
+        "engine_id": "local_exact_canvas_expand",
+        "motor": "Expansão local de canvas V9 sem custo de IA",
+        "url": _result_url_from_image_bytes(final_bytes, "image/png"),
+        "exact_canvas_expand": {
+            "requested_width": requested_width,
+            "requested_height": requested_height,
+            "base_width": requested_width,
+            "base_height": requested_height,
+            "target_rect": dict(canvas_meta.get("target_rect") or {}),
+            "source_rect": dict(canvas_meta.get("source_rect") or {}),
+            "protected_rect": dict(canvas_meta.get("protected_rect") or {}),
+            "overlap": dict(canvas_meta.get("overlap") or {}),
+            "gaps": dict(canvas_meta.get("gaps") or {}),
+            "profile": "local_cost_gate",
+            "quality_score": round(float(diagnostics.get("quality_score", 999.0)), 3),
+            "selection_score": round(float(diagnostics.get("selection_score", 999.0)), 3),
+            "seam_score": round(float(diagnostics.get("seam_score", 999.0)), 3),
+            "seam_max": round(float(diagnostics.get("seam_max", 999.0)), 3),
+            "border_score": round(float(diagnostics.get("border_score", 0.0)), 3),
+            "generated_region_penalty": round(float(diagnostics.get("generated_region_penalty", 0.0)), 3),
+            "seam_details": list(diagnostics.get("seam_details") or []),
+            "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+            "fallback_applied": False,
+            "fallback_improved": False,
+            "fallback_details": {},
+            "attempt_index": 0,
+            "strategy": "local_exact_canvas_expand_v9_cost_gate",
+            "ratio_delta": round(float(canvas_meta.get("ratio_delta", 0.0)), 4),
+            "scaffold_used": True,
+            "api_calls_saved": 1,
+            "algorithm_version": "v9_cost_control",
+        },
+    }
+
+
+def _v9_local_candidate_is_good_enough(result: Dict[str, Any]) -> bool:
+    meta = result.get("exact_canvas_expand") or {}
+    seam_score = float(meta.get("seam_score", 999.0))
+    seam_max = float(meta.get("seam_max", 999.0))
+    generated = float(meta.get("generated_region_penalty", 999.0))
+    border = float(meta.get("border_score", 999.0))
+    flagged = len(list(meta.get("flagged_sides") or []))
+    return bool(
+        flagged == 0
+        and seam_score <= 5.2
+        and seam_max <= 6.4
+        and generated <= 4.6
+        and border <= 1.0
+    )
+
+
+def _v9_profile_sequence(source_width: int, source_height: int, requested_width: int, requested_height: int) -> List[str]:
+    max_attempts = _v9_env_int("IMAGE_ENGINE_EXACT_EXPAND_MAX_AI_ATTEMPTS", 1, 1, 3)
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = requested_width / max(1.0, float(requested_height))
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    orientation_changed = (source_width >= source_height) != (requested_width >= requested_height)
+
+    profiles = ["cost"]
+    if max_attempts >= 2 and (orientation_changed or ratio_delta >= 0.34):
+        profiles.append("wide")
+    if max_attempts >= 3:
+        profiles.append("balanced")
+    return profiles[:max_attempts]
+
+
+async def _expand_image_to_exact_size_with_ai(
+    client: httpx.AsyncClient,
+    image_bytes: bytes,
+    openai_key: str,
+    openai_quality: str,
+    requested_width: int,
+    requested_height: int,
+) -> Dict[str, Any]:
+    source_width, source_height = _read_image_dimensions(image_bytes)
+
+    # Gate sem custo: tenta resolver localmente. Só retorna se a métrica estiver muito boa.
+    # Caso contrário, cai para uma única chamada de IA.
+    local_first_enabled = str(os.getenv("IMAGE_ENGINE_EXACT_EXPAND_LOCAL_FIRST", "1")).strip().lower() not in {"0", "false", "no", "nao", "não"}
+    local_candidate: Optional[Dict[str, Any]] = None
+    if local_first_enabled:
+        try:
+            local_candidate = _v9_build_local_exact_size_expand_result(
+                image_bytes=image_bytes,
+                requested_width=requested_width,
+                requested_height=requested_height,
+            )
+            if _v9_local_candidate_is_good_enough(local_candidate):
+                meta = dict(local_candidate.get("exact_canvas_expand") or {})
+                local_candidate["exact_canvas_expand"] = {
+                    **meta,
+                    "attempts": [
+                        {
+                            "attempt_index": 0,
+                            "profile": "local_cost_gate",
+                            "quality_score": meta.get("quality_score"),
+                            "selection_score": meta.get("selection_score"),
+                            "seam_score": meta.get("seam_score"),
+                            "seam_max": meta.get("seam_max"),
+                            "generated_region_penalty": meta.get("generated_region_penalty"),
+                            "flagged_sides": meta.get("flagged_sides"),
+                            "api_calls": 0,
+                        }
+                    ],
+                    "selected_quality_score": meta.get("quality_score"),
+                    "selected_selection_score": meta.get("selection_score"),
+                    "selected_attempt": 0,
+                    "selected_profile": "local_cost_gate",
+                    "selected_seam_score": meta.get("seam_score"),
+                    "selected_seam_max": meta.get("seam_max"),
+                    "api_calls_used": 0,
+                    "cost_control": "local_candidate_accepted",
+                    "algorithm_version": "v9_cost_control",
+                }
+                return local_candidate
+        except Exception:
+            logger.exception("Falha no candidato local V9 de expansão exata; usando IA.")
+
+    base_width, base_height = _choose_best_supported_base_size(requested_width, requested_height)
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = requested_width / max(1.0, float(requested_height))
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    effective_quality = _v9_exact_expand_effective_quality(openai_quality)
+    attempt_profiles = _v9_profile_sequence(source_width, source_height, requested_width, requested_height)
+
+    attempt_summaries: List[Dict[str, Any]] = []
+    best_result: Optional[Dict[str, Any]] = None
+    best_selection_score = float("inf")
+    api_calls_used = 0
+
+    if local_candidate:
+        local_meta = dict(local_candidate.get("exact_canvas_expand") or {})
+        attempt_summaries.append({
+            "attempt_index": 0,
+            "profile": "local_cost_gate_rejected",
+            "quality_score": local_meta.get("quality_score"),
+            "selection_score": local_meta.get("selection_score"),
+            "seam_score": local_meta.get("seam_score"),
+            "seam_max": local_meta.get("seam_max"),
+            "generated_region_penalty": local_meta.get("generated_region_penalty"),
+            "flagged_sides": local_meta.get("flagged_sides"),
+            "api_calls": 0,
+        })
+
+    for attempt_index, profile in enumerate(attempt_profiles, start=1):
+        canvas_bytes, mask_bytes, canvas_meta = _v9_build_exact_size_ai_canvas(
+            image_bytes=image_bytes,
+            requested_width=requested_width,
+            requested_height=requested_height,
+            base_width=base_width,
+            base_height=base_height,
+            overlap_profile=profile,
+        )
+
+        result = await _edit_openai_image(
+            client=client,
+            image_bytes=canvas_bytes,
+            filename="exact-size-expand-v9-cost-control.png",
+            content_type="image/png",
+            final_prompt=_build_exact_size_expand_prompt(
+                requested_width=requested_width,
+                requested_height=requested_height,
+                canvas_meta=canvas_meta,
+                prompt_mode="strict" if profile == "cost" else profile,
+            ),
+            aspect_ratio=_base_size_to_aspect_ratio(base_width, base_height),
+            quality=effective_quality,
+            openai_key=openai_key,
+            openai_size=f"{base_width}x{base_height}",
+            mask_bytes=mask_bytes,
+            input_fidelity="high",
+        )
+        api_calls_used += 1
+
+        expanded_bytes, _ = _image_bytes_from_result_url(result["url"])
+        final_bytes = _finalize_exact_size_ai_expand(
+            expanded_canvas_bytes=expanded_bytes,
+            preserved_source_bytes=image_bytes,
+            canvas_meta=canvas_meta,
+        )
+        diagnostics = _exact_expand_quality_diagnostics(
+            final_bytes=final_bytes,
+            preserved_source_bytes=image_bytes,
+            canvas_meta=canvas_meta,
+        )
+        quality_score = float(diagnostics.get("quality_score", 999.0))
+        seam_score = float(diagnostics.get("seam_score", 999.0))
+        seam_max = float(diagnostics.get("seam_max", 999.0))
+        selection_score = _v8_exact_expand_selection_score(diagnostics)
+
+        fallback_applied = False
+        fallback_improved = False
+        fallback_details: Dict[str, Any] = {}
+        should_try_fallback = bool(diagnostics.get("flagged_sides") and (seam_max >= 6.8 or seam_score >= 5.8))
+        if should_try_fallback:
+            repaired_bytes = _repair_visible_exact_expand_seams_in_final(
+                final_bytes=final_bytes,
+                preserved_source_bytes=image_bytes,
+                canvas_meta=canvas_meta,
+                diagnostics=diagnostics,
+            )
+            if repaired_bytes != final_bytes:
+                fallback_applied = True
+                repaired_diagnostics = _exact_expand_quality_diagnostics(
+                    final_bytes=repaired_bytes,
+                    preserved_source_bytes=image_bytes,
+                    canvas_meta=canvas_meta,
+                )
+                repaired_selection_score = _v8_exact_expand_selection_score(repaired_diagnostics)
+                fallback_details = {
+                    "before_quality_score": round(quality_score, 3),
+                    "before_seam_score": round(seam_score, 3),
+                    "before_seam_max": round(seam_max, 3),
+                    "before_selection_score": round(selection_score, 3),
+                    "after_quality_score": round(float(repaired_diagnostics.get("quality_score", 999.0)), 3),
+                    "after_seam_score": round(float(repaired_diagnostics.get("seam_score", 999.0)), 3),
+                    "after_seam_max": round(float(repaired_diagnostics.get("seam_max", 999.0)), 3),
+                    "after_selection_score": round(repaired_selection_score, 3),
+                    "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+                }
+                if repaired_selection_score <= selection_score:
+                    fallback_improved = True
+                    final_bytes = repaired_bytes
+                    diagnostics = repaired_diagnostics
+                    quality_score = float(diagnostics.get("quality_score", 999.0))
+                    seam_score = float(diagnostics.get("seam_score", 999.0))
+                    seam_max = float(diagnostics.get("seam_max", 999.0))
+                    selection_score = repaired_selection_score
+
+        candidate_result = dict(result)
+        candidate_result["engine_id"] = "openai_exact_canvas_expand"
+        candidate_result["motor"] = f"{result.get('motor', 'OpenAI GPT Image 1.5 Edit')} + Extensão real por IA V9 custo otimizado"
+        candidate_result["url"] = _result_url_from_image_bytes(final_bytes, "image/png")
+        candidate_result["exact_canvas_expand"] = {
+            "requested_width": requested_width,
+            "requested_height": requested_height,
+            "base_width": base_width,
+            "base_height": base_height,
+            "target_rect": dict(canvas_meta.get("target_rect") or {}),
+            "source_rect": dict(canvas_meta.get("source_rect") or {}),
+            "protected_rect": dict(canvas_meta.get("protected_rect") or {}),
+            "overlap": dict(canvas_meta.get("overlap") or {}),
+            "gaps": dict(canvas_meta.get("gaps") or {}),
+            "profile": profile,
+            "quality_score": round(float(quality_score), 3),
+            "selection_score": round(float(selection_score), 3),
+            "seam_score": round(float(seam_score), 3),
+            "seam_max": round(float(seam_max), 3),
+            "border_score": round(float(diagnostics.get("border_score", 0.0)), 3),
+            "generated_region_penalty": round(float(diagnostics.get("generated_region_penalty", 0.0)), 3),
+            "seam_details": list(diagnostics.get("seam_details") or []),
+            "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+            "fallback_applied": bool(fallback_applied),
+            "fallback_improved": bool(fallback_improved),
+            "fallback_details": fallback_details,
+            "attempt_index": attempt_index,
+            "strategy": "ai_exact_canvas_expand_v9_cost_control",
+            "ratio_delta": round(float(ratio_delta), 4),
+            "scaffold_used": bool((canvas_meta.get("scaffold_used") is True)),
+            "effective_quality": effective_quality,
+            "api_calls_used": api_calls_used,
+            "algorithm_version": "v9_cost_control",
+        }
+        attempt_summaries.append({
+            "attempt_index": attempt_index,
+            "profile": profile,
+            "quality_score": round(float(quality_score), 3),
+            "selection_score": round(float(selection_score), 3),
+            "seam_score": round(float(seam_score), 3),
+            "seam_max": round(float(seam_max), 3),
+            "generated_region_penalty": round(float(diagnostics.get("generated_region_penalty", 0.0)), 3),
+            "flagged_sides": list(diagnostics.get("flagged_sides") or []),
+            "fallback_applied": bool(fallback_applied),
+            "fallback_improved": bool(fallback_improved),
+            "api_calls": api_calls_used,
+        })
+
+        if selection_score < best_selection_score:
+            best_selection_score = selection_score
+            best_result = candidate_result
+
+        # Com custo otimizado, a regra é parar cedo. O env permite forçar mais tentativas,
+        # mas por padrão nunca entra no ciclo caro de 3 ou 4 edições.
+        if seam_max <= 6.4 and seam_score <= 5.4:
+            break
+
+    if best_result is None:
+        if local_candidate is not None:
+            best_result = local_candidate
+        else:
+            raise ValueError("Falha ao concluir a expansão exata por IA.")
+
+    selected_expand = dict(best_result.get("exact_canvas_expand") or {})
+    best_result["exact_canvas_expand"] = {
+        **selected_expand,
+        "attempts": attempt_summaries,
+        "selected_quality_score": round(float(selected_expand.get("quality_score", 999.0)), 3),
+        "selected_selection_score": round(float(best_selection_score), 3) if best_selection_score != float("inf") else selected_expand.get("selection_score"),
+        "selected_attempt": int(selected_expand.get("attempt_index", 1)),
+        "selected_profile": str(selected_expand.get("profile", "cost")),
+        "selected_seam_score": round(float(selected_expand.get("seam_score", 999.0)), 3),
+        "selected_seam_max": round(float(selected_expand.get("seam_max", 999.0)), 3),
+        "api_calls_used": api_calls_used,
+        "max_ai_attempts": _v9_env_int("IMAGE_ENGINE_EXACT_EXPAND_MAX_AI_ATTEMPTS", 1, 1, 3),
+        "effective_quality": effective_quality,
+        "cost_control": "enabled",
+        "algorithm_version": "v9_cost_control",
+    }
+    return best_result
+
+# <<< IMAGE_ENGINE_EXACT_CANVAS_V9_COST_CONTROL
