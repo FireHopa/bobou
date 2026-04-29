@@ -34,6 +34,7 @@ from .credits import (
 from .db import get_session
 from .deps import get_current_user
 from .models import ImageEngineHistoryEntry, ImageEngineProject, User
+from .image_recomposition import adapt_image_to_custom_layout
 
 
 router = APIRouter()
@@ -1001,8 +1002,13 @@ def _is_canvas_only_edit_request(
         "quadrado",
         "adaptar para",
         "transforme essa imagem em",
+        "transforme essa imagem para",
         "transformar essa imagem em",
+        "transformar essa imagem para",
         "converter para",
+        "resolução",
+        "resolucao",
+        "redimensionar",
     ]
 
     preserve_only_phrases = [
@@ -1034,6 +1040,54 @@ def _is_strong_canvas_recompose_case(
     ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
     return bool(orientation_changed or ratio_delta >= 0.32)
 
+
+
+def _is_custom_resolution_layout_adaptation(
+    payload: ImageEditRequest,
+    source_width: int,
+    source_height: int,
+    target_dimensions: Optional[Tuple[int, int]],
+    resolution_source: Optional[str] = None,
+) -> bool:
+    if not target_dimensions:
+        return False
+
+    target_width, target_height = target_dimensions
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = target_width / max(1.0, float(target_height))
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    normalized = _normalize_instruction_text(payload.instrucoes_edicao)
+    resolution_source_label = (resolution_source or "").strip().lower()
+
+    custom_resolution_requested = bool(payload.width and payload.height) or resolution_source_label in {
+        "chat_instruction",
+        "panel",
+        "manual",
+        "explicit",
+    }
+    layout_words = [
+        "resolução",
+        "resolucao",
+        "tamanho",
+        "formato",
+        "proporção",
+        "proporcao",
+        "adaptar",
+        "transforme",
+        "transformar",
+        "converter",
+        "redimensionar",
+        "horizontal",
+        "vertical",
+        "banner",
+        "stories",
+        "reels",
+    ]
+    layout_intent = _contains_instruction_phrase(normalized, layout_words)
+
+    # Para resolução customizada, o padrão correto é recompor layout, não preservar frame antigo.
+    # A antiga expansão guardada só entra quando não há intenção/tamanho customizado claro.
+    return bool(custom_resolution_requested or layout_intent or ratio_delta >= 0.08)
 
 def _smart_expand_strength_from_geometry(
     source_width: int,
@@ -5400,19 +5454,111 @@ async def image_engine_edit_stream(
                     ),
                 })
 
+                improved = {
+                    "prompt_final": body.instrucoes_edicao or "Edição com preservação máxima da arte original.",
+                    "negative_prompt": "não borrar, não espelhar, não distorcer, não criar colagem, não cortar elementos importantes",
+                    "creative_direction": "Preservar a identidade visual da peça e adaptar a composição com segurança.",
+                    "layout_notes": "Manter a leitura da arte clara e estável no formato solicitado.",
+                    "preservation_rules": "Preservar texto, logos, CTA, preço, selo e elementos principais.",
+                    "edit_strategy": "safe_default",
+                    "micro_detail_rules": "Proteger pequenos detalhes e evitar artefatos.",
+                    "consistency_rules": "Entregar uma peça única e coerente.",
+                }
+                final_prompt = body.instrucoes_edicao or ""
                 normalized_allow_resize_crop = bool(body.allow_resize_crop and not body.preserve_original_frame)
+                smart_layout_recomposition_request = bool(
+                    target_dimensions
+                    and not normalized_allow_resize_crop
+                    and _is_custom_resolution_layout_adaptation(
+                        body,
+                        source_width,
+                        source_height,
+                        target_dimensions,
+                        resolution_source_label,
+                    )
+                )
                 canvas_only_request = bool(
                     target_dimensions
                     and not normalized_allow_resize_crop
+                    and not smart_layout_recomposition_request
                     and _is_canvas_only_edit_request(body)
                 )
-                # V9: quando o pedido é só adaptação de canvas/tamanho, forçamos preservação
-                # do enquadramento para evitar o fluxo caro: refinamento por chat + edição completa + expansão.
-                # Isso reduz o caso comum de expansão para 0 ou 1 chamada de imagem, em vez de 3 a 5 chamadas.
-                if canvas_only_request:
+                # Para resolução customizada, a prioridade é recompor a peça.
+                # Não forçamos preservação do frame antigo, porque isso era a origem do blur/smear lateral.
+                if smart_layout_recomposition_request:
+                    body.preserve_original_frame = False
+                    body.allow_resize_crop = False
+                    _append_runtime_image_edit_log(
+                        request_id=request_id,
+                        stage="layout_recomposition_selected",
+                        message="Rota de recomposição inteligente selecionada para resolução customizada.",
+                        details={
+                            "source_dimensions": {"width": source_width, "height": source_height},
+                            "target_dimensions": {"width": target_dimensions[0], "height": target_dimensions[1]},
+                            "resolution_source": resolution_source_label,
+                            "instruction": body.instrucoes_edicao,
+                        },
+                    )
+                elif canvas_only_request:
                     body.preserve_original_frame = True
 
-                if canvas_only_request:
+                if smart_layout_recomposition_request:
+                    # Observação importante: esta rota não passa pelo refinador padrão de prompt.
+                    # Portanto, o dicionário `improved` precisa ser totalmente autossuficiente.
+                    # Na versão anterior havia autorreferências como improved["creative_direction"]
+                    # durante a própria inicialização, o que disparava UnboundLocalError.
+                    improved = {
+                        "prompt_final": "Recomposição real por IA em layout unificado, sem colagem de recortes.",
+                        "negative_prompt": "não criar colagem, não criar miniaturas, não criar picture-in-picture, não duplicar pedaços da imagem, não usar blur, não usar mirror, não usar smear, não usar stretch, não deixar blocos retangulares soltos",
+                        "creative_direction": "Recompor a peça inteira como uma arte publicitária única, horizontal, coerente e nativa para a nova resolução.",
+                        "layout_notes": "Detectar e reorganizar visual principal, bloco textual, preço, CTA, logos e elementos de apoio em um layout único adaptado ao novo formato.",
+                        "preservation_rules": "Usar a imagem original como referência obrigatória, preservar campanha, hierarquia, textos, logos, selo, CTA, cores e identidade visual sempre que possível.",
+                        "edit_strategy": "openai_unified_layout_recomposition_v3",
+                        "micro_detail_rules": "Proteger textos pequenos, logos, CTA, selos e detalhes visuais. Não transformar a peça em mosaico ou composição de prints.",
+                        "consistency_rules": "Chamada real de IA para recompor a arte como peça única, seguida de fechamento técnico no tamanho exato.",
+                    }
+                    final_prompt = (
+                        "Fluxo V3: recompor por IA como uma arte horizontal única, sem recortes colados, e finalizar no tamanho exato solicitado."
+                    )
+
+                    yield _sse({
+                        "status": f"Recompondo por IA real para {target_dimensions[0]}x{target_dimensions[1]}: criando uma arte única, sem blur, mirror ou colagem de recortes.",
+                        "progress": 42,
+                        "improved_prompt": improved["prompt_final"],
+                        "negative_prompt": improved["negative_prompt"],
+                        "creative_direction": "Recomposição real por IA com layout unificado e acabamento de peça publicitária.",
+                        "layout_notes": "Reposicionar a composição no novo formato sem montar pedaços soltos da imagem original.",
+                        "preservation_rules": improved["preservation_rules"],
+                        "edit_strategy": "openai_unified_layout_recomposition_v3",
+                        "micro_detail_rules": improved["micro_detail_rules"],
+                        "consistency_rules": improved["consistency_rules"],
+                        "final_prompt": final_prompt,
+                        "aspect_ratio": aspect_ratio,
+                        "quality": openai_quality,
+                        "openai_size": openai_size,
+                        "debug": _runtime_debug_payload(
+                            request_id=request_id,
+                            stage="layout_recomposition_started",
+                            message="Pipeline V3 iniciado: recomposição real por IA antes de qualquer fallback local.",
+                            details={
+                                "source_dimensions": {"width": source_width, "height": source_height},
+                                "target_dimensions": {"width": target_dimensions[0], "height": target_dimensions[1]},
+                                "strategy": "openai_unified_full_design_recomposition_no_local_collage",
+                            },
+                        ),
+                    })
+
+                    result = await adapt_image_to_custom_layout(
+                        client=client,
+                        image_bytes=image_bytes,
+                        target_width=target_dimensions[0],
+                        target_height=target_dimensions[1],
+                        openai_key=openai_key,
+                        openai_quality=openai_quality,
+                        instruction_text=body.instrucoes_edicao,
+                        request_id=request_id,
+                    )
+                elif canvas_only_request:
                     expand_without_crop_needed = _needs_exact_canvas_expand(
                         source_width,
                         source_height,
@@ -5618,6 +5764,27 @@ async def image_engine_edit_stream(
                                 allow_resize_crop=body.allow_resize_crop,
                                 original_reference_bytes=image_bytes,
                             )
+
+                layout_recomposition_meta = result.get("layout_recomposition") if isinstance(result, dict) else None
+                if layout_recomposition_meta:
+                    _append_runtime_image_edit_log(
+                        request_id=request_id,
+                        stage="layout_recomposition_finished",
+                        message="Pipeline de recomposição inteligente finalizado.",
+                        details=layout_recomposition_meta,
+                    )
+                    yield _sse({
+                        "status": "Recomposição inteligente concluída. Elementos principais foram reposicionados no novo layout.",
+                        "progress": 88,
+                        "meta": {"layout_recomposition": layout_recomposition_meta},
+                        "layout_recomposition": layout_recomposition_meta,
+                        "debug": _runtime_debug_payload(
+                            request_id=request_id,
+                            stage="layout_recomposition_finished",
+                            message="Resultado gerado pela rota de recomposição, sem expansão manual lateral.",
+                            details=layout_recomposition_meta,
+                        ),
+                    })
 
                 exact_canvas_meta = result.get("exact_canvas_expand") if isinstance(result, dict) else None
                 if exact_canvas_meta:
