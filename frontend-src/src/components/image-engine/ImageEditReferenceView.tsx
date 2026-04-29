@@ -2037,9 +2037,10 @@ const handleDeleteProject = useCallback(
         formData.append("resolution_source", requestedResolutionFromChat ? "chat_instruction" : "panel");
       }
 
-      formData.append("preserve_original_frame", String(preserveOriginalFrame || Boolean(effectiveRequestedResolution)));
-      formData.append("allow_resize_crop", String(Boolean(allowResizeCrop && !preserveOriginalFrame && !effectiveRequestedResolution)));
-      formData.append("edit_scope", editScope);
+      const shouldUseSmartLayoutRecomposition = Boolean(effectiveRequestedResolution) && !allowResizeCrop;
+      formData.append("preserve_original_frame", String(Boolean(preserveOriginalFrame && !shouldUseSmartLayoutRecomposition)));
+      formData.append("allow_resize_crop", String(Boolean(allowResizeCrop && !preserveOriginalFrame && !shouldUseSmartLayoutRecomposition)));
+      formData.append("edit_scope", shouldUseSmartLayoutRecomposition ? "global" : editScope);
 
       const token = getAuthToken();
 
