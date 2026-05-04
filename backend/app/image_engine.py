@@ -5510,15 +5510,15 @@ async def image_engine_edit_stream(
                     improved = {
                         "prompt_final": "Recomposição real por IA em layout unificado, sem colagem de recortes.",
                         "negative_prompt": "não criar colagem, não criar miniaturas, não criar picture-in-picture, não duplicar pedaços da imagem, não usar blur, não usar mirror, não usar smear, não usar stretch, não deixar blocos retangulares soltos",
-                        "creative_direction": "Recompor a peça inteira como uma arte publicitária única, horizontal, coerente e nativa para a nova resolução.",
+                        "creative_direction": "Recompor a peça inteira como uma arte publicitária única, coerente e nativa para a nova resolução, seja horizontal ou vertical.",
                         "layout_notes": "Detectar e reorganizar visual principal, bloco textual, preço, CTA, logos e elementos de apoio em um layout único adaptado ao novo formato.",
                         "preservation_rules": "Usar a imagem original como referência obrigatória, preservar campanha, hierarquia, textos, logos, selo, CTA, cores e identidade visual sempre que possível.",
-                        "edit_strategy": "openai_unified_layout_recomposition_v3",
+                        "edit_strategy": "openai_unified_layout_recomposition_v5",
                         "micro_detail_rules": "Proteger textos pequenos, logos, CTA, selos e detalhes visuais. Não transformar a peça em mosaico ou composição de prints.",
                         "consistency_rules": "Chamada real de IA para recompor a arte como peça única, seguida de fechamento técnico no tamanho exato.",
                     }
                     final_prompt = (
-                        "Fluxo V3: recompor por IA como uma arte horizontal única, sem recortes colados, e finalizar no tamanho exato solicitado."
+                        "Fluxo V5: recompor por IA com contrato de layout sensível à orientação, auditoria automática e fechamento estável no tamanho exato solicitado."
                     )
 
                     yield _sse({
@@ -5529,7 +5529,7 @@ async def image_engine_edit_stream(
                         "creative_direction": "Recomposição real por IA com layout unificado e acabamento de peça publicitária.",
                         "layout_notes": "Reposicionar a composição no novo formato sem montar pedaços soltos da imagem original.",
                         "preservation_rules": improved["preservation_rules"],
-                        "edit_strategy": "openai_unified_layout_recomposition_v3",
+                        "edit_strategy": "openai_unified_layout_recomposition_v5",
                         "micro_detail_rules": improved["micro_detail_rules"],
                         "consistency_rules": improved["consistency_rules"],
                         "final_prompt": final_prompt,
@@ -5539,7 +5539,7 @@ async def image_engine_edit_stream(
                         "debug": _runtime_debug_payload(
                             request_id=request_id,
                             stage="layout_recomposition_started",
-                            message="Pipeline V3 iniciado: recomposição real por IA antes de qualquer fallback local.",
+                            message="Pipeline V5 iniciado: recomposição real por IA com contrato de layout horizontal/vertical e auditoria automática.",
                             details={
                                 "source_dimensions": {"width": source_width, "height": source_height},
                                 "target_dimensions": {"width": target_dimensions[0], "height": target_dimensions[1]},
@@ -5770,7 +5770,7 @@ async def image_engine_edit_stream(
                     _append_runtime_image_edit_log(
                         request_id=request_id,
                         stage="layout_recomposition_finished",
-                        message="Pipeline de recomposição inteligente finalizado.",
+                        message="Pipeline de recomposição inteligente finalizado com guard rails de layout e orientação.",
                         details=layout_recomposition_meta,
                     )
                     yield _sse({
