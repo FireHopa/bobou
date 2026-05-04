@@ -365,12 +365,151 @@ def _required_roles_from_layout(ai_layout: Optional[Dict[str, Any]]) -> List[str
         role = _normalize_role(item.get("role"))
         importance = str(item.get("importance") or "normal").lower()
         text = str(item.get("visible_text") or "").lower()
-        if role in {"cta", "logo", "price", "date", "title", "overline"} or importance in {"critical", "high"}:
+        if role in {"cta", "logo", "seal", "price", "date", "title", "overline", "subtitle", "hero"} or importance in {"critical", "high"}:
             if "program" in text or "confira" in text or "saiba" in text or "inscre" in text:
                 role = "cta"
             if role not in roles:
                 roles.append(role)
     return roles
+
+
+
+def _is_cta_text(text: str) -> bool:
+    text_l = str(text or "").lower()
+    return any(token in text_l for token in ["program", "confira", "saiba", "inscre", "compr", "agend", "comece", "quero", "clique"])
+
+
+def _extract_layout_items(ai_layout: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Extrai os elementos visuais normalizados da leitura de layout da IA.
+
+    Este é o checker universal do fluxo. Ele não depende de uma campanha específica:
+    qualquer peça que tenha título, CTA, logo, preço, data, pessoa, produto ou bloco de
+    texto passa pelo mesmo contrato de preservação, borda, ancoragem e agrupamento.
+    """
+    items: List[Dict[str, Any]] = []
+    if not isinstance(ai_layout, dict):
+        return items
+    required = ai_layout.get("required_visible_elements")
+    if not isinstance(required, list):
+        return items
+    for raw in required:
+        if not isinstance(raw, dict):
+            continue
+        text = str(raw.get("visible_text") or "").strip()
+        role = _normalize_role(raw.get("role"))
+        if _is_cta_text(text):
+            role = "cta"
+        bbox = _as_pct_bbox(raw.get("bbox_pct"))
+        items.append({
+            "role": role,
+            "visible_text": text,
+            "visual_description": str(raw.get("visual_description") or "").strip(),
+            "importance": str(raw.get("importance") or "normal").strip().lower(),
+            "source_anchor": str(raw.get("source_anchor") or "").strip().lower(),
+            "bbox": bbox,
+        })
+    return items
+
+
+def _bbox_area_pct(bbox: Tuple[float, float, float, float]) -> float:
+    return max(0.0, float(bbox[2])) * max(0.0, float(bbox[3]))
+
+
+def _bbox_center_pct(bbox: Tuple[float, float, float, float]) -> Tuple[float, float]:
+    x, y, w, h = bbox
+    return x + w / 2.0, y + h / 2.0
+
+
+def _bbox_intersection_ratio(
+    bbox: Tuple[float, float, float, float],
+    slot: Tuple[float, float, float, float],
+    pad: float = 0.0,
+) -> float:
+    x1, y1, x2, y2 = _bbox_edges_pct(bbox)
+    sx1, sy1, sx2, sy2 = slot
+    sx1 = max(0.0, sx1 - pad)
+    sy1 = max(0.0, sy1 - pad)
+    sx2 = min(100.0, sx2 + pad)
+    sy2 = min(100.0, sy2 + pad)
+    ix1, iy1 = max(x1, sx1), max(y1, sy1)
+    ix2, iy2 = min(x2, sx2), min(y2, sy2)
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0.0
+    inter = (ix2 - ix1) * (iy2 - iy1)
+    area = max(1e-6, (x2 - x1) * (y2 - y1))
+    return float(inter / area)
+
+
+def _role_compatible(expected: str, detected: str) -> bool:
+    expected = _normalize_role(expected)
+    detected = _normalize_role(detected)
+    if expected == detected:
+        return True
+    compatibility = {
+        "seal": {"logo"},
+        "logo": {"seal"},
+    }
+    return detected in compatibility.get(expected, set())
+
+
+def _text_tokens_lite(text: str) -> List[str]:
+    cleaned = "".join(ch.lower() if ch.isalnum() else " " for ch in str(text or ""))
+    return [token for token in cleaned.split() if len(token) >= 3]
+
+
+def _has_visible_text_match(source_text: str, final_items: List[Dict[str, Any]]) -> bool:
+    source_tokens = set(_text_tokens_lite(source_text))
+    if not source_tokens:
+        return False
+    for item in final_items:
+        final_tokens = set(_text_tokens_lite(str(item.get("visible_text") or "")))
+        if not final_tokens:
+            continue
+        overlap = len(source_tokens.intersection(final_tokens)) / max(1, len(source_tokens))
+        if overlap >= 0.60:
+            return True
+    return False
+
+
+def _role_to_contract_slot(role: str) -> Optional[str]:
+    role = _normalize_role(role)
+    if role in {"title", "overline", "subtitle", "date"}:
+        return "copy_column"
+    if role == "cta":
+        return "footer_cta"
+    if role in {"logo", "seal"}:
+        return "footer_logos"
+    if role == "price":
+        return "price"
+    if role == "hero":
+        return "hero_visual"
+    if role == "support_panel":
+        return "support_panels"
+    return None
+
+
+def _is_critical_item(item: Dict[str, Any]) -> bool:
+    role = _normalize_role(item.get("role"))
+    importance = str(item.get("importance") or "normal").lower()
+    return importance in {"critical", "high"} or role in {"title", "overline", "subtitle", "price", "date", "logo", "seal", "cta", "hero"}
+
+
+def _copy_group_boxes(items: List[Dict[str, Any]]) -> List[Tuple[float, float, float, float]]:
+    copy_roles = {"title", "overline", "subtitle", "price", "date", "logo", "seal", "cta"}
+    boxes: List[Tuple[float, float, float, float]] = []
+    for item in items:
+        role = _normalize_role(item.get("role"))
+        bbox = item.get("bbox")
+        if role in copy_roles and bbox:
+            boxes.append(bbox)
+    return boxes
+
+
+def _group_edges_pct(boxes: List[Tuple[float, float, float, float]]) -> Optional[Tuple[float, float, float, float]]:
+    if not boxes:
+        return None
+    edges = [_bbox_edges_pct(b) for b in boxes]
+    return min(e[0] for e in edges), min(e[1] for e in edges), max(e[2] for e in edges), max(e[3] for e in edges)
 
 
 def _layout_map_from_ai(ai_layout: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -421,13 +560,13 @@ def _build_layout_guardrail_contract(
         slots = {
             "hero_visual": (4.0, 16.0, 58.0, 91.0),
             "support_panels": (6.0, 11.0, 55.0, 56.0),
-            "copy_column": (58.0, 7.0, 95.0, 72.0),
-            "price": (52.0, 23.0, 72.0, 47.0),
-            "footer_logos": (68.0, 76.0, 96.0, 88.0),
-            "footer_cta": (66.0, 87.0, 96.0, 95.0),
+            "copy_column": (60.0, 10.0, 97.0, 73.0),
+            "price": (58.0, 24.0, 96.0, 55.0),
+            "footer_logos": (68.0, 76.0, 97.0, 88.0),
+            "footer_cta": (68.0, 86.0, 97.0, 94.5),
         }
         hard_rules = [
-            "a coluna de texto deve permanecer visualmente ancorada à direita, nunca centralizada no canvas",
+            "a coluna de texto deve permanecer visualmente ancorada à direita, nunca centralizada no canvas, com o grupo chegando perto da margem direita e sem grande faixa vazia depois dele",
             "preço, data, logos e CTA pertencem à mesma família da coluna direita",
             "CTA deve ficar no rodapé direito do arquivo final, inteiro e legível, sem subir para o meio",
             "elementos decorativos do cenário ficam na esquerda/centro-esquerda e não podem virar cards soltos no topo",
@@ -436,13 +575,13 @@ def _build_layout_guardrail_contract(
         slots = {
             "hero_visual": (42.0, 16.0, 96.0, 91.0),
             "support_panels": (45.0, 11.0, 94.0, 56.0),
-            "copy_column": (5.0, 7.0, 42.0, 72.0),
-            "price": (28.0, 23.0, 48.0, 47.0),
-            "footer_logos": (4.0, 76.0, 32.0, 88.0),
-            "footer_cta": (4.0, 87.0, 34.0, 95.0),
+            "copy_column": (3.0, 10.0, 40.0, 73.0),
+            "price": (4.0, 24.0, 42.0, 55.0),
+            "footer_logos": (3.0, 76.0, 32.0, 88.0),
+            "footer_cta": (3.0, 86.0, 32.0, 94.5),
         }
         hard_rules = [
-            "a coluna de texto deve permanecer visualmente ancorada à esquerda, nunca centralizada no canvas",
+            "a coluna de texto deve permanecer visualmente ancorada à esquerda, nunca centralizada no canvas, com o grupo chegando perto da margem esquerda e sem grande faixa vazia antes dele",
             "preço, data, logos e CTA pertencem à mesma família da coluna esquerda",
             "CTA deve ficar no rodapé esquerdo do arquivo final, inteiro e legível, sem subir para o meio",
             "elementos decorativos do cenário ficam na direita/centro-direita e não podem virar cards soltos no topo",
@@ -563,7 +702,8 @@ def _final_crop_window_note(
         return (
             f"A saída intermediária será {generated_width}x{generated_height} e será fechada em {target_width}x{target_height}. "
             f"Como o alvo é mais estreito, considere a janela útil lateral aproximada entre x {visible_left:.1f}% e {visible_right:.1f}% da imagem intermediária. "
-            "Não coloque título, preço, data, logos, CTA, bicicleta, patinete ou rostos/objetos principais fora dessa janela. "
+            "Não coloque título, overline, preço, data, logos, CTA, produto, rosto, bicicleta, patinete ou objetos principais fora dessa janela. "
+            "Além da janela técnica, mantenha todos os elementos críticos com margem interna real: não encoste nada em x 0%, x 100%, y 0% ou y 100%. "
             "Para retrato 768x1376, trabalhe com safe area real x 8%–92%, deixando margem visível nas laterais."
         )
     crop_h = int(round(generated_width / target_ratio))
@@ -575,14 +715,25 @@ def _final_crop_window_note(
     return (
         f"A saída intermediária será {generated_width}x{generated_height} e será fechada em {target_width}x{target_height}. "
         f"Considere a janela útil central aproximada entre y {visible_top:.1f}% e {visible_bottom:.1f}% da imagem intermediária. "
-        "Não coloque nada crítico fora dessa janela. Porém, no ARQUIVO FINAL, o CTA deve continuar no rodapé: "
-        "posicione-o baixo dentro da janela útil, não no meio da peça."
+        "Não coloque nada crítico fora dessa janela. Overline, título, subtítulo, data, preço, logos e CTA precisam nascer dentro dessa área, com respiro. "
+        "Em especial: não coloque overline/título no topo absoluto da imagem intermediária, porque o fechamento para o tamanho exato pode cortar. "
+        "No ARQUIVO FINAL, o CTA deve continuar no rodapé: posicione-o baixo dentro da janela útil, não no meio da peça e não colado na borda."
     )
 
 def _guardrail_issue_weight(issue: str) -> int:
-    if any(token in issue for token in ["missing_cta", "missing_logo", "copy_not_right", "copy_not_left", "cta_too_low", "cta_too_high", "cta_outside", "cta_not_anchored"]):
+    # Peso alto: qualquer coisa que normalmente gera arte inutilizável.
+    if any(token in issue for token in [
+        "missing_cta", "missing_logo", "missing_title", "missing_overline", "missing_subtitle",
+        "critical_missing", "copy_not_right", "copy_not_left", "copy_group_not_flush",
+        "copy_group_drifted", "cta_too_low", "cta_too_high", "cta_outside", "cta_not_anchored",
+        "critical_cut_risk", "critical_touching_edge", "title_cut_risk", "overline_cut_risk",
+    ]):
         return 4
-    if any(token in issue for token in ["price", "date", "title", "support_floating_top", "logo_outside", "portrait_safe_area"]):
+    # Peso médio: quebra de hierarquia, posição ou agrupamento que costuma exigir retry.
+    if any(token in issue for token in [
+        "price", "date", "support_floating_top", "logo_outside", "portrait_safe_area",
+        "outside_expected_slot", "group_not_cohesive", "edge_risk", "anchor_drift",
+    ]):
         return 3
     return 1
 
@@ -592,22 +743,27 @@ def _evaluate_layout_guardrails(
     final_ai_layout: Optional[Dict[str, Any]],
     contract: Dict[str, Any],
 ) -> Dict[str, Any]:
-    required_source_roles = set(_required_roles_from_layout(source_ai_layout))
+    """Auditoria universal do layout final.
+
+    A versão anterior avaliava poucos papéis fixos e deixou passar um caso real:
+    o overline/topo foi cortado e a coluna de copy não ficou suficientemente ancorada.
+    Agora o checker olha para qualquer elemento crítico que a análise inicial marcou
+    como obrigatório, não para uma campanha específica.
+    """
+    source_items = _extract_layout_items(source_ai_layout)
+    final_items = _extract_layout_items(final_ai_layout)
+
     detected_roles: Dict[str, List[Tuple[float, float, float, float]]] = {}
+    detected_texts_by_role: Dict[str, List[str]] = {}
     issues: List[str] = []
-    if isinstance(final_ai_layout, dict):
-        required = final_ai_layout.get("required_visible_elements")
-        if isinstance(required, list):
-            for item in required:
-                if not isinstance(item, dict):
-                    continue
-                role = _normalize_role(item.get("role"))
-                visible_text = str(item.get("visible_text") or "").lower()
-                if "program" in visible_text or "confira" in visible_text or "saiba" in visible_text or "inscre" in visible_text:
-                    role = "cta"
-                bbox = _as_pct_bbox(item.get("bbox_pct"))
-                if bbox:
-                    detected_roles.setdefault(role, []).append(bbox)
+    for item in final_items:
+        role = _normalize_role(item.get("role"))
+        bbox = item.get("bbox")
+        if bbox:
+            detected_roles.setdefault(role, []).append(bbox)
+        text = str(item.get("visible_text") or "").strip().lower()
+        if text:
+            detected_texts_by_role.setdefault(role, []).append(text)
 
     orientation = str(contract.get("target_orientation") or "landscape").lower()
     final_map = _layout_map_from_ai(final_ai_layout)
@@ -618,15 +774,101 @@ def _evaluate_layout_guardrails(
     if source_copy_side == "left" and final_copy_side and final_copy_side not in {"left", "center" if orientation == "portrait" else "left"}:
         issues.append("copy_not_left")
 
-    for role in sorted(required_source_roles):
-        if role in {"cta", "logo", "price", "date", "title"} and not detected_roles.get(role):
-            issues.append(f"missing_{role}")
+    # 1) Preservação obrigatória universal: tudo que a referência marcou como crítico/alto
+    # precisa continuar aparecendo no resultado final. Isso cobre overline, pequenos selos,
+    # datas, preço, CTA, logos, produto, rosto, etc.
+    for src_item in source_items:
+        src_role = _normalize_role(src_item.get("role"))
+        if not _is_critical_item(src_item):
+            continue
+        has_role = any(_role_compatible(src_role, role) and boxes for role, boxes in detected_roles.items())
+        source_text = str(src_item.get("visible_text") or "").strip()
+        if not has_role and source_text:
+            has_role = _has_visible_text_match(source_text, final_items)
+        if not has_role:
+            issues.append(f"missing_{src_role}")
+
+    slots = contract.get("slots") if isinstance(contract, dict) else None
+    slots = slots if isinstance(slots, dict) else {}
+
+    # 2) Safe area e risco de corte: qualquer elemento importante perto demais de borda
+    # vira problema, independentemente do tipo de arte.
+    for item in final_items:
+        bbox = item.get("bbox")
+        if not bbox or not _is_critical_item(item):
+            continue
+        role = _normalize_role(item.get("role"))
+        x1, y1, x2, y2 = _bbox_edges_pct(bbox)
+        if y1 <= 1.2:
+            issues.append(f"{role}_cut_risk_top")
+        if y2 >= 98.8:
+            issues.append(f"{role}_cut_risk_bottom")
+        if x1 <= 0.8:
+            issues.append(f"{role}_critical_touching_edge_left")
+        if x2 >= 99.2:
+            issues.append(f"{role}_critical_touching_edge_right")
+        # Margem preventiva: não reprova agressivamente todos os cenários, mas força retry
+        # quando algo essencial está muito perto da borda depois do fechamento técnico.
+        if role in {"title", "overline", "subtitle", "price", "date", "logo", "seal", "cta"}:
+            if y1 < 3.2 or y2 > 96.8:
+                issues.append(f"{role}_edge_risk_vertical")
+            if x1 < 2.0 or x2 > 98.0:
+                issues.append(f"{role}_edge_risk_horizontal")
+
+        slot_key = _role_to_contract_slot(role)
+        slot = slots.get(slot_key) if slot_key else None
+        if isinstance(slot, tuple):
+            intersection = _bbox_intersection_ratio(bbox, slot, pad=7.0)
+            # Texto/CTA/logos precisam respeitar o slot. Hero e support têm mais liberdade.
+            if role in {"title", "overline", "subtitle", "price", "date", "logo", "seal", "cta"} and intersection < 0.42:
+                issues.append(f"{role}_outside_expected_slot")
+            elif role in {"hero", "support_panel"} and intersection < 0.20:
+                issues.append(f"{role}_outside_expected_slot_soft")
+
+    # 3) Ancoragem da família de copy. Não basta o analyzer dizer "right" ou "left":
+    # medimos as caixas finais. Isso evita coluna visualmente centralizada ou com branco
+    # sobrando demais no lado em que deveria estar ancorada.
+    copy_boxes = _copy_group_boxes(final_items)
+    group_edges = _group_edges_pct(copy_boxes)
+    if group_edges:
+        gx1, gy1, gx2, gy2 = group_edges
+        group_center_x = (gx1 + gx2) / 2.0
+        group_center_y = (gy1 + gy2) / 2.0
+        if source_copy_side == "right":
+            if orientation == "landscape":
+                if gx2 < 93.0:
+                    issues.append("copy_group_not_flush_right")
+                if group_center_x < 64.0:
+                    issues.append("copy_group_drifted_from_right")
+            else:
+                if gx2 < 88.0:
+                    issues.append("copy_group_not_flush_right_portrait")
+                if group_center_x < 50.0:
+                    issues.append("copy_group_drifted_from_right_portrait")
+        elif source_copy_side == "left":
+            if orientation == "landscape":
+                if gx1 > 7.0:
+                    issues.append("copy_group_not_flush_left")
+                if group_center_x > 36.0:
+                    issues.append("copy_group_drifted_from_left")
+            else:
+                if gx1 > 12.0:
+                    issues.append("copy_group_not_flush_left_portrait")
+                if group_center_x > 50.0:
+                    issues.append("copy_group_drifted_from_left_portrait")
+
+        # Agrupamento vertical básico: elementos de conversão não podem ficar espalhados
+        # demais em qualquer orientação.
+        if orientation == "landscape" and (gy2 - gy1) > 92.0:
+            issues.append("copy_group_not_cohesive_vertical")
+        if orientation == "portrait" and (gy2 - gy1) > 88.0:
+            issues.append("copy_group_not_cohesive_vertical_portrait")
 
     # Guard específico do CTA: em landscape ele deve ficar no rodapé real; em portrait,
     # ele pode ficar na área inferior da coluna, acima do visual de base, mas nunca cortado.
     cta_boxes = detected_roles.get("cta") or []
     if cta_boxes:
-        best_cta = max(cta_boxes, key=lambda b: b[2] * b[3])
+        best_cta = max(cta_boxes, key=_bbox_area_pct)
         x1, y1, x2, y2 = _bbox_edges_pct(best_cta)
         if orientation == "portrait":
             if y1 < 63.0:
@@ -649,7 +891,7 @@ def _evaluate_layout_guardrails(
             if source_copy_side == "left" and x2 > 45.0:
                 issues.append("cta_not_anchored_left")
 
-    logo_boxes = detected_roles.get("logo") or []
+    logo_boxes = detected_roles.get("logo") or detected_roles.get("seal") or []
     if orientation == "portrait" and logo_boxes:
         for box in logo_boxes:
             x1, y1, x2, y2 = _bbox_edges_pct(box)
@@ -660,7 +902,7 @@ def _evaluate_layout_guardrails(
     # Preço em portrait não pode ir para o topo absoluto nem descolar do bloco de oferta.
     price_boxes = detected_roles.get("price") or []
     if orientation == "portrait" and price_boxes:
-        best_price = max(price_boxes, key=lambda b: b[2] * b[3])
+        best_price = max(price_boxes, key=_bbox_area_pct)
         x1, y1, x2, y2 = _bbox_edges_pct(best_price)
         if y1 < 18.0 or y2 > 62.0:
             issues.append("price_outside_portrait_offer_zone")
@@ -675,14 +917,20 @@ def _evaluate_layout_guardrails(
             issues.append("support_floating_top")
             break
 
-    score = sum(_guardrail_issue_weight(issue) for issue in issues)
+    deduped_issues: List[str] = []
+    for issue in issues:
+        if issue not in deduped_issues:
+            deduped_issues.append(issue)
+    score = sum(_guardrail_issue_weight(issue) for issue in deduped_issues)
     return {
         "passed": score == 0,
         "score": score,
-        "issues": issues,
+        "issues": deduped_issues,
         "detected_roles": sorted(detected_roles.keys()),
+        "required_roles": sorted({_normalize_role(item.get("role")) for item in source_items if _is_critical_item(item)}),
         "final_copy_side": final_copy_side or None,
         "target_orientation": orientation,
+        "copy_group_edges": group_edges,
     }
 
 def _build_retry_prompt(base_prompt: str, qa: Dict[str, Any], contract: Dict[str, Any]) -> str:
@@ -705,12 +953,15 @@ REFAÇA COM CORREÇÃO OBRIGATÓRIA DE LAYOUT PARA FORMATO {layout_name}.
 A tentativa anterior falhou nos seguintes pontos técnicos: {issue_text}.
 
 Prioridades absolutas desta nova tentativa:
-1. Não centralize a coluna de conteúdo. Respeite o lado original da copy.
-2. Não deixe nenhum elemento decorativo/painel/holograma solto no topo.
-3. CTA e logos devem ficar agrupados, inteiros, legíveis e com margem segura.
-4. O CTA não pode subir para o centro da arte e também não pode encostar/cortar na borda inferior.
-5. O preço deve ficar associado ao título/oferta, nunca isolado no meio da imagem.
-6. Preserve a sensação de peça nativa no formato solicitado, sem colagem, blur, mirror, smear ou stretch.
+1. Preserve TODOS os elementos obrigatórios da referência: overline, título, subtítulo, preço, data, logos, selos, CTA, produto, rosto, objeto principal e qualquer texto pequeno marcado como crítico.
+2. Nenhum elemento crítico pode ficar cortado, encostado na borda ou fora da safe area final.
+3. Não centralize automaticamente a coluna de conteúdo. Respeite o lado original da copy e deixe a família de copy realmente ancorada nesse lado.
+4. Se a copy original fica à direita, o grupo de texto, datas, logos e CTA precisa chegar visualmente perto da margem direita com respiro profissional, sem deixar uma grande faixa vazia depois dele. Se fica à esquerda, aplique a mesma lógica para a esquerda.
+5. Não deixe elemento decorativo, painel, gráfico, holograma, selo ou card solto no topo. Tudo deve pertencer à cena ou ao bloco de conversão.
+6. CTA e logos devem ficar agrupados, inteiros, legíveis e com margem segura.
+7. O CTA não pode subir para o centro da arte e também não pode encostar/cortar na borda inferior.
+8. Preço, data e selos devem ficar associados ao bloco de oferta, nunca isolados no meio da imagem.
+9. Preserve a sensação de peça nativa no formato solicitado, sem colagem, blur, mirror, smear ou stretch.
 {portrait_rules}
 Contrato de layout que deve vencer qualquer interpretação criativa:
 {_layout_contract_text(contract)}
@@ -800,11 +1051,13 @@ Regras:
 1. Não invente novos textos.
 2. Não peça colagem de pedaços.
 3. Descreva onde cada bloco deve ficar numa versão unificada para a resolução alvo.
-4. Liste obrigatoriamente botões de CTA, logos, selos, datas, preço, overline e textos pequenos em required_visible_elements.
+4. Liste obrigatoriamente botões de CTA, logos, selos, datas, preço, overline, título, subtítulo, produto/objeto principal, rostos/pessoas e textos pequenos em required_visible_elements.
 5. Se existir botão de chamada como "Confira a Programação", "Saiba mais", "Comprar", "Inscreva-se" ou similar, marque como role "cta" e importance "critical".
 6. Identifique o mapa espacial original. Se o texto principal estiver na direita, copy_column_side deve ser "right". Se o visual estiver na esquerda, visual_side deve ser "left".
 7. Elementos decorativos, dashboards, gráficos e hologramas devem ser classificados como support_panel/background quando não forem a mensagem principal.
 8. Para alvo portrait, preserve a relação espacial original, mas pense como direção de arte vertical nativa. Não recomende crop simples da horizontal.
+9. Ao auditar uma imagem final, marque como bbox_pct somente a área realmente visível do elemento. Se um elemento estiver cortado, encostado na borda ou ilegível, mantenha o role correto e descreva o risco em risk_notes.
+10. Se a coluna de texto estiver visualmente à direita mas com uma grande faixa vazia depois dela, ainda retorne copy_column_side="right", mas descreva o problema em risk_notes.
 """.strip()
     target_text = f"{target_width}x{target_height} ({orientation})" if target_width and target_height else f"formato {orientation}"
     user_text = (
@@ -934,14 +1187,14 @@ Direção de arte obrigatória para LANDSCAPE:
 1. Recrie a composição em layout horizontal unificado, mas preserve o MAPA ESPACIAL da peça original.
 2. Se a referência já tiver visual principal à esquerda e coluna de copy à direita, mantenha essa lógica. Não transforme a coluna de texto em uma ilha central.
 3. Para peças quadradas com texto no lado direito, a versão horizontal deve ter uma coluna direita clara, agrupada e estável: overline/título, descrição, data, logos e CTA precisam formar um mesmo bloco visual.
-4. A coluna de texto/oferta deve permanecer no lado direito do canvas, aproximadamente no terço direito ou entre 58% e 94% da largura, com alinhamento parecido ao original.
+4. A coluna de texto/oferta deve permanecer no lado direito do canvas, aproximadamente no terço direito ou entre 60% e 97% da largura, com alinhamento parecido ao original e sem grande área branca sobrando à direita.
 5. O bloco visual principal deve permanecer à esquerda ou centro-esquerda, integrado à cena, com prédios, rua, bicicleta, patinete e elementos digitais harmonizados como uma única imagem.
-6. Ao transformar de quadrado para horizontal, expanda/reconstrua o ambiente para o lado livre da composição, especialmente rua/céu/vegetação, sem centralizar tudo e sem afastar a coluna de texto da direita.
+6. Ao transformar de quadrado para horizontal, expanda/reconstrua o ambiente para o lado livre da composição, especialmente rua/céu/vegetação, sem centralizar tudo e sem afastar a coluna de texto da direita. O bloco de copy precisa parecer encaixado no canto direito da arte, não flutuando no meio de uma faixa branca.
 7. O selo de preço deve continuar associado ao bloco textual/oferta, não isolado no centro e não distante demais da copy.
 8. Logos e CTA devem permanecer na mesma família visual, no rodapé direito ou parte inferior da coluna direita. Não separe logos do CTA.
 9. Se a referência tiver botão CTA no rodapé, ele é elemento CRÍTICO. Ele deve aparecer inteiro, legível e com texto completo no resultado final. Não basta preservar apenas os logos.
 10. Se o CTA visível for semelhante a "Confira a Programação", preserve o botão completo no canto inferior direito, abaixo dos logos, com margem segura e visualmente próximo do rodapé como na referência.
-11. Encontre o meio-termo vertical: não deixe o CTA cortado, mas também não empurre título, texto, preço e cena principal para o topo. Mantenha respiro superior e inferior equilibrado.
+11. Encontre o meio-termo vertical: não deixe o CTA cortado, mas também não empurre título, overline, texto, preço e cena principal para o topo. O overline e o título não podem nascer no topo absoluto da imagem intermediária, pois o fechamento técnico pode cortar. Mantenha respiro superior e inferior equilibrado.
 12. Elementos decorativos como gráficos flutuantes, dashboards, painéis, hologramas e linhas luminosas são de APOIO. Eles devem ficar integrados ao fundo/visual principal, nunca colados na borda superior, nunca isolados como um card solto e nunca mais importantes que a mensagem principal.
 13. Não mova um painel, dashboard ou gráfico para o topo extremo. Se houver dashboard na referência, mantenha-o dentro da cena, em escala secundária, com margem interna e sem corte.
 14. O fundo precisa preencher 100% do canvas com cena real da própria arte, com iluminação, perspectiva, textura e profundidade consistentes.
@@ -949,7 +1202,7 @@ Direção de arte obrigatória para LANDSCAPE:
 16. Não deixe áreas chapadas cinza/verde, faixas laterais, margens externas, blocos retangulares visíveis, emendas duras ou fragmentos desalinhados.
 17. Não use blur, mirror, smear, stretch, borda espelhada, fundo borrado ou preenchimento lateral genérico.
 18. Preserve o máximo possível dos textos, marcas, cores e identidade original. Não invente branding e não troque a campanha.
-19. Antes de finalizar mentalmente, faça um checklist visual: overline, título, subtítulo, preço, data, logos/selo e CTA aparecem inteiros, sem cortes, agrupados corretamente e com a coluna de texto ancorada à direita.
+19. Antes de finalizar mentalmente, faça um checklist visual: overline, título, subtítulo, preço, data, logos/selo e CTA aparecem inteiros, sem cortes, agrupados corretamente, com margem segura e com a coluna de texto realmente ancorada no lado correto.
 20. Resultado esperado: uma peça publicitária horizontal full-bleed pronta para uso, parecida com uma versão profissionalmente reeditada no Canva/Photoshop, não uma montagem automática.
 """.strip()
 
@@ -1134,14 +1387,14 @@ async def adapt_image_to_custom_layout(
             final_bytes = _encode_png_bytes(final_image)
 
     return {
-        "engine_id": "openai_unified_layout_recomposition_v5" if not fallback_applied else "safe_single_piece_fallback_v5",
-        "motor": "Recomposição real por IA V5" if not fallback_applied else "Fallback seguro de peça única V5",
+        "engine_id": "openai_unified_layout_recomposition_v6" if not fallback_applied else "safe_single_piece_fallback_v6",
+        "motor": "Recomposição real por IA V6" if not fallback_applied else "Fallback seguro de peça única V6",
         "url": _result_url_from_image_bytes(final_bytes, "image/png"),
         "warning": warning,
         "exact_canvas_expand": None,
         "layout_recomposition": {
             "request_id": request_id,
-            "algorithm_version": "v5_orientation_aware_layout_contract_guardrails_with_auto_qa",
+            "algorithm_version": "v6_universal_layout_checker_orientation_contract",
             "diagnostics": {
                 "source_size": {"width": source_width, "height": source_height},
                 "target_size": {"width": target_width, "height": target_height},
@@ -1165,7 +1418,7 @@ async def adapt_image_to_custom_layout(
                 "source_size": {"width": source_width, "height": source_height},
                 "target_size": {"width": target_width, "height": target_height},
                 "generated_size": {"width": generated_size[0], "height": generated_size[1]},
-                "finalization": "full_bleed_orientation_aware_crop_with_footer_guard_v5" if not fallback_applied else "single_piece_contain_on_clean_background",
+                "finalization": "full_bleed_orientation_aware_crop_with_universal_checker_v6" if not fallback_applied else "single_piece_contain_on_clean_background",
                 "prompt": final_prompt,
             },
         },
