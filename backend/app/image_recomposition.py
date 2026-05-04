@@ -640,6 +640,18 @@ def _build_layout_guardrail_contract(
             "em portrait, mantenha todos os elementos críticos dentro da safe area lateral x 8%–92%",
         ]
 
+    # V7: em troca de resolução, preservar texto não significa manter posição pixel-perfect.
+    # O modelo pode fazer microdiagramação para evitar desalinhamento, desde que preserve
+    # todos os textos, ordem, hierarquia e elementos obrigatórios.
+    text_reflow_rules = [
+        "em adaptação de resolução, não tente manter posição pixel-perfect dos textos quando isso gerar corte, desalinhamento ou excesso de espaço vazio; é permitido microajuste de diagramação",
+        "microajuste textual permitido: escala levemente menor/maior, nova quebra de linha, espaçamento, entrelinha, alinhamento e reposicionamento dentro do slot correto",
+        "microajuste textual proibido: trocar palavras, resumir, reescrever, inventar textos, remover datas, remover locais, remover CTA, apagar logos ou sumir elementos obrigatórios",
+        "quando houver muito texto, lista de datas, locais, preços ou blocos repetidos, agrupe tudo como uma família textual coesa, com eixo de alinhamento consistente e ordem preservada",
+        "se a referência tiver vários blocos de texto, todos devem continuar legíveis e visualmente alinhados; prefira reencaixar o bloco inteiro a deixar elementos espalhados ou desalinhados",
+    ]
+    hard_rules = list(hard_rules) + text_reflow_rules
+
     return {
         "target_ratio": round(target_ratio, 4),
         "generated_ratio": round(generated_ratio, 4),
@@ -649,6 +661,12 @@ def _build_layout_guardrail_contract(
         "required_roles": _required_roles_from_layout(ai_layout),
         "slots": slots,
         "hard_rules": hard_rules,
+        "text_reflow_policy": {
+            "enabled": True,
+            "purpose": "Permitir microdiagramação em mudanças de resolução para encaixar texto sem perda de conteúdo.",
+            "allowed": ["scale", "line_breaks", "spacing", "alignment", "position_inside_contract_slot"],
+            "forbidden": ["remove_text", "rewrite_text", "change_dates", "change_locations", "remove_cta", "remove_logo", "drop_required_elements"],
+        },
     }
 
 def _layout_contract_text(contract: Dict[str, Any]) -> str:
@@ -676,6 +694,13 @@ def _layout_contract_text(contract: Dict[str, Any]) -> str:
         slot = slots.get(key)
         if isinstance(slot, tuple):
             parts.append(f"- {labels.get(key, key)}: {_format_slot(slot)}")
+    text_policy = contract.get("text_reflow_policy") if isinstance(contract, dict) else None
+    if isinstance(text_policy, dict) and text_policy.get("enabled"):
+        allowed = ", ".join(str(x) for x in (text_policy.get("allowed") or []))
+        forbidden = ", ".join(str(x) for x in (text_policy.get("forbidden") or []))
+        parts.append("Política obrigatória de microdiagramação textual:")
+        parts.append(f"- permitido para encaixe: {allowed}")
+        parts.append(f"- proibido alterar/remover: {forbidden}")
     if isinstance(hard_rules, list):
         parts.append("Regras duras:")
         parts.extend(f"- {rule}" for rule in hard_rules if rule)
@@ -733,6 +758,7 @@ def _guardrail_issue_weight(issue: str) -> int:
     if any(token in issue for token in [
         "price", "date", "support_floating_top", "logo_outside", "portrait_safe_area",
         "outside_expected_slot", "group_not_cohesive", "edge_risk", "anchor_drift",
+        "copy_group_too_wide", "copy_group_split", "copy_group_too_close",
     ]):
         return 3
     return 1
@@ -857,6 +883,18 @@ def _evaluate_layout_guardrails(
                 if group_center_x > 50.0:
                     issues.append("copy_group_drifted_from_left_portrait")
 
+        # V7: em peças com muito texto, a IA pode microdiagramar, mas o grupo textual
+        # ainda precisa parecer uma coluna/família coesa. Este guard pega o caso comum
+        # em que título/subtítulo ficam centralizados e datas/CTA vão para outra coluna.
+        if orientation == "landscape" and source_copy_side == "right" and gx1 < 50.0:
+            issues.append("copy_group_too_wide_or_split_left")
+        if orientation == "landscape" and source_copy_side == "left" and gx2 > 50.0:
+            issues.append("copy_group_too_wide_or_split_right")
+        if orientation == "landscape" and gy1 < 3.5:
+            issues.append("copy_group_too_close_top")
+        if orientation == "landscape" and gy2 > 97.0:
+            issues.append("copy_group_too_close_bottom")
+
         # Agrupamento vertical básico: elementos de conversão não podem ficar espalhados
         # demais em qualquer orientação.
         if orientation == "landscape" and (gy2 - gy1) > 92.0:
@@ -954,14 +992,16 @@ A tentativa anterior falhou nos seguintes pontos técnicos: {issue_text}.
 
 Prioridades absolutas desta nova tentativa:
 1. Preserve TODOS os elementos obrigatórios da referência: overline, título, subtítulo, preço, data, logos, selos, CTA, produto, rosto, objeto principal e qualquer texto pequeno marcado como crítico.
-2. Nenhum elemento crítico pode ficar cortado, encostado na borda ou fora da safe area final.
-3. Não centralize automaticamente a coluna de conteúdo. Respeite o lado original da copy e deixe a família de copy realmente ancorada nesse lado.
-4. Se a copy original fica à direita, o grupo de texto, datas, logos e CTA precisa chegar visualmente perto da margem direita com respiro profissional, sem deixar uma grande faixa vazia depois dele. Se fica à esquerda, aplique a mesma lógica para a esquerda.
-5. Não deixe elemento decorativo, painel, gráfico, holograma, selo ou card solto no topo. Tudo deve pertencer à cena ou ao bloco de conversão.
-6. CTA e logos devem ficar agrupados, inteiros, legíveis e com margem segura.
-7. O CTA não pode subir para o centro da arte e também não pode encostar/cortar na borda inferior.
-8. Preço, data e selos devem ficar associados ao bloco de oferta, nunca isolados no meio da imagem.
-9. Preserve a sensação de peça nativa no formato solicitado, sem colagem, blur, mirror, smear ou stretch.
+2. Se a tentativa anterior manteve textos mas deixou tudo desalinhado, espalhado ou apertado, faça microdiagramação: ajuste escala, quebras, espaçamento, eixo de alinhamento e posição dentro da mesma coluna/família visual.
+3. Microdiagramação NÃO autoriza alterar conteúdo: não troque palavras, não reescreva, não resuma, não remova datas, não remova locais, não remova CTA, não remova logos e não apague elementos obrigatórios.
+4. Nenhum elemento crítico pode ficar cortado, encostado na borda ou fora da safe area final.
+5. Não centralize automaticamente a coluna de conteúdo. Respeite o lado original da copy e deixe a família de copy realmente ancorada nesse lado.
+6. Se a copy original fica à direita, o grupo de texto, datas, logos e CTA precisa chegar visualmente perto da margem direita com respiro profissional, sem deixar uma grande faixa vazia depois dele. Se fica à esquerda, aplique a mesma lógica para a esquerda.
+7. Não deixe elemento decorativo, painel, gráfico, holograma, selo ou card solto no topo. Tudo deve pertencer à cena ou ao bloco de conversão.
+8. CTA e logos devem ficar agrupados, inteiros, legíveis e com margem segura.
+9. O CTA não pode subir para o centro da arte e também não pode encostar/cortar na borda inferior.
+10. Preço, data e selos devem ficar associados ao bloco de oferta, nunca isolados no meio da imagem.
+11. Preserve a sensação de peça nativa no formato solicitado, sem colagem, blur, mirror, smear ou stretch.
 {portrait_rules}
 Contrato de layout que deve vencer qualquer interpretação criativa:
 {_layout_contract_text(contract)}
@@ -1058,6 +1098,9 @@ Regras:
 8. Para alvo portrait, preserve a relação espacial original, mas pense como direção de arte vertical nativa. Não recomende crop simples da horizontal.
 9. Ao auditar uma imagem final, marque como bbox_pct somente a área realmente visível do elemento. Se um elemento estiver cortado, encostado na borda ou ilegível, mantenha o role correto e descreva o risco em risk_notes.
 10. Se a coluna de texto estiver visualmente à direita mas com uma grande faixa vazia depois dela, ainda retorne copy_column_side="right", mas descreva o problema em risk_notes.
+11. Em peças com muito texto, datas, locais, listas ou blocos repetidos, trate esses itens como uma família textual única: preserve cada texto, mas indique quando é necessário microajustar escala, quebras, espaçamento e alinhamento para caber na resolução alvo.
+12. Na auditoria final, se os textos existem mas ficaram desalinhados, espalhados, em colunas quebradas ou com eixo visual inconsistente, descreva isso em risk_notes e mantenha os bbox reais de cada bloco.
+13. Não marque microajuste como erro quando o texto literal foi preservado; marque como erro apenas se houve remoção, reescrita, troca de datas/locais ou desalinhamento visual relevante.
 """.strip()
     target_text = f"{target_width}x{target_height} ({orientation})" if target_width and target_height else f"formato {orientation}"
     user_text = (
@@ -1160,6 +1203,16 @@ def _build_unified_recomposition_prompt(
     formato = "vertical/portrait" if portrait else "horizontal/landscape"
     resultado = "peça publicitária vertical full-bleed" if portrait else "peça publicitária horizontal full-bleed"
 
+    text_reflow_rules = """
+Política obrigatória para textos em alteração de resolução:
+1. Quando a imagem tiver muito texto, datas, locais, CTA, preços ou blocos repetidos, preservar não significa copiar a posição pixel-perfect da referência.
+2. Você PODE fazer microdiagramação para encaixar tudo corretamente no novo formato: reduzir ou ampliar levemente textos, ajustar quebras de linha, espaçamentos, entrelinhas, alinhamento e posição dentro da mesma família visual.
+3. Esse ajuste deve ser mínimo, profissional e invisível: a arte precisa parecer reeditada por designer, não remontada por recortes.
+4. Você NÃO pode trocar o texto, reescrever, resumir, inventar palavras, alterar datas, alterar locais, apagar CTA, apagar logos, apagar selos ou remover qualquer elemento obrigatório.
+5. Listas de datas/locais devem preservar ordem, conteúdo literal e legibilidade, mas podem ser reencaixadas em uma grade/coluna mais limpa para evitar desalinhamento.
+6. Se houver conflito entre manter a posição antiga e deixar o resultado alinhado, vença a diagramação correta: ajuste o layout sem perder conteúdo.
+""".strip()
+
     if portrait:
         direction_rules = """
 Direção de arte obrigatória para PORTRAIT:
@@ -1220,6 +1273,8 @@ Leitura técnica do layout original:
 
 Contrato obrigatório de recomposição:
 {contract_text}
+
+{text_reflow_rules}
 
 {direction_rules}
 """.strip()
@@ -1387,14 +1442,14 @@ async def adapt_image_to_custom_layout(
             final_bytes = _encode_png_bytes(final_image)
 
     return {
-        "engine_id": "openai_unified_layout_recomposition_v6" if not fallback_applied else "safe_single_piece_fallback_v6",
-        "motor": "Recomposição real por IA V6" if not fallback_applied else "Fallback seguro de peça única V6",
+        "engine_id": "openai_unified_layout_recomposition_v7" if not fallback_applied else "safe_single_piece_fallback_v7",
+        "motor": "Recomposição real por IA V7" if not fallback_applied else "Fallback seguro de peça única V7",
         "url": _result_url_from_image_bytes(final_bytes, "image/png"),
         "warning": warning,
         "exact_canvas_expand": None,
         "layout_recomposition": {
             "request_id": request_id,
-            "algorithm_version": "v6_universal_layout_checker_orientation_contract",
+            "algorithm_version": "v7_text_reflow_layout_checker_orientation_contract",
             "diagnostics": {
                 "source_size": {"width": source_width, "height": source_height},
                 "target_size": {"width": target_width, "height": target_height},
@@ -1418,7 +1473,7 @@ async def adapt_image_to_custom_layout(
                 "source_size": {"width": source_width, "height": source_height},
                 "target_size": {"width": target_width, "height": target_height},
                 "generated_size": {"width": generated_size[0], "height": generated_size[1]},
-                "finalization": "full_bleed_orientation_aware_crop_with_universal_checker_v6" if not fallback_applied else "single_piece_contain_on_clean_background",
+                "finalization": "full_bleed_orientation_aware_crop_with_text_reflow_checker_v7" if not fallback_applied else "single_piece_contain_on_clean_background",
                 "prompt": final_prompt,
             },
         },
