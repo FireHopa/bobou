@@ -96,6 +96,29 @@ type ActiveJob = {
   status: string;
 };
 
+
+type PipelineStepStatus = "waiting" | "active" | "done" | "warning" | "error";
+
+type PipelineStep = {
+  id: "base" | "interpret" | "plan" | "prompt" | "generate" | "audit";
+  title: string;
+  description: string;
+  status: PipelineStepStatus;
+  detail?: string;
+};
+
+type AiInspectionState = {
+  activeInstruction?: string;
+  targetLabel?: string;
+  imageAnalysis?: Record<string, unknown>;
+  editPlan?: Record<string, unknown>;
+  improvedPrompt?: string;
+  finalPrompt?: string;
+  layoutNotes?: string;
+  preservationRules?: string;
+  strategy?: string;
+};
+
 type ImageDebugLog = {
   id: string;
   createdAt: string;
@@ -203,6 +226,65 @@ const EDIT_SCOPE_OPTIONS: Array<{
 const BASE_CANVAS_ITEM_ID = "active-base-reference";
 const MAX_ACTIVE_JOBS = 2;
 
+const SMART_EDIT_PIPELINE_DEFS: Array<Omit<PipelineStep, "status" | "detail">> = [
+  { id: "base", title: "Base recebida", description: "A imagem original entra como fonte de verdade." },
+  { id: "interpret", title: "Leitura completa", description: "A IA identifica textos, logos, blocos, hierarquia e riscos." },
+  { id: "plan", title: "Mapa de mudança", description: "O pedido é cruzado com o que precisa ser preservado." },
+  { id: "prompt", title: "Prompt mestre", description: "A instrução final é refinada com regras de preservação." },
+  { id: "generate", title: "Geração controlada", description: "A imagem é editada ou recomposta no formato correto." },
+  { id: "audit", title: "Auditoria e entrega", description: "O resultado é validado, fechado e enviado para o canvas." },
+];
+
+function createSmartEditPipelineSteps(): PipelineStep[] {
+  return SMART_EDIT_PIPELINE_DEFS.map((step) => ({ ...step, status: "waiting" }));
+}
+
+function setPipelineStepStatus(steps: PipelineStep[], id: PipelineStep["id"], status: PipelineStepStatus, detail?: string): PipelineStep[] {
+  return steps.map((step) => (step.id === id ? { ...step, status, detail: detail ?? step.detail } : step));
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function getStringArray(value: unknown, limit = 6): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === "string") return item;
+      const record = getRecord(item);
+      if (!record) return "";
+      return String(record.text || record.visible_text || record.role || record.notes || record.visual_description || "").trim();
+    })
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function getInspectionSummary(inspection: AiInspectionState) {
+  const summary = inspection.imageAnalysis?.summary;
+  return typeof summary === "string" ? summary : "Aguardando leitura completa da imagem.";
+}
+
+function getInspectionTexts(inspection: AiInspectionState) {
+  return getStringArray(inspection.imageAnalysis?.detected_texts, 5);
+}
+
+function getPreservationList(inspection: AiInspectionState) {
+  return getStringArray(inspection.imageAnalysis?.preserve_elements, 6);
+}
+
+function getChangeFocusList(inspection: AiInspectionState) {
+  return getStringArray(inspection.editPlan?.change_focus, 5);
+}
+
+function formatPipelineStepClass(status: PipelineStepStatus) {
+  if (status === "done") return "border-emerald-400/25 bg-emerald-500/10 text-emerald-100";
+  if (status === "active") return "border-blue-400/35 bg-blue-500/10 text-blue-100";
+  if (status === "warning") return "border-amber-400/25 bg-amber-500/10 text-amber-100";
+  if (status === "error") return "border-red-400/25 bg-red-500/10 text-red-100";
+  return "border-white/10 bg-white/[0.03] text-slate-300";
+}
+
 function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -253,8 +335,8 @@ function sanitizeDebugValue(value: unknown, depth = 0): unknown {
 
 function getAssistantPanelDefaultSize(viewportWidth: number, viewportHeight: number): FloatingPanelSize {
   return {
-    width: clamp(Math.round(viewportWidth * 0.25), 400, 460),
-    height: clamp(Math.round(viewportHeight * 0.78), 560, viewportHeight - 28),
+    width: clamp(Math.round(viewportWidth * 0.27), 420, 500),
+    height: clamp(Math.round(viewportHeight * 0.84), 560, viewportHeight - 24),
   };
 }
 
@@ -941,6 +1023,8 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>(projectSeed.snapshot.canvasItems);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(projectSeed.snapshot.selectedItemId);
   const [activeJobs, setActiveJobs] = useState<ActiveJob[]>([]);
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>(() => createSmartEditPipelineSteps());
+  const [aiInspection, setAiInspection] = useState<AiInspectionState>({});
   const [viewport, setViewport] = useState(projectSeed.snapshot.viewport);
   const [hasManualViewport, setHasManualViewport] = useState(projectSeed.snapshot.hasManualViewport);
   const [assistantPanelPosition, setAssistantPanelPosition] = useState<FloatingPosition>({ x: 0, y: 0 });
@@ -1980,6 +2064,19 @@ const handleDeleteProject = useCallback(
         },
       });
 
+      setAiInspection({
+        activeInstruction: instruction,
+        targetLabel: effectiveRequestedResolution
+          ? formatResolutionLabel(effectiveRequestedResolution.width, effectiveRequestedResolution.height)
+          : currentFormatBadgeLabel,
+      });
+      setPipelineSteps(() => {
+        let next = createSmartEditPipelineSteps();
+        next = setPipelineStepStatus(next, "base", "done", `${baseReference.width}×${baseReference.height}`);
+        next = setPipelineStepStatus(next, "interpret", "active", "Lendo imagem-base");
+        return next;
+      });
+
       const pendingCanvasItemId = `pending-${makeId()}`;
       const position = getNextCanvasPosition(canvasItemsRef.current);
       const controller = new AbortController();
@@ -2041,6 +2138,7 @@ const handleDeleteProject = useCallback(
       formData.append("preserve_original_frame", String(Boolean(preserveOriginalFrame && !shouldUseSmartLayoutRecomposition)));
       formData.append("allow_resize_crop", String(Boolean(allowResizeCrop && !preserveOriginalFrame && !shouldUseSmartLayoutRecomposition)));
       formData.append("edit_scope", shouldUseSmartLayoutRecomposition ? "global" : editScope);
+      formData.append("ai_interpretation_mode", "full_image_preflight_v1");
 
       const token = getAuthToken();
 
@@ -2094,6 +2192,44 @@ const handleDeleteProject = useCallback(
                   level: payload.debug.level || "info",
                   details: payload.debug.details ?? payload,
                   image: payload.debug.image,
+                });
+              }
+
+              if (payload.image_analysis || payload.edit_plan) {
+                const imageAnalysis = getRecord(payload.image_analysis);
+                const editPlan = getRecord(payload.edit_plan);
+                setAiInspection((current) => ({
+                  ...current,
+                  imageAnalysis: imageAnalysis ?? current.imageAnalysis,
+                  editPlan: editPlan ?? current.editPlan,
+                  strategy: typeof editPlan?.strategy === "string" ? editPlan.strategy : current.strategy,
+                }));
+                setPipelineSteps((current) => {
+                  let next = current;
+                  if (imageAnalysis) {
+                    next = setPipelineStepStatus(next, "interpret", "done", "Imagem interpretada");
+                    next = setPipelineStepStatus(next, "plan", editPlan ? "done" : "active", editPlan ? "Plano criado" : "Cruzando pedido e imagem");
+                  }
+                  if (editPlan) {
+                    next = setPipelineStepStatus(next, "plan", "done", "Mudanças e preservações definidas");
+                    next = setPipelineStepStatus(next, "prompt", "active", "Refinando instrução final");
+                  }
+                  return next;
+                });
+              }
+
+              if (payload.improved_prompt || payload.final_prompt || payload.layout_notes || payload.preservation_rules) {
+                setAiInspection((current) => ({
+                  ...current,
+                  improvedPrompt: typeof payload.improved_prompt === "string" ? payload.improved_prompt : current.improvedPrompt,
+                  finalPrompt: typeof payload.final_prompt === "string" ? payload.final_prompt : current.finalPrompt,
+                  layoutNotes: typeof payload.layout_notes === "string" ? payload.layout_notes : current.layoutNotes,
+                  preservationRules: typeof payload.preservation_rules === "string" ? payload.preservation_rules : current.preservationRules,
+                }));
+                setPipelineSteps((current) => {
+                  let next = setPipelineStepStatus(current, "prompt", "done", "Prompt mestre pronto");
+                  next = setPipelineStepStatus(next, "generate", "active", "Gerando imagem");
+                  return next;
                 });
               }
 
@@ -2153,6 +2289,11 @@ const handleDeleteProject = useCallback(
                   motor: payload.partial_result.motor,
                   engineId: payload.partial_result.engine_id,
                 });
+                setPipelineSteps((current) => {
+                  let next = setPipelineStepStatus(current, "generate", "done", payload.partial_result?.motor || "Imagem gerada");
+                  next = setPipelineStepStatus(next, "audit", "active", "Validando entrega final");
+                  return next;
+                });
               }
 
               if (Array.isArray(payload.final_results) && payload.final_results[0]?.url) {
@@ -2164,6 +2305,11 @@ const handleDeleteProject = useCallback(
                   image: payload.final_results[0]?.url,
                 });
                 await finalizeJobOnCanvas(pendingCanvasItemId, payload.final_results[0], instruction);
+                setPipelineSteps((current) => {
+                  let next = setPipelineStepStatus(current, "generate", "done", payload.final_results[0]?.motor || "Imagem gerada");
+                  next = setPipelineStepStatus(next, "audit", "done", "Resultado entregue no canvas");
+                  return next;
+                });
                 streamFinishedWithResult = true;
                 setStatusText("Entrega concluída.");
                 break readStream;
@@ -2206,6 +2352,10 @@ const handleDeleteProject = useCallback(
           progress: 100,
         });
         pushAssistantMessage(message, "warning");
+        setPipelineSteps((current) => {
+          const activeStep = current.find((step) => step.status === "active")?.id ?? "generate";
+          return setPipelineStepStatus(current, activeStep, "error", message);
+        });
       } finally {
         activeJobsRef.current.delete(jobId);
         setActiveJobs((current) => current.filter((item) => item.id !== jobId));
@@ -2215,6 +2365,7 @@ const handleDeleteProject = useCallback(
       allowResizeCrop,
       baseReference,
       editScope,
+      currentFormatBadgeLabel,
       effectiveFormato,
       finalizeJobOnCanvas,
       hasValidCustomDimensions,
@@ -2788,13 +2939,13 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
         setPosition={setAssistantPanelPosition}
         size={effectiveAssistantPanelSize}
         setSize={setAssistantPanelSize}
-        minWidth={400}
+        minWidth={420}
         minHeight={520}
-        maxWidth={460}
-        maxHeight={viewportSize.height - 16}
-        bodyClassName="overflow-hidden"
+        maxWidth={520}
+        maxHeight={viewportSize.height - 12}
+        bodyClassName="image-engine-scroll overflow-y-auto overflow-x-hidden overscroll-contain"
       >
-        <div className="flex h-full min-h-0 flex-col p-4">
+        <div className="flex min-h-full flex-col p-4">
           <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg">
@@ -2803,7 +2954,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-white">Assistente multimodal</div>
                 <div className="mt-1 text-xs leading-relaxed text-slate-400">
-                  A base original fica preservada no canvas. O editor permanece livre para você mover, comparar e gerar novas variações sem perder a primeira imagem.
+                  A nova rotina lê a imagem inteira, cria um mapa de preservação, refina o pedido e só depois envia para geração.
                 </div>
               </div>
             </div>
@@ -2824,14 +2975,103 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 {currentFormatBadgeLabel} • {currentQuality.shortLabel}
               </div>
               <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                Fluxo simples sem patch local
+                Fluxo com leitura visual
               </div>
             </div>
           </div>
 
+          <div className="mt-4 rounded-[24px] border border-white/10 bg-slate-950/45 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">Fluxo inteligente da edição</div>
+                <div className="mt-1 text-[11px] text-slate-400">O usuário vê exatamente em que etapa a IA está trabalhando.</div>
+              </div>
+              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300">
+                {aiInspection.targetLabel || currentFormatBadgeLabel}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              {pipelineSteps.map((step, index) => (
+                <div key={step.id} className={cn("rounded-2xl border px-3 py-2 transition-all", formatPipelineStepClass(step.status))}>
+                  <div className="flex items-start gap-3">
+                    <div className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border text-xs font-semibold", step.status === "done" ? "border-emerald-400/25 bg-emerald-500/15" : step.status === "active" ? "border-blue-400/25 bg-blue-500/15" : "border-white/10 bg-white/5")}>
+                      {step.status === "done" ? <Check className="h-3.5 w-3.5" /> : step.status === "active" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : index + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-white">{step.title}</div>
+                      <div className="mt-0.5 text-[11px] leading-relaxed text-slate-400">{step.detail || step.description}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {(aiInspection.imageAnalysis || aiInspection.editPlan || activeJobs.length > 0) ? (
+            <div className="mt-4 rounded-[24px] border border-blue-400/15 bg-blue-500/[0.06] p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                <ScanSearch className="h-4 w-4 text-blue-200" />
+                Diagnóstico visual da IA
+              </div>
+              <div className="text-xs leading-relaxed text-slate-300">{getInspectionSummary(aiInspection)}</div>
+
+              {getPreservationList(aiInspection).length > 0 ? (
+                <div className="mt-3">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Preservar</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {getPreservationList(aiInspection).map((item) => (
+                      <span key={item} className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-100">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {getChangeFocusList(aiInspection).length > 0 ? (
+                <div className="mt-3">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Mudanças-chave</div>
+                  <div className="space-y-1.5">
+                    {getChangeFocusList(aiInspection).map((item) => (
+                      <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-slate-300">
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {getInspectionTexts(aiInspection).length > 0 ? (
+                <div className="mt-3">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Textos detectados</div>
+                  <div className="space-y-1.5">
+                    {getInspectionTexts(aiInspection).map((item) => (
+                      <div key={item} className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-relaxed text-slate-300">
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {aiInspection.finalPrompt || aiInspection.improvedPrompt ? (
+                <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3">
+                  <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    <Wand2 className="h-3.5 w-3.5" />
+                    Prompt mestre
+                  </div>
+                  <div className="max-h-[110px] overflow-hidden text-[11px] leading-relaxed text-slate-300">
+                    {aiInspection.finalPrompt || aiInspection.improvedPrompt}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div
             ref={chatViewportRef}
-            className="image-engine-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto rounded-[24px] border border-white/10 bg-slate-950/40 p-4"
+            className="image-engine-scroll mt-4 max-h-[32vh] min-h-[220px] space-y-4 overflow-y-auto rounded-[24px] border border-white/10 bg-slate-950/40 p-4"
           >
             {messages.map((message) => (
               <div
@@ -2894,7 +3134,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-2">
                 <div className="text-[11px] leading-5 text-slate-400">
-                  Dica: para texto localizado, use algo como <span className="text-slate-200">Remova "13 de Abril - Barra da Tijuca"</span> e deixe o fluxo em <span className="text-slate-200">Patch local</span> ou <span className="text-slate-200">Auto inteligente</span>.
+                  Dica: descreva o que muda e o que não pode sumir. Em troca de resolução, a IA pode fazer microajustes de alinhamento sem remover textos, logos ou CTA.
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
@@ -2925,8 +3165,8 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           <div className="image-engine-scroll w-[min(460px,calc(100vw-24px))] max-h-[min(76vh,720px)] overflow-y-auto rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] px-4 py-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white">Base simples do editor</div>
-                <div className="truncate text-[11px] text-slate-400">Somente formato, qualidade e envio direto</div>
+                <div className="truncate text-sm font-semibold text-white">Motor de edição inteligente</div>
+                <div className="truncate text-[11px] text-slate-400">Formato, qualidade e estratégia de preservação</div>
               </div>
               <button
                 type="button"
@@ -2976,7 +3216,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 </div>
 
                 <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-300">
-                  O modo simplificado não usa crop, patch local, expansão automática nem recomposição de canvas.
+                  O novo fluxo sempre faz leitura completa da imagem antes da geração. Em resolução customizada, mantém a lógica de recomposição, agora alimentada pelo diagnóstico visual.
                 </div>
               </div>
 
@@ -3033,7 +3273,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                     <span>Fluxo</span>
-                    <span className="font-semibold text-white">Edição direta</span>
+                    <span className="font-semibold text-white">Leitura + prompt mestre</span>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                     <span>Canvas</span>
