@@ -14,8 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { toastApiError, toastSuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { transitions, fadeUp } from "@/lib/motion";
-import { Markdown } from "@/components/markdown/Markdown";
 import { KnowledgeUploader } from "@/components/robot/KnowledgeUploader";
+import ResultViewer from "@/components/authority/ResultViewer";
+import { exportAuthorityFormat as exportFormat } from "@/lib/authorityExport";
 import { useAuthStore } from "@/state/authStore";
 
 function formatRemaining(sec: number) {
@@ -53,7 +54,7 @@ export default function AuthorityAgentsRobotPage() {
   const authToken = useAuthStore((state) => state.token);
 
   const [isEditingCore, setIsEditingCore] = React.useState(false);
-  const [resultModal, setResultModal] = React.useState<{ title: string; output: string } | null>(null);
+  const [resultModal, setResultModal] = React.useState<{ title: string; output: string; agentKey: string } | null>(null);
   const [draft, setDraft] = React.useState<BusinessCoreIn>({});
   const [cooldowns, setCooldowns] = React.useState<Record<string, number>>({});
   const [runningKey, setRunningKey] = React.useState<string | null>(null);
@@ -86,7 +87,7 @@ export default function AuthorityAgentsRobotPage() {
     onSuccess: (res) => {
       const agentName = AUTHORITY_AGENTS.find(a => a.key === res.agent_key)?.name || "Agente";
       setCooldowns((m) => ({ ...m, [res.agent_key]: 3600 }));
-      setResultModal({ title: agentName, output: res.output_text });
+      setResultModal({ title: agentName, output: res.output_text, agentKey: res.agent_key });
       toastSuccess(`O agente ${agentName} terminou a tarefa.`);
     },
     onError: (e) => toastApiError(e, "Falha ao executar agente"),
@@ -314,7 +315,7 @@ export default function AuthorityAgentsRobotPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Button variant="outline" className="rounded-xl shadow-sm" onClick={async () => { await navigator.clipboard.writeText(resultModal.output); toastSuccess("Texto copiado!"); }}>
+                    <Button variant="outline" className="rounded-xl shadow-sm" onClick={async () => { await navigator.clipboard.writeText(exportFormat(resultModal.output, "txt")); toastSuccess("Texto copiado!"); }}>
                       <Copy className="h-4 w-4 mr-2" /> Copiar Tudo
                     </Button>
                     <Button variant="ghost" size="icon" className="rounded-full bg-muted/50 hover:bg-muted" onClick={() => setResultModal(null)}>
@@ -323,8 +324,8 @@ export default function AuthorityAgentsRobotPage() {
                   </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-8 lg:p-12 bg-background/40">
-                  <div className="max-w-3xl mx-auto bg-background p-8 rounded-3xl border shadow-sm">
-                    <Markdown content={resultModal.output} />
+                  <div className="max-w-4xl mx-auto">
+                    <ResultViewer title={resultModal.title} text={resultModal.output} agentKey={resultModal.agentKey} />
                   </div>
                 </div>
              </motion.div>

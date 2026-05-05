@@ -887,4 +887,157 @@ export function exportAuthorityFormat(raw: string, format: AuthorityExportFormat
   return exportRawFallback(raw, format);
 }
 
+
+export type AuthorityOutputPreview = {
+  title: string;
+  preview: string;
+  isStructured: boolean;
+};
+
+function getScriptPreview(payload: ScriptPayload): string {
+  const candidates: unknown[] = [
+    payload.analise_do_tema,
+    payload.estrategia_do_video,
+    safeArray<string>(payload.hooks)[0],
+    safeArray<string>(payload.roteiro_segundo_a_segundo)
+      .map((item: any) => [safeText(item?.acao), safeText(item?.fala)].filter(Boolean).join(" "))
+      .find(Boolean),
+    safeArray<string>(payload.texto_na_tela)[0],
+    safeArray<string>(payload.variacoes)[0],
+    payload.legenda,
+  ];
+
+  return candidates.map((value) => safeText(value)).find(Boolean) || "Resultado estruturado gerado pelo agente.";
+}
+
+function getBlockPreview(payload: AuthorityBlockPayload): string {
+  for (const rawBlock of safeArray<AuthorityBlock>(payload.blocos)) {
+    const tipo = safeText(rawBlock?.tipo).toLowerCase();
+    const conteudo = isRecord(rawBlock?.conteudo) ? rawBlock.conteudo : {};
+
+    if (tipo === "markdown") {
+      const text = safeText((conteudo as any).texto);
+      if (text) return text;
+    }
+
+    if (tipo === "highlight") {
+      const title = safeText((conteudo as any).titulo);
+      const text = safeText((conteudo as any).texto);
+      if (title || text) return [title, text].filter(Boolean).join(". ");
+    }
+
+    if (tipo === "timeline") {
+      const first = safeArray<string>((conteudo as any).passos).map((item) => safeText(item)).find(Boolean);
+      if (first) return first;
+    }
+
+    if (tipo === "quote") {
+      const text = safeText((conteudo as any).texto);
+      const author = safeText((conteudo as any).autor);
+      if (text || author) return [text, author].filter(Boolean).join(" — ");
+    }
+
+    if (tipo === "faq") {
+      const first = safeArray<any>((conteudo as any).perguntas).find((item) => isRecord(item));
+      const question = safeText(first?.pergunta);
+      const answer = safeText(first?.resposta);
+      if (question || answer) return [question, answer].filter(Boolean).join(". ");
+    }
+
+    if (tipo === "keyword_list") {
+      const title = safeText((conteudo as any).titulo);
+      const first = safeArray<string>((conteudo as any).items).map((item) => safeText(item)).find(Boolean);
+      if (title || first) return [title, first].filter(Boolean).join(": ");
+    }
+
+    if (tipo === "service_cards") {
+      const first = safeArray<any>((conteudo as any).items).find((item) => isRecord(item));
+      const name = safeText(first?.nome);
+      const description = safeText(first?.descricao);
+      if (name || description) return [name, description].filter(Boolean).join(". ");
+    }
+
+    if (tipo === "response_variations") {
+      const first = safeArray<string>((conteudo as any).items).map((item) => safeText(item)).find(Boolean);
+      if (first) return first;
+    }
+
+    if (tipo === "comparison_table") {
+      const first = safeArray<any>((conteudo as any).items).find((item) => isRecord(item));
+      const criterio = safeText(first?.criterio);
+      const recomendacao = safeText(first?.recomendacao);
+      if (criterio || recomendacao) return [criterio, recomendacao].filter(Boolean).join(". ");
+    }
+
+    const fallback = renderGenericTextValue(isRecord(conteudo) ? conteudo : rawBlock, "txt");
+    if (fallback) return fallback;
+  }
+
+  return "Resultado estruturado gerado pelo agente.";
+}
+
+function compactPreviewText(value: string, maxLength = 220): string {
+  const cleaned = normalizeText(value)
+    .replace(/#{1,6}\s+/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "Resultado gerado pelo agente.";
+  if (cleaned.length <= maxLength) return cleaned;
+  return `${cleaned.slice(0, maxLength).trim()}...`;
+}
+
+function stripTitleFromFormattedText(text: string, title: string): string {
+  const titleKey = safeText(title).toLowerCase();
+  return normalizeText(text)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line.toLowerCase() !== titleKey)
+    .filter((line) => !/^=+$/.test(line))
+    .join("\n");
+}
+
+export function getAuthorityOutputPreview(raw: string, fallbackTitle = "Resultado"): AuthorityOutputPreview {
+  const parsed = tryParseJson(raw);
+  const fallback = safeText(fallbackTitle) || "Resultado";
+
+  if (isScriptPayload(parsed)) {
+    const title = safeText(parsed.titulo_da_tela) || fallback;
+    return {
+      title,
+      preview: compactPreviewText(getScriptPreview(parsed)),
+      isStructured: true,
+    };
+  }
+
+  if (isBlockPayload(parsed)) {
+    const title = safeText(parsed.titulo_da_tela) || fallback;
+    return {
+      title,
+      preview: compactPreviewText(getBlockPreview(parsed)),
+      isStructured: true,
+    };
+  }
+
+  if (isRecord(parsed)) {
+    const title = safeText((parsed as JsonRecord).titulo_da_tela) || fallback;
+    const formatted = exportAuthorityFormat(raw, "txt");
+    return {
+      title,
+      preview: compactPreviewText(stripTitleFromFormattedText(formatted, title)),
+      isStructured: true,
+    };
+  }
+
+  const formatted = exportAuthorityFormat(raw, "txt");
+  return {
+    title: fallback,
+    preview: compactPreviewText(stripTitleFromFormattedText(formatted, fallback)),
+    isStructured: false,
+  };
+}
+
 export { exportAuthorityFormat as exportFormat };

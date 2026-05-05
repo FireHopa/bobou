@@ -9,8 +9,9 @@ import { Particles } from "@/components/effects/Particles";
 import { useQuery } from "@tanstack/react-query";
 import { api, getClientId, type AuthorityAgentRunItem } from "@/services/robots";
 import { motion, AnimatePresence } from "framer-motion";
-import { Markdown } from "@/components/markdown/Markdown";
 import { toastSuccess, toastApiError } from "@/lib/toast";
+import ResultViewer from "@/components/authority/ResultViewer";
+import { exportAuthorityFormat as exportFormat, getAuthorityOutputPreview } from "@/lib/authorityExport";
 
 // NOVO: Importações para o LinkedIn
 import { PublishModal } from "@/components/linkedin/PublishModal";
@@ -112,7 +113,7 @@ export default function AuthorityAgentsPage() {
       <PublishModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        initialText={selectedHistory?.output_text || ""}
+        initialText={exportFormat(selectedHistory?.output_text || "", "txt")}
         onPublish={handlePublishPost}
         loading={isPublishing}
       />
@@ -195,6 +196,7 @@ export default function AuthorityAgentsPage() {
               {historyData.items.map((item) => {
                 const agent = AUTHORITY_AGENTS.find((a) => a.key === item.agent_key);
                 const AgentIcon = agent?.Icon || Sparkles;
+                const preview = getAuthorityOutputPreview(item.output_text, agent?.name || item.agent_key);
 
                 return (
                   <Card
@@ -208,12 +210,17 @@ export default function AuthorityAgentsPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <h4 className="font-semibold text-sm text-foreground truncate">{agent?.name || item.agent_key}</h4>
-                        <div className="text-[10px] text-muted-foreground truncate">{new Date(item.created_at).toLocaleString()}</div>
+                        <div className="text-[10px] text-muted-foreground truncate">{new Date(item.created_at).toLocaleString("pt-BR")}</div>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed mt-1">
-                      {item.output_text}
-                    </p>
+                    <div className="mt-1 space-y-1">
+                      <p className="text-sm font-semibold text-foreground line-clamp-2 leading-snug">
+                        {preview.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                        {preview.preview}
+                      </p>
+                    </div>
                   </Card>
                 );
               })}
@@ -249,7 +256,7 @@ export default function AuthorityAgentsPage() {
                         {AUTHORITY_AGENTS.find(a => a.key === selectedHistory.agent_key)?.name || selectedHistory.agent_key}
                       </h2>
                       <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 truncate">
-                        Gerado em {new Date(selectedHistory.created_at).toLocaleString()}
+                        Gerado em {new Date(selectedHistory.created_at).toLocaleString("pt-BR")}
                       </p>
                     </div>
                   </div>
@@ -269,7 +276,7 @@ export default function AuthorityAgentsPage() {
                       variant="outline" 
                       className="rounded-xl shadow-sm hidden sm:flex" 
                       onClick={async () => { 
-                        await navigator.clipboard.writeText(selectedHistory.output_text); 
+                        await navigator.clipboard.writeText(exportFormat(selectedHistory.output_text, "txt")); 
                         toastSuccess("Texto copiado para a área de transferência!"); 
                       }}
                     >
@@ -289,7 +296,7 @@ export default function AuthorityAgentsPage() {
                         size="sm"
                         className="rounded-xl shadow-sm bg-background" 
                         onClick={async () => { 
-                          await navigator.clipboard.writeText(selectedHistory.output_text); 
+                          await navigator.clipboard.writeText(exportFormat(selectedHistory.output_text, "txt")); 
                           toastSuccess("Copiado!"); 
                         }}
                       >
@@ -297,8 +304,12 @@ export default function AuthorityAgentsPage() {
                       </Button>
                   </div>
 
-                  <div className="max-w-3xl mx-auto bg-background p-6 sm:p-10 rounded-[2rem] border shadow-sm">
-                    <Markdown content={selectedHistory.output_text} />
+                  <div className="max-w-4xl mx-auto">
+                    <ResultViewer
+                      title={AUTHORITY_AGENTS.find(a => a.key === selectedHistory.agent_key)?.name || selectedHistory.agent_key}
+                      text={selectedHistory.output_text}
+                      agentKey={selectedHistory.agent_key}
+                    />
                   </div>
                 </div>
              </motion.div>
