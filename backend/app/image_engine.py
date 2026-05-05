@@ -1968,8 +1968,11 @@ def _exact_expand_quality_diagnostics(
         "seam_score": 999.0,
         "seam_max": 999.0,
         "generated_region_penalty": 0.0,
+        "artifact_penalty": 0.0,
+        "artifact_details": [],
         "seam_details": [],
         "flagged_sides": [],
+        "manual_unsuitable": False,
     }
 
     overlap = canvas_meta.get("overlap") or {}
@@ -2000,7 +2003,9 @@ def _exact_expand_quality_diagnostics(
         border_penalties: List[float] = []
         generated_penalties: List[float] = []
         seam_penalties: List[float] = []
+        artifact_penalties: List[float] = []
         seam_details: List[Dict[str, Any]] = []
+        artifact_details: List[Dict[str, Any]] = []
         luma_weights = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
         def _collect(inner_bbox: Tuple[int, int, int, int], outer_bbox: Tuple[int, int, int, int], axis: int) -> None:
@@ -2143,14 +2148,59 @@ def _exact_expand_quality_diagnostics(
                 "score": round(float(penalty), 4),
             })
 
+        def _artifact_penalty(side: str, region: np.ndarray, coverage_ratio: float) -> None:
+            if region.size == 0 or min(region.shape[0], region.shape[1]) < 6:
+                return
+            region_luma = region @ luma_weights
+            gx = np.abs(np.diff(region_luma, axis=1)) if region_luma.shape[1] > 1 else np.zeros((region_luma.shape[0], 1), dtype=np.float32)
+            gy = np.abs(np.diff(region_luma, axis=0)) if region_luma.shape[0] > 1 else np.zeros((1, region_luma.shape[1]), dtype=np.float32)
+            mean_gx = float(np.mean(gx)) if gx.size else 0.0
+            mean_gy = float(np.mean(gy)) if gy.size else 0.0
+            row_means = np.mean(region_luma, axis=1)
+            col_means = np.mean(region_luma, axis=0)
+            row_std = float(np.std(row_means))
+            col_std = float(np.std(col_means))
+            dominant_horizontal = side in {"left", "right"}
+            if dominant_horizontal:
+                axis_ratio = mean_gy / max(0.18, mean_gx)
+                profile_ratio = row_std / max(0.18, col_std)
+            else:
+                axis_ratio = mean_gx / max(0.18, mean_gy)
+                profile_ratio = col_std / max(0.18, row_std)
+            variance_mean = float(np.mean(np.std(region, axis=0 if dominant_horizontal else 1)))
+            penalty = 0.0
+            if coverage_ratio >= 0.10:
+                penalty += max(0.0, axis_ratio - 2.15) * (2.2 + (coverage_ratio * 5.8))
+                penalty += max(0.0, profile_ratio - 2.0) * (1.8 + (coverage_ratio * 4.6))
+                penalty += max(0.0, 6.2 - variance_mean) * (0.18 + (coverage_ratio * 0.12))
+            if coverage_ratio >= 0.18:
+                penalty += max(0.0, axis_ratio - 1.65) * 1.35
+            if penalty > 0.0:
+                penalty = float(min(60.0, penalty))
+                scores.append(penalty)
+                generated_penalties.append(float(penalty * 0.55))
+                artifact_penalties.append(float(penalty))
+                artifact_details.append({
+                    "side": side,
+                    "coverage_ratio": round(float(coverage_ratio), 4),
+                    "axis_ratio": round(float(axis_ratio), 4),
+                    "profile_ratio": round(float(profile_ratio), 4),
+                    "variance_mean": round(float(variance_mean), 4),
+                    "score": round(float(penalty), 4),
+                })
+
         if left_gap > 0:
             _vertical_seam_penalty("left", source_x1, source_y1, source_y2)
+            _artifact_penalty("left", final_rgb[source_y1:source_y2, 0:source_x1, :], left_gap / max(1.0, float(final_width)))
         if right_gap > 0:
             _vertical_seam_penalty("right", source_x2, source_y1, source_y2)
+            _artifact_penalty("right", final_rgb[source_y1:source_y2, source_x2:final_width, :], right_gap / max(1.0, float(final_width)))
         if top_gap > 0:
             _horizontal_seam_penalty("top", source_y1, source_x1, source_x2)
+            _artifact_penalty("top", final_rgb[0:source_y1, source_x1:source_x2, :], top_gap / max(1.0, float(final_height)))
         if bottom_gap > 0:
             _horizontal_seam_penalty("bottom", source_y2, source_x1, source_x2)
+            _artifact_penalty("bottom", final_rgb[source_y2:final_height, source_x1:source_x2, :], bottom_gap / max(1.0, float(final_height)))
 
     if not scores:
         return diagnostics
@@ -2162,14 +2212,22 @@ def _exact_expand_quality_diagnostics(
     if not flagged_sides and seam_max >= 6.4:
         flagged_sides = [item["side"] for item in seam_details if float(item.get("score", 0.0)) >= seam_max - 0.35]
 
+    artifact_penalty = float(np.mean(artifact_penalties)) if artifact_penalties else 0.0
+    manual_unsuitable = bool(
+        artifact_penalty >= 7.8
+        or any(float(item.get("coverage_ratio", 0.0) or 0.0) >= 0.18 and float(item.get("score", 0.0) or 0.0) >= 8.2 for item in artifact_details)
+    )
     diagnostics.update({
         "quality_score": quality_score,
         "border_score": float(np.mean(border_penalties)) if border_penalties else 0.0,
         "seam_score": seam_score,
         "seam_max": seam_max,
         "generated_region_penalty": float(np.mean(generated_penalties)) if generated_penalties else 0.0,
+        "artifact_penalty": artifact_penalty,
+        "artifact_details": artifact_details,
         "seam_details": seam_details,
         "flagged_sides": flagged_sides,
+        "manual_unsuitable": manual_unsuitable,
     })
     return diagnostics
 
@@ -5502,6 +5560,44 @@ async def image_engine_edit_stream(
                 elif canvas_only_request:
                     body.preserve_original_frame = True
 
+                if smart_layout_recomposition_request and _v133_instruction_requires_layout_lock(
+                    body.instrucoes_edicao,
+                    target_dimensions[0],
+                    target_dimensions[1],
+                ):
+                    smart_layout_recomposition_request = False
+                    canvas_only_request = True
+                    body.preserve_original_frame = True
+                    body.allow_resize_crop = False
+                    yield _sse({
+                        "status": "Pedido identificado como troca de resolução com layout preservado. Bloqueando recomposição total V7.",
+                        "progress": 39,
+                        "improved_prompt": "Layout-lock obrigatório: preservar a arte original e adaptar somente o canvas externo.",
+                        "negative_prompt": "não recompor a arte inteira, não cortar textos do topo, não remover cidade, não remover overline, não alterar layout, não redesenhar tipografia",
+                        "creative_direction": "Troca de resolução com camada original protegida.",
+                        "layout_notes": "A peça original será tratada como área protegida. A IA só pode atuar nas áreas externas necessárias ao novo formato.",
+                        "preservation_rules": "Preservar textos de topo, cidade, subtítulo, título, datas, CTA, ícones, logos e composição original.",
+                        "edit_strategy": "layout_lock_forced_before_v7_recomposition",
+                        "micro_detail_rules": "Permitir apenas expansão/refino externo. Não cortar elementos do topo.",
+                        "consistency_rules": "Se o usuário pedir tudo igual, o sistema não pode usar recomposição total.",
+                        "final_prompt": "Forçar layout-lock antes da V7.",
+                        "aspect_ratio": aspect_ratio,
+                        "quality": openai_quality,
+                        "openai_size": openai_size,
+                        "debug": _runtime_debug_payload(
+                            request_id=request_id,
+                            stage="layout_lock_forced_before_v7_recomposition",
+                            message="Roteamento corrigido: pedido de resolução com tudo igual não entra mais em recomposição V7.",
+                            details={
+                                "source_dimensions": {"width": source_width, "height": source_height},
+                                "target_dimensions": {"width": target_dimensions[0], "height": target_dimensions[1]},
+                                "blocked_engine": "openai_unified_layout_recomposition_v7",
+                                "selected_strategy": "exact_canvas_expand_preserve_original_layer",
+                                "instruction": body.instrucoes_edicao,
+                            },
+                        ),
+                    })
+
                 if smart_layout_recomposition_request:
                     # Observação importante: esta rota não passa pelo refinador padrão de prompt.
                     # Portanto, o dicionário `improved` precisa ser totalmente autossuficiente.
@@ -6290,17 +6386,63 @@ def _v131_exact_expand_score(diagnostics: Dict[str, Any]) -> float:
     quality_score = float(diagnostics.get("quality_score", 999.0) or 999.0)
     generated_penalty = float(diagnostics.get("generated_region_penalty", 0.0) or 0.0)
     border_score = float(diagnostics.get("border_score", 0.0) or 0.0)
+    artifact_penalty = float(diagnostics.get("artifact_penalty", 0.0) or 0.0)
     return float(
         (seam_max * 1.50)
         + (seam_score * 1.08)
         + (quality_score * 0.46)
         + (generated_penalty * 2.35)
+        + (artifact_penalty * 2.85)
         + (border_score * 0.31)
     )
 
 
 def _v12_exact_expand_score(diagnostics: Dict[str, Any]) -> float:
     return _v131_exact_expand_score(diagnostics)
+
+
+def _v133_instruction_requires_layout_lock(instruction: str, requested_width: Optional[int] = None, requested_height: Optional[int] = None) -> bool:
+    """Força layout-lock em pedidos de troca de resolução com preservação do layout.
+
+    Regra de segurança:
+    quando o usuário pede nova resolução + "mesmo layout/tudo igual/sem faltar nada",
+    é melhor preservar a arte original do que permitir recomposição V7.
+    """
+    txt = (instruction or "").lower()
+    if not txt:
+        return False
+
+    has_resize_intent = bool(requested_width and requested_height) or any(
+        token in txt for token in (
+            "resolução", "resolucao", "tamanho", "formato", "proporção", "proporcao",
+            "horizontal", "vertical", "quadrado", "16:9", "9:16", "1:1",
+            "px", "pixel", "pixels"
+        )
+    )
+
+    preserve_intent = any(
+        token in txt for token in (
+            "mesma diagrama", "mesmo layout", "mesma layout", "mesma tipograf",
+            "mesmo visual", "mesma arte", "mesma composição", "mesma composicao",
+            "tudo igual", "igual a base", "igual à base", "igual ao original",
+            "sem faltar nada", "sem mudar nada", "sem alterar nada",
+            "mantendo", "preserv", "não mudar", "nao mudar",
+            "somente ajustes", "ajustes mínimos", "ajustes minimos",
+            "só resolução", "so resolucao", "só que pra resolução", "so que pra resolucao",
+            "apenas para resolução", "apenas para resolucao",
+        )
+    )
+
+    creative_edit_intent = any(
+        token in txt for token in (
+            "troque o fundo", "mude o fundo", "mude o cenário", "mude o cenario",
+            "adicione", "remova", "substitua", "recrie do zero",
+            "redesenhe tudo", "transforme em", "estilo anime", "estilo cartoon",
+        )
+    )
+
+    return bool(has_resize_intent and preserve_intent and not creative_edit_intent)
+
 
 
 def _v131_safe_overlap_px(source_width: int, source_height: int, gap: int, *, dominant: bool = False) -> int:
@@ -6396,10 +6538,25 @@ def _v131_pick_placement(fitted: Image.Image, target_width: int, target_height: 
     strength = float(np.clip(_v12_env_float("IMAGE_ENGINE_EXACT_EXPAND_ONE_SIDE_STRENGTH", 0.90), 0.55, 0.985))
     threshold = float(np.clip(_v12_env_float("IMAGE_ENGINE_EXACT_EXPAND_ONE_SIDE_CENTER_THRESHOLD", 0.065), 0.015, 0.20))
     flush_threshold = max(0, int(_v12_env_int("IMAGE_ENGINE_EXACT_EXPAND_ONE_SIDE_FLUSH_THRESHOLD_PX", 32)))
+    max_share = float(np.clip(_v12_env_float("IMAGE_ENGINE_EXACT_EXPAND_ONE_SIDE_MAX_SHARE", 0.74), 0.55, 0.90))
+    large_gap_px = max(64, int(_v12_env_int("IMAGE_ENGINE_EXACT_EXPAND_LARGE_GAP_PX", 180)))
     dominant_side: Optional[str] = None
     axis = "none"
     x1 = extra_x // 2
     y1 = extra_y // 2
+
+    def _cap_single_side(dominant_gap: int, total_extra: int) -> Tuple[int, int]:
+        if total_extra <= 0:
+            return 0, 0
+        secondary_gap = max(0, total_extra - dominant_gap)
+        if total_extra >= large_gap_px:
+            max_dominant = int(round(total_extra * max_share))
+            dominant_gap = min(dominant_gap, max_dominant)
+            secondary_gap = max(0, total_extra - dominant_gap)
+        if secondary_gap <= flush_threshold and total_extra <= max(large_gap_px, flush_threshold * 4):
+            dominant_gap = total_extra
+            secondary_gap = 0
+        return dominant_gap, secondary_gap
 
     if extra_x > 0 or extra_y > 0:
         if extra_x >= extra_y:
@@ -6410,10 +6567,7 @@ def _v131_pick_placement(fitted: Image.Image, target_width: int, target_height: 
             else:
                 dominant_side = "left" if float(metrics.get("left_edge_energy", 0.0)) <= float(metrics.get("right_edge_energy", 0.0)) else "right"
             dominant_gap = max(0, min(extra_x, int(round(extra_x * strength))))
-            secondary_gap = max(0, extra_x - dominant_gap)
-            if secondary_gap <= flush_threshold:
-                dominant_gap = extra_x
-                secondary_gap = 0
+            dominant_gap, secondary_gap = _cap_single_side(dominant_gap, extra_x)
             x1 = dominant_gap if dominant_side == "left" else secondary_gap
             y1 = extra_y // 2
         else:
@@ -6424,10 +6578,7 @@ def _v131_pick_placement(fitted: Image.Image, target_width: int, target_height: 
             else:
                 dominant_side = "top" if float(metrics.get("top_edge_energy", 0.0)) <= float(metrics.get("bottom_edge_energy", 0.0)) else "bottom"
             dominant_gap = max(0, min(extra_y, int(round(extra_y * strength))))
-            secondary_gap = max(0, extra_y - dominant_gap)
-            if secondary_gap <= flush_threshold:
-                dominant_gap = extra_y
-                secondary_gap = 0
+            dominant_gap, secondary_gap = _cap_single_side(dominant_gap, extra_y)
             y1 = dominant_gap if dominant_side == "top" else secondary_gap
             x1 = extra_x // 2
 
@@ -6438,6 +6589,7 @@ def _v131_pick_placement(fitted: Image.Image, target_width: int, target_height: 
         "dominant_side": dominant_side,
         "strength": strength,
         "flush_threshold": flush_threshold,
+        "max_share": max_share,
         "metrics": metrics,
         "placement": (x1, y1, x1 + int(fitted.width), y1 + int(fitted.height)),
     }
@@ -6850,11 +7002,17 @@ def _v131_choose_ai_sides(manual_diagnostics: Dict[str, Any], ai_diagnostics: Di
 
     ai_generated_penalty = float(ai_diagnostics.get("generated_region_penalty", 0.0) or 0.0)
     manual_generated_penalty = float(manual_diagnostics.get("generated_region_penalty", 0.0) or 0.0)
-    if ai_generated_penalty > max(manual_generated_penalty + 5.0, 13.5):
+    manual_artifact_penalty = float(manual_diagnostics.get("artifact_penalty", 0.0) or 0.0)
+    ai_artifact_penalty = float(ai_diagnostics.get("artifact_penalty", 0.0) or 0.0)
+    manual_bad = bool(manual_diagnostics.get("manual_unsuitable")) or manual_artifact_penalty >= 7.8
+    if ai_generated_penalty > max(manual_generated_penalty + (12.0 if manual_bad else 5.0), 22.0 if manual_bad else 13.5):
         return [], {
             "reason": "ai_generated_penalty_too_high",
             "manual_generated_region_penalty": round(manual_generated_penalty, 3),
             "ai_generated_region_penalty": round(ai_generated_penalty, 3),
+            "manual_artifact_penalty": round(manual_artifact_penalty, 3),
+            "ai_artifact_penalty": round(ai_artifact_penalty, 3),
+            "manual_bad": manual_bad,
         }
 
     for side in ("left", "right", "top", "bottom"):
@@ -6864,8 +7022,10 @@ def _v131_choose_ai_sides(manual_diagnostics: Dict[str, Any], ai_diagnostics: Di
         ai_score = float(ai_scores.get(side, ai_diagnostics.get("seam_max", 999.0) or 999.0))
         is_dominant = side == dominant_side
         margin = 1.35 if is_dominant else 0.70
+        if manual_bad:
+            margin += 2.75 if is_dominant else 1.45
         improved = ai_score <= (manual_score + margin)
-        blocked = side in flagged and ai_score > (manual_score - 0.35)
+        blocked = side in flagged and ai_score > (manual_score - (1.15 if manual_bad else 0.35))
         if improved and not blocked:
             selected.append(side)
         side_debug[side] = {
@@ -7115,18 +7275,39 @@ async def _expand_image_to_exact_size_with_ai(
         ai_gen = float(ai_diagnostics.get("generated_region_penalty", 0.0) or 0.0)
         local_seam_max = float(manual_diagnostics.get("seam_max", 999.0) or 999.0)
         ai_seam_max = float(ai_diagnostics.get("seam_max", 999.0) or 999.0)
+        local_artifact = float(manual_diagnostics.get("artifact_penalty", 0.0) or 0.0)
+        ai_artifact = float(ai_diagnostics.get("artifact_penalty", 0.0) or 0.0)
+        gap_map = canvas_meta.get("gaps") or {}
+        max_gap = max(int(gap_map.get("left", 0) or 0), int(gap_map.get("right", 0) or 0), int(gap_map.get("top", 0) or 0), int(gap_map.get("bottom", 0) or 0))
+        gap_ratio = max_gap / max(1.0, float(max(requested_width, requested_height)))
+        manual_bad = bool(manual_diagnostics.get("manual_unsuitable")) or local_artifact >= 7.8 or (gap_ratio >= 0.18 and local_artifact >= 5.8)
         ai_not_too_creative = ai_gen <= max(local_gen + 4.2, 12.5)
         ai_not_too_seamy = ai_seam_max <= max(local_seam_max + 4.0, 13.5)
         ai_score_ok = ai_score <= (manual_score + _v12_env_float("IMAGE_ENGINE_EXACT_EXPAND_AI_ACCEPT_MARGIN", 0.95))
+        ai_rescue_ok = (
+            manual_bad
+            and float(ai_diagnostics.get("border_score", 0.0) or 0.0) <= 8.5
+            and ai_gen <= max(local_gen + 24.0, 38.0)
+            and ai_seam_max <= max(local_seam_max + 70.0, 72.0)
+            and ai_artifact <= max(local_artifact + 8.0, 18.0)
+        )
 
-        if force_ai or (ai_score_ok and ai_not_too_creative and ai_not_too_seamy):
+        if force_ai or (ai_score_ok and ai_not_too_creative and ai_not_too_seamy) or ai_rescue_ok:
             attempts[-1]["accepted"] = True
+            if ai_rescue_ok and not (ai_score_ok and ai_not_too_creative and ai_not_too_seamy):
+                attempts[-1]["accepted_reason"] = {
+                    "mode": "manual_artifact_rescue",
+                    "manual_bad": bool(manual_bad),
+                    "gap_ratio": round(float(gap_ratio), 4),
+                    "manual_artifact_penalty": round(float(local_artifact), 3),
+                    "ai_artifact_penalty": round(float(ai_artifact), 3),
+                }
             return _v131_build_result(
                 final_bytes=ai_final_bytes,
                 image_bytes=image_bytes,
                 canvas_meta=canvas_meta,
                 diagnostics=ai_diagnostics,
-                selected_profile="v13_2_ai_enhance_accepted",
+                selected_profile="v13_2_ai_enhance_accepted" if not ai_rescue_ok else "v13_2_ai_rescue_selected_over_manual_artifact",
                 attempts=attempts,
                 api_calls_used=1,
                 effective_quality=effective_quality,
