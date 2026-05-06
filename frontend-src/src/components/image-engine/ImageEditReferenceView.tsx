@@ -43,6 +43,9 @@ type ImageResult = {
   engine_id: string;
   motor: string;
   url: string;
+  exact_canvas_expand?: unknown;
+  variant_index?: number;
+  variant_total?: number;
 };
 
 type ReferenceAttachment = {
@@ -2011,6 +2014,108 @@ const handleDeleteProject = useCallback(
     ]
   );
 
+  const finalizeResultsOnCanvas = useCallback(
+    async (pendingCanvasItemId: string, finalResults: ImageResult[], instruction: string) => {
+      const validResults = finalResults.filter((item) => item?.url);
+      if (!validResults.length) {
+        return;
+      }
+
+      const dimensions = await Promise.all(
+        validResults.map((item) =>
+          readImageDimensionsFromUrl(item.url).catch(() => ({
+            width: baseReference?.width || 1024,
+            height: baseReference?.height || 1024,
+          }))
+        )
+      );
+
+      let lastSelectedId = pendingCanvasItemId;
+      const total = validResults.length;
+
+      setCanvasItems((current) => {
+        const existingResultCount = current.filter((item) => item.kind === "result").length;
+        let resultCounter = existingResultCount;
+        let next: CanvasItem[] = current.map((item) => {
+          if (item.id !== pendingCanvasItemId) {
+            return item;
+          }
+          resultCounter += 1;
+          const result = validResults[0];
+          const size = dimensions[0];
+          const variantLabel = total > 1 ? ` • Variação ${result.variant_index ?? 1}/${total}` : "";
+          return {
+            ...item,
+            kind: "result",
+            title: `Resultado ${resultCounter}${variantLabel}`,
+            subtitle: instruction,
+            url: result.url,
+            width: size.width,
+            height: size.height,
+            naturalWidth: size.width,
+            naturalHeight: size.height,
+            progress: 100,
+            status: "Pronto",
+            engineId: result.engine_id,
+            motor: result.motor,
+            prompt: instruction,
+          };
+        });
+
+        for (let index = 1; index < validResults.length; index += 1) {
+          resultCounter += 1;
+          const result = validResults[index];
+          const size = dimensions[index];
+          const position = getNextCanvasPosition(next);
+          const itemId = `result-${makeId()}`;
+          lastSelectedId = itemId;
+          const variantLabel = ` • Variação ${result.variant_index ?? index + 1}/${total}`;
+          next = [
+            ...next,
+            {
+              id: itemId,
+              kind: "result",
+              url: result.url,
+              title: `Resultado ${resultCounter}${variantLabel}`,
+              subtitle: instruction,
+              status: "Pronto",
+              progress: 100,
+              x: position.x,
+              y: position.y,
+              width: size.width,
+              height: size.height,
+              naturalWidth: size.width,
+              naturalHeight: size.height,
+              engineId: result.engine_id,
+              motor: result.motor,
+              prompt: instruction,
+            },
+          ];
+        }
+
+        canvasItemsRef.current = next;
+        return next;
+      });
+
+      setSelectedItemId(lastSelectedId);
+
+      await appendImageHistory(
+        validResults.map((result) => ({
+          type: "edited",
+          url: result.url,
+          motor: result.motor,
+          engine_id: result.engine_id,
+          format: formato,
+          quality: qualidade,
+          width: undefined,
+          height: undefined,
+          prompt: instruction,
+        }))
+      );
+    },
+    [baseReference?.height, baseReference?.width, formato, qualidade]
+  );
+
   const handleGenerate = useCallback(
     async (manualInstruction?: string) => {
       const instruction = (manualInstruction ?? promptInput).trim();
@@ -2297,21 +2402,22 @@ const handleDeleteProject = useCallback(
               }
 
               if (Array.isArray(payload.final_results) && payload.final_results[0]?.url) {
+                const finalResults = payload.final_results.filter((item: ImageResult) => item?.url);
                 appendDebugLog({
                   stage: "final_result",
-                  message: "Resultado final recebido pelo frontend.",
+                  message: finalResults.length > 1 ? `${finalResults.length} resultados finais recebidos pelo frontend.` : "Resultado final recebido pelo frontend.",
                   level: "success",
-                  details: payload.final_results[0],
-                  image: payload.final_results[0]?.url,
+                  details: finalResults.length > 1 ? { count: finalResults.length, results: finalResults } : finalResults[0],
+                  image: finalResults[0]?.url,
                 });
-                await finalizeJobOnCanvas(pendingCanvasItemId, payload.final_results[0], instruction);
+                await finalizeResultsOnCanvas(pendingCanvasItemId, finalResults, instruction);
                 setPipelineSteps((current) => {
-                  let next = setPipelineStepStatus(current, "generate", "done", payload.final_results[0]?.motor || "Imagem gerada");
-                  next = setPipelineStepStatus(next, "audit", "done", "Resultado entregue no canvas");
+                  let next = setPipelineStepStatus(current, "generate", "done", finalResults.length > 1 ? `${finalResults.length} imagens geradas` : finalResults[0]?.motor || "Imagem gerada");
+                  next = setPipelineStepStatus(next, "audit", "done", finalResults.length > 1 ? "Versões entregues no canvas" : "Resultado entregue no canvas");
                   return next;
                 });
                 streamFinishedWithResult = true;
-                setStatusText("Entrega concluída.");
+                setStatusText(finalResults.length > 1 ? `${finalResults.length} versões entregues.` : "Entrega concluída.");
                 break readStream;
               }
             }
@@ -2367,7 +2473,7 @@ const handleDeleteProject = useCallback(
       editScope,
       currentFormatBadgeLabel,
       effectiveFormato,
-      finalizeJobOnCanvas,
+      finalizeResultsOnCanvas,
       hasValidCustomDimensions,
       parsedCustomHeight,
       parsedCustomWidth,
