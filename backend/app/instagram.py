@@ -342,10 +342,22 @@ async def publish_to_instagram(req: PublishRequest, current_user: User = Depends
             except HTTPException as exc:
                 comment_warning = exc.detail
 
+        permalink_url = None
+        try:
+            permalink_resp = await client.get(
+                f"{GRAPH_BASE}/{media_id}",
+                params={"fields": "permalink", "access_token": access_token},
+            )
+            if permalink_resp.status_code == 200:
+                permalink_url = permalink_resp.json().get("permalink")
+        except Exception:
+            permalink_url = None
+
     return {
         "ok": True,
         "message": "Publicado com sucesso!",
         "post_id": media_id,
         "instagram_username": current_user.instagram_username,
+        "permalink_url": permalink_url,
         "warning": comment_warning,
     }

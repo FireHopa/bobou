@@ -239,10 +239,20 @@ async def publish_to_facebook(req: PublishRequest, current_user: User = Depends(
             res = await client.post(f"{GRAPH_BASE}/{page_id}/feed", data={**feed_payload, "access_token": page_token})
 
         data = await _raise_if_graph_error(res, "Erro ao publicar no Facebook.")
+        post_id = data.get("post_id") or data.get("id")
+        if not post_id:
+            raise HTTPException(status_code=400, detail="A Meta não devolveu o ID da publicação do Facebook.")
 
-    post_id = data.get("post_id") or data.get("id")
-    if not post_id:
-        raise HTTPException(status_code=400, detail="A Meta não devolveu o ID da publicação do Facebook.")
+        permalink_url = None
+        try:
+            permalink_resp = await client.get(
+                f"{GRAPH_BASE}/{post_id}",
+                params={"fields": "permalink_url", "access_token": page_token},
+            )
+            if permalink_resp.status_code == 200:
+                permalink_url = permalink_resp.json().get("permalink_url")
+        except Exception:
+            permalink_url = None
 
     return {
         "ok": True,
@@ -250,4 +260,5 @@ async def publish_to_facebook(req: PublishRequest, current_user: User = Depends(
         "post_id": str(post_id),
         "page_id": page_id,
         "page_name": current_user.facebook_page_name,
+        "permalink_url": permalink_url,
     }

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -24,6 +25,142 @@ YOUTUBE_CONNECT_SCOPES = [
     "https://www.googleapis.com/auth/youtube",
     "https://www.googleapis.com/auth/youtube.upload",
 ]
+
+
+YOUTUBE_RETRIABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+def _google_error_message(response: httpx.Response) -> str:
+    """Extrai uma mensagem útil da resposta da Google sem quebrar caso venha HTML/texto."""
+    raw_text = response.text or ""
+    try:
+        payload = response.json()
+    except Exception:
+        payload = None
+
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("status")
+            errors = error.get("errors") or []
+            reason = None
+            if errors and isinstance(errors[0], dict):
+                reason = errors[0].get("reason")
+            compact = []
+            if message:
+                compact.append(str(message))
+            if reason:
+                compact.append(f"motivo: {reason}")
+            if compact:
+                return " | ".join(compact)
+        if error:
+            return str(error)
+
+    return raw_text[:1200] if raw_text else f"HTTP {response.status_code}"
+
+
+def _is_retriable_youtube_error(response: httpx.Response) -> bool:
+    if response.status_code in YOUTUBE_RETRIABLE_STATUS_CODES:
+        return True
+    try:
+        payload = response.json()
+    except Exception:
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return False
+    errors = error.get("errors") or []
+    reason = None
+    if errors and isinstance(errors[0], dict):
+        reason = errors[0].get("reason")
+    return reason in {"internalError", "backendError", "rateLimitExceeded", "userRateLimitExceeded"}
+
+
+async def _request_with_retries(
+    method: str,
+    url: str,
+    *,
+    attempts: int = 3,
+    timeout: float = 120.0,
+    **kwargs,
+) -> httpx.Response:
+    """Pequeno retry para instabilidades comuns da YouTube Data API."""
+    last_response: Optional[httpx.Response] = None
+    last_error: Optional[Exception] = None
+    for attempt in range(attempts):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.request(method, url, **kwargs)
+            last_response = response
+            if not _is_retriable_youtube_error(response) or attempt == attempts - 1:
+                return response
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_error = exc
+            if attempt == attempts - 1:
+                raise
+        await asyncio.sleep(1.2 * (attempt + 1))
+    if last_response is not None:
+        return last_response
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Falha inesperada ao comunicar com a API do YouTube.")
+
+
+def _normalize_video_content_type(content_type: Optional[str], filename: Optional[str]) -> str:
+    value = (content_type or "").split(";")[0].strip().lower()
+    if value and value not in {"application/octet-stream", "binary/octet-stream"}:
+        return value
+    ext = os.path.splitext(filename or "")[1].lower()
+    by_ext = {
+        ".mp4": "video/mp4",
+        ".mov": "video/quicktime",
+        ".m4v": "video/x-m4v",
+        ".webm": "video/webm",
+        ".avi": "video/x-msvideo",
+        ".mpeg": "video/mpeg",
+        ".mpg": "video/mpeg",
+        ".wmv": "video/x-ms-wmv",
+        ".flv": "video/x-flv",
+        ".3gp": "video/3gpp",
+    }
+    return by_ext.get(ext, "application/octet-stream")
+
+
+def _validate_youtube_upload_file(video_file: UploadFile, video_size: int) -> Tuple[str, str]:
+    filename = video_file.filename or "video"
+    content_type = _normalize_video_content_type(video_file.content_type, filename)
+    if not video_size:
+        raise HTTPException(status_code=400, detail="O arquivo de vídeo está vazio.")
+    if content_type == "application/octet-stream":
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mpeg", ".mpg", ".wmv", ".flv", ".3gp"}:
+            raise HTTPException(status_code=400, detail="Formato de vídeo não reconhecido. Envie um MP4, MOV, WEBM ou outro formato aceito pelo YouTube.")
+    return filename, content_type
+
+
+async def _upload_video_multipart_fallback(
+    *,
+    access_token: str,
+    metadata: dict,
+    video_file: UploadFile,
+    video_bytes: bytes,
+    filename: str,
+    content_type: str,
+) -> httpx.Response:
+    # Fallback usado quando a criação da sessão resumable retorna erro temporário 500/503.
+    # O projeto antigo já lia o arquivo inteiro em memória, então este fallback mantém o mesmo perfil de execução.
+    return await _request_with_retries(
+        "POST",
+        f"{YOUTUBE_UPLOAD_BASE}/videos",
+        attempts=2,
+        timeout=3600.0,
+        params={"uploadType": "multipart", "part": "snippet,status"},
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={
+            "metadata": (None, json.dumps(metadata), "application/json; charset=UTF-8"),
+            "media": (filename, video_bytes, content_type),
+        },
+    )
 
 
 def _utcnow() -> datetime:
@@ -286,11 +423,10 @@ async def publish_youtube(
     video_stream.seek(0, os.SEEK_END)
     video_size = video_stream.tell()
     video_stream.seek(0)
-    if not video_size:
-        raise HTTPException(status_code=400, detail="O arquivo de vídeo está vazio.")
+    filename, video_content_type = _validate_youtube_upload_file(video_file, video_size)
 
     snippet: dict = {
-        "title": clean_title,
+        "title": clean_title[:100],
         "description": description or "",
         "categoryId": str(category_id or "22"),
     }
@@ -306,64 +442,100 @@ async def publish_youtube(
         },
     }
 
+    # Lê uma vez e reaproveita no upload resumable ou no fallback multipart.
+    video_bytes = await video_file.read()
+    if not video_bytes:
+        raise HTTPException(status_code=400, detail="O arquivo de vídeo está vazio ou não pôde ser lido pelo backend.")
+
     init_headers = {
         "Authorization": f"Bearer {access_token}",
-        "X-Upload-Content-Length": str(video_size),
-        "X-Upload-Content-Type": video_file.content_type or "application/octet-stream",
+        "X-Upload-Content-Length": str(len(video_bytes)),
+        "X-Upload-Content-Type": video_content_type,
         "Content-Type": "application/json; charset=UTF-8",
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        init_resp = await client.post(
-            f"{YOUTUBE_UPLOAD_BASE}/videos",
-            params={"uploadType": "resumable", "part": "snippet,status"},
-            headers=init_headers,
-            content=json.dumps(metadata),
+    init_resp = await _request_with_retries(
+        "POST",
+        f"{YOUTUBE_UPLOAD_BASE}/videos",
+        attempts=3,
+        timeout=120.0,
+        params={"uploadType": "resumable", "part": "snippet,status"},
+        headers=init_headers,
+        content=json.dumps(metadata),
+    )
+
+    upload_resp: Optional[httpx.Response] = None
+    used_fallback = False
+
+    if init_resp.status_code in {200, 201}:
+        upload_url = init_resp.headers.get("Location") or init_resp.headers.get("location")
+        if not upload_url:
+            raise HTTPException(status_code=400, detail="O YouTube abriu a sessão, mas não retornou a URL de upload resumable.")
+
+        upload_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": video_content_type,
+            "Content-Length": str(len(video_bytes)),
+        }
+        upload_resp = await _request_with_retries(
+            "PUT",
+            upload_url,
+            attempts=3,
+            timeout=3600.0,
+            headers=upload_headers,
+            content=video_bytes,
+        )
+    elif _is_retriable_youtube_error(init_resp):
+        used_fallback = True
+        upload_resp = await _upload_video_multipart_fallback(
+            access_token=access_token,
+            metadata=metadata,
+            video_file=video_file,
+            video_bytes=video_bytes,
+            filename=filename,
+            content_type=video_content_type,
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Erro ao iniciar upload do vídeo no YouTube: {_google_error_message(init_resp)}",
         )
 
-    if init_resp.status_code not in {200, 201}:
-        raise HTTPException(status_code=400, detail=f"Erro ao iniciar upload do vídeo no YouTube: {init_resp.text}")
-
-    upload_url = init_resp.headers.get("Location") or init_resp.headers.get("location")
-    if not upload_url:
-        raise HTTPException(status_code=400, detail="O YouTube não retornou a URL de upload resumable.")
-
-    video_bytes = await video_file.read()
-    upload_headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": video_file.content_type or "application/octet-stream",
-        "Content-Length": str(len(video_bytes)),
-    }
-
-    async with httpx.AsyncClient(timeout=3600.0) as client:
-        upload_resp = await client.put(upload_url, headers=upload_headers, content=video_bytes)
-
     if upload_resp.status_code not in {200, 201}:
-        raise HTTPException(status_code=400, detail=f"Erro ao enviar vídeo para o YouTube: {upload_resp.text}")
+        stage = "enviar vídeo para o YouTube"
+        if used_fallback:
+            stage = "enviar vídeo para o YouTube pelo fallback multipart"
+        raise HTTPException(status_code=400, detail=f"Erro ao {stage}: {_google_error_message(upload_resp)}")
 
-    upload_data = upload_resp.json()
+    try:
+        upload_data = upload_resp.json()
+    except Exception:
+        upload_data = {}
     video_id = upload_data.get("id")
     if not video_id:
-        raise HTTPException(status_code=400, detail="O YouTube não retornou o ID do vídeo publicado.")
+        raise HTTPException(status_code=400, detail="O YouTube aceitou a requisição, mas não retornou o ID do vídeo publicado.")
 
     thumbnail_warning = None
     if thumbnail_file and thumbnail_file.filename:
         thumb_bytes = await thumbnail_file.read()
         if thumb_bytes:
+            thumb_content_type = thumbnail_file.content_type or "application/octet-stream"
             thumb_headers = {
                 "Authorization": f"Bearer {access_token}",
-                "Content-Type": thumbnail_file.content_type or "application/octet-stream",
+                "Content-Type": thumb_content_type,
                 "Content-Length": str(len(thumb_bytes)),
             }
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                thumb_resp = await client.post(
-                    f"{YOUTUBE_UPLOAD_BASE}/thumbnails/set",
-                    params={"videoId": video_id, "uploadType": "media"},
-                    headers=thumb_headers,
-                    content=thumb_bytes,
-                )
+            thumb_resp = await _request_with_retries(
+                "POST",
+                f"{YOUTUBE_UPLOAD_BASE}/thumbnails/set",
+                attempts=2,
+                timeout=300.0,
+                params={"videoId": video_id, "uploadType": "media"},
+                headers=thumb_headers,
+                content=thumb_bytes,
+            )
             if thumb_resp.status_code not in {200, 201}:
-                thumbnail_warning = f"Vídeo publicado, mas houve falha ao enviar a thumbnail: {thumb_resp.text}"
+                thumbnail_warning = f"Vídeo publicado, mas houve falha ao enviar a thumbnail: {_google_error_message(thumb_resp)}"
 
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     return {
@@ -373,4 +545,5 @@ async def publish_youtube(
         "video_url": video_url,
         "channel_title": current_user.youtube_channel_title,
         "thumbnail_warning": thumbnail_warning,
+        "upload_mode": "multipart_fallback" if used_fallback else "resumable",
     }
