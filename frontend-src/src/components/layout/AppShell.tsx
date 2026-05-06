@@ -12,7 +12,8 @@ export function AppShell() {
     location.pathname === "/image-engine" && params.get("mode") === "edit-reference";
   const isSkyBobFullscreenRoute = location.pathname === "/skybob";
   const isBobarFullscreenRoute = location.pathname === "/bobar" || location.pathname === "/projects";
-  const isFullscreenRoute = isReferenceEditorRoute || isSkyBobFullscreenRoute || isBobarFullscreenRoute;
+  const isSocialPublisherFullscreenRoute = location.pathname === "/social-publisher";
+  const isFullscreenRoute = isReferenceEditorRoute || isSkyBobFullscreenRoute || isBobarFullscreenRoute || isSocialPublisherFullscreenRoute;
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
@@ -42,7 +43,7 @@ export function AppShell() {
                 ? "h-dvh overflow-hidden"
                 : isBobarFullscreenRoute
                   ? "min-h-dvh"
-                  : isSkyBobFullscreenRoute
+                  : isSkyBobFullscreenRoute || isSocialPublisherFullscreenRoute
                     ? "min-h-dvh"
                     : "container py-10"
             }

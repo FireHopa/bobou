@@ -63,7 +63,7 @@ export const instagramService = {
   },
 
   publish: async (payload: InstagramPublishPayload) => {
-    return http<{ ok: boolean; message: string; post_id: string; instagram_username?: string | null; warning?: unknown }>("/api/instagram/publish", {
+    return http<{ ok: boolean; message: string; post_id: string; instagram_username?: string | null; permalink_url?: string | null; warning?: unknown }>("/api/instagram/publish", {
       method: "POST",
       json: payload,
     });

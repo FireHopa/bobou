@@ -27,6 +27,7 @@ import YouTubeCallbackPage from "@/pages/YouTubeCallbackPage";
 import TikTokCallbackPage from "@/pages/TikTokCallbackPage";
 import GoogleBusinessCallbackPage from "@/pages/GoogleBusinessCallbackPage";
 import SkyBobPage from "@/pages/SkyBobPage";
+import SocialPublisherPage from "@/pages/SocialPublisherPage";
 import TermsOfServicePage from "@/pages/TermsOfServicePage";
 import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 
@@ -60,6 +61,7 @@ export const router = createBrowserRouter([
           { path: "video", element: <VideoPage /> },
           { path: "image-engine", element: <ImageEnginePage /> },
           { path: "skybob", element: <SkyBobPage /> },
+          { path: "social-publisher", element: <SocialPublisherPage /> },
           { path: "authority-agents", element: <AuthorityAgentsPage /> },
           { path: "authority-agents/nucleus", element: <AuthorityNucleusPage /> },
           { path: "authority-agents/chat/:agentKey", element: <AuthorityAgentChatPage /> },

@@ -80,7 +80,7 @@ export const facebookService = {
   },
 
   publish: async (payload: FacebookPublishPayload) => {
-    return http<{ ok: boolean; message: string; post_id: string; page_id?: string; page_name?: string | null }>("/api/facebook/publish", {
+    return http<{ ok: boolean; message: string; post_id: string; page_id?: string; page_name?: string | null; permalink_url?: string | null }>("/api/facebook/publish", {
       method: "POST",
       json: payload,
     });

@@ -14,7 +14,8 @@ import {
   LogOut,
   Coins,
   Image as ImageIcon,
-  Rocket
+  Rocket,
+  Share2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { APP_NAME } from "@/constants/app";
@@ -48,6 +49,7 @@ const items: Item[] = [
   },
   { to: "/image-engine", label: "Motor de Imagem", Icon: ImageIcon },
   { to: "/skybob", label: "SkyBob", Icon: Rocket },
+  { to: "/social-publisher", label: "Publicador Social", Icon: Share2 },
   { to: "/bobar", label: "Bobar", Icon: FolderKanban },
   { to: "/materials", label: "Materiais de Apoio", Icon: BookOpen },
   { to: "/video", label: "Video Aula", Icon: Video },
