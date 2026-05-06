@@ -226,6 +226,112 @@ def _coerce_form_bool(value: Optional[str], default: bool = False) -> bool:
     return default
 
 
+def _extract_requested_image_version_count(instruction: str, explicit_count: Optional[int] = None) -> int:
+    """Entende pedidos como "2 versões", "três variações" ou "gere 4 imagens".
+
+    Limite intencional: 4 versões por execução para evitar explosão de custo/tempo e
+    travamento do stream. Quando nada indicar múltiplas versões, mantém 1.
+    """
+    if explicit_count is not None:
+        return max(1, min(4, int(explicit_count)))
+
+    text = (instruction or "").strip().lower()
+    if not text:
+        return 1
+
+    number_words = {
+        "duas": 2, "dois": 2, "2": 2,
+        "tres": 3, "três": 3, "3": 3,
+        "quatro": 4, "4": 4,
+    }
+    unit_pattern = r"(?:vers(?:a|ã|õ|o)es|vers[oõ]es|op[cç][oõ]es|varia[cç][oõ]es|variantes|alternativas|imagens|resultados|criativos)"
+
+    # Evita confundir resolução 1376x768, datas ou horários com quantidade.
+    for match in re.finditer(rf"\b(2|3|4|duas|dois|tr[eê]s|tres|quatro)\s+{unit_pattern}\b", text, flags=re.IGNORECASE):
+        token = match.group(1).lower()
+        return max(1, min(4, number_words.get(token, 1)))
+
+    for match in re.finditer(rf"\b{unit_pattern}\s+(?:diferentes|distintas|da imagem|dessa imagem|deste design|desse design)?\s*(?:em|com|de)?\s*\b(2|3|4|duas|dois|tr[eê]s|tres|quatro)\b", text, flags=re.IGNORECASE):
+        token = match.group(1).lower()
+        return max(1, min(4, number_words.get(token, 1)))
+
+    # Casos mais soltos: "me entregue 3", "gera 2", mas só se houver palavra de variação por perto.
+    if re.search(unit_pattern, text, flags=re.IGNORECASE):
+        for match in re.finditer(r"\b(?:me entregue|entregue|gera|gere|faça|faca|crie|quero)\s+(2|3|4|duas|dois|tr[eê]s|tres|quatro)\b", text, flags=re.IGNORECASE):
+            token = match.group(1).lower()
+            return max(1, min(4, number_words.get(token, 1)))
+
+    return 1
+
+
+def _extract_requested_image_target_dimensions(instruction: str, *, max_items: int = 4) -> List[Tuple[int, int]]:
+    """Extrai todos os tamanhos explícitos do texto: 1376x768, 768×1376 etc.
+
+    Diferente de "quantidade de versões", isso representa múltiplas entregas em
+    resoluções diferentes. Mantém ordem e remove duplicados.
+    """
+    text = instruction or ""
+    found: List[Tuple[int, int]] = []
+    seen = set()
+    for match in re.finditer(r"(?<!\d)(\d{3,5})\s*[x×]\s*(\d{3,5})(?!\d)", text, flags=re.IGNORECASE):
+        try:
+            width = int(match.group(1))
+            height = int(match.group(2))
+        except Exception:
+            continue
+        if width < 64 or height < 64 or width > 8192 or height > 8192:
+            continue
+        key = (width, height)
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(key)
+        if len(found) >= max_items:
+            break
+    return found
+
+
+def _build_dimension_instruction(base_instruction: str, target_width: int, target_height: int, index: int, total: int) -> str:
+    suffix = (
+        f"\n\nENTREGA {index} DE {total}: esta saída deve ser exatamente {target_width}x{target_height}. "
+        "Mantenha a mesma campanha, textos, CTA, cidade, data, ícones, hierarquia e identidade visual. "
+        "Adapte a diagramação apenas o necessário para esta resolução específica. "
+        "Não faça montagem com a imagem antiga dentro de um canvas, não duplique laterais, não crie faixas, não use blur, não use mirror, não use stretch e não deixe emendas visíveis."
+    )
+    return f"{(base_instruction or '').strip()}{suffix}".strip()
+
+
+def _mark_image_result_target_dimensions(result: Dict[str, Any], target_width: int, target_height: int) -> Dict[str, Any]:
+    item = dict(result)
+    item["target_width"] = target_width
+    item["target_height"] = target_height
+    item["target_dimensions"] = {"width": target_width, "height": target_height}
+    return item
+
+
+def _build_variant_instruction(base_instruction: str, variant_index: int, total_variants: int) -> str:
+    if total_variants <= 1:
+        return base_instruction
+    return (
+        f"{base_instruction.strip()}\n\n"
+        f"VARIAÇÃO {variant_index} DE {total_variants}: mantenha o mesmo briefing, textos, marca, tamanho final e elementos obrigatórios, "
+        "mas entregue uma alternativa visual própria. Não gere cópia idêntica das outras versões. "
+        "A variação pode mudar microdiagramação, distribuição de respiro, acabamento de fundo, intensidade visual e composição dos elementos decorativos, "
+        "sem remover textos, CTA, cidade, data, logos ou conteúdo principal."
+    ).strip()
+
+
+def _mark_image_result_variant(result: Dict[str, Any], variant_index: int, total_variants: int) -> Dict[str, Any]:
+    if total_variants <= 1:
+        return result
+    item = dict(result)
+    item["variant_index"] = variant_index
+    item["variant_total"] = total_variants
+    item["engine_id"] = f"{item.get('engine_id', 'image_result')}_v{variant_index}"
+    item["motor"] = f"{item.get('motor', 'Imagem')} • Versão {variant_index}/{total_variants}"
+    return item
+
+
 def _append_runtime_image_edit_log(
     request_id: str,
     stage: str,
@@ -1827,7 +1933,7 @@ def _build_exact_size_expand_prompt(
         "Faça somente a extensão real do cenário nas áreas faltantes da moldura útil. "
         "A região original já presente no canvas é a referência dominante e deve continuar praticamente idêntica. "
         + mode_clause +
-        "Não altere, não reescreva e não redesenhe nenhum texto, data, local, logo, ícone, tipografia, branding, bicicleta, luz, vitrine, prédio, chão, perspectiva ou qualquer outro elemento já presente na área original. "
+        "Não altere, não reescreva e não redesenhe nenhum texto, data, local, logo, ícone, tipografia, branding, luz, objeto, fundo, perspectiva ou qualquer outro elemento já presente na área original. "
         "Continue apenas o que falta nas laterais e demais faixas vazias como continuação natural, física e visual da mesma cena. "
         "Respeite rigorosamente a mesma escuridão, temperatura de cor, contraste, textura, linhas de fuga, reflexos, ruído fino, nitidez e profundidade da arte original. "
         "As áreas novas não podem ficar mais claras, mais limpas, mais saturadas, mais suaves ou com iluminação diferente dos pixels vizinhos da arte original. "
@@ -5400,6 +5506,7 @@ async def image_engine_edit_stream(
     allow_resize_crop: Optional[str] = Form(default=None),
     edit_scope: Optional[str] = Form(default=None),
     resolution_source: Optional[str] = Form(default=None),
+    result_count: Optional[str] = Form(default=None),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -5433,11 +5540,28 @@ async def image_engine_edit_stream(
         body.allow_resize_crop = False
 
     try:
+        parsed_result_count = _coerce_optional_form_int(result_count)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="A quantidade de versões precisa ser um número inteiro.")
+    requested_version_count = _extract_requested_image_version_count(body.instrucoes_edicao, parsed_result_count)
+
+    try:
         _validate_reference_image(image_bytes, image_content_type)
         if not body.instrucoes_edicao.strip():
             raise ValueError("As instruções de edição são obrigatórias.")
 
+        requested_target_dimensions = _extract_requested_image_target_dimensions(body.instrucoes_edicao)
         target_dimensions = _resolve_target_dimensions(body.width, body.height)
+        if not target_dimensions and requested_target_dimensions:
+            target_dimensions = requested_target_dimensions[0]
+        if target_dimensions and not requested_target_dimensions:
+            requested_target_dimensions = [target_dimensions]
+        if target_dimensions and target_dimensions not in requested_target_dimensions:
+            # O frontend pode mandar a primeira resolução no form e o texto pode trazer outras.
+            # Mantém a resolução efetiva em primeiro lugar sem descartar as demais.
+            requested_target_dimensions = [target_dimensions] + [dim for dim in requested_target_dimensions if dim != target_dimensions]
+        requested_target_dimensions = requested_target_dimensions[:4]
+
         if target_dimensions:
             aspect_ratio = _base_size_to_aspect_ratio(target_dimensions[0], target_dimensions[1])
         else:
@@ -5473,6 +5597,11 @@ async def image_engine_edit_stream(
                     "resolution_source": resolution_source_label,
                     "preserve_original_frame": body.preserve_original_frame,
                     "allow_resize_crop": body.allow_resize_crop,
+                    "requested_version_count": requested_version_count,
+                    "requested_target_dimensions": [
+                        {"width": dim[0], "height": dim[1], "label": _size_label(dim[0], dim[1])}
+                        for dim in requested_target_dimensions
+                    ],
                 }
                 _append_runtime_image_edit_log(
                     request_id=request_id,
@@ -5498,6 +5627,11 @@ async def image_engine_edit_stream(
                         "preserveOriginalFrame": body.preserve_original_frame,
                         "allowResizeCrop": body.allow_resize_crop,
                         "editScope": body.edit_scope,
+                        "requestedVersionCount": requested_version_count,
+                        "requestedTargetDimensions": [
+                            {"width": dim[0], "height": dim[1], "label": _size_label(dim[0], dim[1])}
+                            for dim in requested_target_dimensions
+                        ],
                     },
                 )
                 yield _sse({
@@ -5564,68 +5698,149 @@ async def image_engine_edit_stream(
                     body.instrucoes_edicao,
                     target_dimensions[0],
                     target_dimensions[1],
+                    source_width,
+                    source_height,
                 ):
                     smart_layout_recomposition_request = False
                     canvas_only_request = True
                     body.preserve_original_frame = True
                     body.allow_resize_crop = False
                     yield _sse({
-                        "status": "Pedido identificado como troca de resolução com layout preservado. Bloqueando recomposição total V7.",
+                        "status": "Pedido identificado como troca de resolução com layout preservado. Bloqueando recomposição adaptativa V11.",
                         "progress": 39,
                         "improved_prompt": "Layout-lock obrigatório: preservar a arte original e adaptar somente o canvas externo.",
                         "negative_prompt": "não recompor a arte inteira, não cortar textos do topo, não remover cidade, não remover overline, não alterar layout, não redesenhar tipografia",
                         "creative_direction": "Troca de resolução com camada original protegida.",
                         "layout_notes": "A peça original será tratada como área protegida. A IA só pode atuar nas áreas externas necessárias ao novo formato.",
                         "preservation_rules": "Preservar textos de topo, cidade, subtítulo, título, datas, CTA, ícones, logos e composição original.",
-                        "edit_strategy": "layout_lock_forced_before_v7_recomposition",
+                        "edit_strategy": "layout_lock_forced_before_v10_adaptive_recomposition",
                         "micro_detail_rules": "Permitir apenas expansão/refino externo. Não cortar elementos do topo.",
                         "consistency_rules": "Se o usuário pedir tudo igual, o sistema não pode usar recomposição total.",
-                        "final_prompt": "Forçar layout-lock antes da V7.",
+                        "final_prompt": "Forçar layout-lock antes da V11 adaptativa.",
                         "aspect_ratio": aspect_ratio,
                         "quality": openai_quality,
                         "openai_size": openai_size,
                         "debug": _runtime_debug_payload(
                             request_id=request_id,
-                            stage="layout_lock_forced_before_v7_recomposition",
-                            message="Roteamento corrigido: pedido de resolução com tudo igual não entra mais em recomposição V7.",
+                            stage="layout_lock_forced_before_v10_adaptive_recomposition",
+                            message="Roteamento corrigido: layout-lock só é permitido em ajustes pequenos de proporção.",
                             details={
                                 "source_dimensions": {"width": source_width, "height": source_height},
                                 "target_dimensions": {"width": target_dimensions[0], "height": target_dimensions[1]},
-                                "blocked_engine": "openai_unified_layout_recomposition_v7",
+                                "blocked_engine": "openai_adaptive_layout_recomposition_v11",
                                 "selected_strategy": "exact_canvas_expand_preserve_original_layer",
                                 "instruction": body.instrucoes_edicao,
                             },
                         ),
                     })
 
-                if smart_layout_recomposition_request:
+                variant_results: List[Dict[str, Any]] = []
+                effective_result_count = requested_version_count
+
+                if smart_layout_recomposition_request and len(requested_target_dimensions) > 1:
+                    improved = {
+                        "prompt_final": "Recomposição adaptativa por IA para múltiplas resoluções, uma saída independente para cada tamanho.",
+                        "negative_prompt": "não criar colagem, não colocar a imagem antiga dentro de um canvas, não duplicar laterais, não criar faixas, não usar blur, não usar mirror, não usar smear, não usar stretch, não cortar textos, não remover CTA, não remover cidade, não alterar conteúdo, não inventar cenário, não criar prédios/skyline/rua/objetos que não existem na referência",
+                        "creative_direction": "Gerar cada resolução como uma peça nativa e independente, preservando campanha, hierarquia e diagramação aprovada, sem inventar elementos ausentes da referência.",
+                        "layout_notes": "Cada tamanho solicitado recebe uma recomposição própria. A primeira resolução não deve contaminar a segunda.",
+                        "preservation_rules": "Preservar textos, título, subtítulo, cidade, data, hotel/local, CTA, ícones, cores e identidade visual em todas as resoluções.",
+                        "edit_strategy": "openai_multi_resolution_adaptive_layout_v11",
+                        "micro_detail_rules": "Permitir apenas microdiagramação necessária para caber em cada proporção. Proibido duplicar bordas ou fazer scaffold local com emenda visível.",
+                        "consistency_rules": "Processar as resoluções em paralelo e devolver todas no payload final.",
+                    }
+                    final_prompt = "Fluxo V11: múltiplas resoluções detectadas; cada tamanho será gerado em paralelo por recomposição adaptativa, sem layout-lock local."
+                    total_dimensions = len(requested_target_dimensions)
+                    yield _sse({
+                        "status": f"Detectei {total_dimensions} resoluções no pedido. Gerando todas em paralelo com recomposição adaptativa V11.",
+                        "progress": 42,
+                        "improved_prompt": improved["prompt_final"],
+                        "negative_prompt": improved["negative_prompt"],
+                        "creative_direction": improved["creative_direction"],
+                        "layout_notes": improved["layout_notes"],
+                        "preservation_rules": improved["preservation_rules"],
+                        "edit_strategy": improved["edit_strategy"],
+                        "micro_detail_rules": improved["micro_detail_rules"],
+                        "consistency_rules": improved["consistency_rules"],
+                        "final_prompt": final_prompt,
+                        "aspect_ratio": aspect_ratio,
+                        "quality": openai_quality,
+                        "openai_size": openai_size,
+                        "target_dimensions_list": [
+                            {"width": dim[0], "height": dim[1], "label": _size_label(dim[0], dim[1])}
+                            for dim in requested_target_dimensions
+                        ],
+                        "debug": _runtime_debug_payload(
+                            request_id=request_id,
+                            stage="multi_resolution_recomposition_started",
+                            message="Pipeline V11 iniciado: múltiplas resoluções explícitas serão processadas em paralelo.",
+                            details={
+                                "source_dimensions": {"width": source_width, "height": source_height},
+                                "target_dimensions_list": [
+                                    {"width": dim[0], "height": dim[1], "label": _size_label(dim[0], dim[1])}
+                                    for dim in requested_target_dimensions
+                                ],
+                                "strategy": "parallel_adaptive_recomposition_per_requested_resolution",
+                            },
+                        ),
+                    })
+
+                    async def _run_dimension_job(index: int, dim: Tuple[int, int]) -> Dict[str, Any]:
+                        width_for_job, height_for_job = dim
+                        item = await adapt_image_to_custom_layout(
+                            client=client,
+                            image_bytes=image_bytes,
+                            target_width=width_for_job,
+                            target_height=height_for_job,
+                            openai_key=openai_key,
+                            openai_quality=openai_quality,
+                            instruction_text=_build_dimension_instruction(body.instrucoes_edicao, width_for_job, height_for_job, index, total_dimensions),
+                            request_id=f"{request_id}-{width_for_job}x{height_for_job}",
+                        )
+                        item = _mark_image_result_target_dimensions(item, width_for_job, height_for_job)
+                        item = _mark_image_result_variant(item, index, total_dimensions)
+                        item["motor"] = f"{item.get('motor', 'Imagem')} • {_size_label(width_for_job, height_for_job)}"
+                        return item
+
+                    dimension_results_raw = await asyncio.gather(*[
+                        _run_dimension_job(index, dim)
+                        for index, dim in enumerate(requested_target_dimensions, start=1)
+                    ])
+                    variant_results = list(dimension_results_raw)
+                    effective_result_count = len(variant_results)
+                    result = variant_results[0]
+
+                elif smart_layout_recomposition_request:
                     # Observação importante: esta rota não passa pelo refinador padrão de prompt.
                     # Portanto, o dicionário `improved` precisa ser totalmente autossuficiente.
                     # Na versão anterior havia autorreferências como improved["creative_direction"]
                     # durante a própria inicialização, o que disparava UnboundLocalError.
                     improved = {
-                        "prompt_final": "Recomposição real por IA em layout unificado, sem colagem de recortes.",
-                        "negative_prompt": "não criar colagem, não criar miniaturas, não criar picture-in-picture, não duplicar pedaços da imagem, não usar blur, não usar mirror, não usar smear, não usar stretch, não deixar blocos retangulares soltos",
-                        "creative_direction": "Recompor a peça inteira como uma arte publicitária única, coerente e nativa para a nova resolução, seja horizontal ou vertical.",
-                        "layout_notes": "Detectar e reorganizar visual principal, bloco textual, datas, locais, preço, CTA, logos e elementos de apoio em um layout único adaptado ao novo formato, com microdiagramação textual quando necessário.",
+                        "prompt_final": "Recomposição adaptativa por IA: escolha automática entre preservar diagramação, microdiagramar ou recompor, com trava final contra bordas sólidas e bordas borradas/desconexas.",
+                        "negative_prompt": "não criar colagem, não criar miniaturas, não criar picture-in-picture, não duplicar pedaços da imagem, não usar blur, não usar mirror, não usar smear, não usar stretch, não deixar blocos retangulares soltos, não criar bordas sólidas, não criar letterbox ou pillarbox visível, não criar bordas borradas, não criar vinheta cinza, não criar névoa colorida nas extremidades, não criar halo desconexo nas bordas",
+                        "creative_direction": "A IA decide a postura correta para a nova resolução: preservar a diagramação quando o pedido for conservador e recompor mais apenas quando necessário.",
+                        "layout_notes": "Detectar a diagramação original, elementos críticos e risco de corte; aplicar microdiagramação apenas quando necessário para manter tudo dentro da safe area.",
                         "preservation_rules": "Usar a imagem original como referência obrigatória, preservar campanha, hierarquia, textos, logos, selo, CTA, cores e identidade visual sempre que possível.",
-                        "edit_strategy": "openai_unified_layout_recomposition_v7",
+                        "edit_strategy": "openai_adaptive_layout_recomposition_v11",
                         "micro_detail_rules": "Proteger textos pequenos, logos, CTA, selos e detalhes visuais. Permitir microajuste de escala, quebra, espaçamento e alinhamento quando necessário para encaixar textos sem perder conteúdo. Não transformar a peça em mosaico ou composição de prints.",
-                        "consistency_rules": "Chamada real de IA para recompor a arte como peça única, seguida de fechamento técnico no tamanho exato.",
+                        "consistency_rules": "Chamada real de IA com decisão adaptativa, tentativa de reparo quando a auditoria falhar, fechamento técnico no tamanho exato e verificação final contra barras sólidas, bordas borradas e halos desconexos.",
                     }
                     final_prompt = (
-                        "Fluxo V7: recompor por IA com contrato de layout sensível à orientação, microdiagramação textual permitida e checker universal de elementos críticos."
+                        "Fluxo V11: IA decide a postura de edição, preserva a diagramação quando necessário, aplica microdiagramação, auditoria de safe area e guarda final de bordas limpas."
                     )
 
                     yield _sse({
-                        "status": f"Recompondo por IA real para {target_dimensions[0]}x{target_dimensions[1]}: criando uma arte única, sem blur, mirror ou colagem de recortes.",
+                        "status": (
+                            f"Recompondo {requested_version_count} versões simultâneas por IA adaptativa para {target_dimensions[0]}x{target_dimensions[1]}."
+                            if requested_version_count > 1
+                            else f"Recompondo por IA adaptativa para {target_dimensions[0]}x{target_dimensions[1]}: criando uma arte única, sem blur, mirror ou colagem de recortes."
+                        ),
                         "progress": 42,
                         "improved_prompt": improved["prompt_final"],
                         "negative_prompt": improved["negative_prompt"],
-                        "creative_direction": "Recomposição real por IA com layout unificado e acabamento de peça publicitária.",
-                        "layout_notes": "Reposicionar a composição no novo formato sem montar pedaços soltos da imagem original.",
+                        "creative_direction": "Recomposição adaptativa por IA com preservação de layout quando necessário.",
+                        "layout_notes": "Ajustar a composição no novo formato sem cortes em textos, CTA, cidade, datas ou elementos essenciais.",
                         "preservation_rules": improved["preservation_rules"],
-                        "edit_strategy": "openai_unified_layout_recomposition_v7",
+                        "edit_strategy": "openai_adaptive_layout_recomposition_v11",
                         "micro_detail_rules": improved["micro_detail_rules"],
                         "consistency_rules": improved["consistency_rules"],
                         "final_prompt": final_prompt,
@@ -5635,25 +5850,47 @@ async def image_engine_edit_stream(
                         "debug": _runtime_debug_payload(
                             request_id=request_id,
                             stage="layout_recomposition_started",
-                            message="Pipeline V7 iniciado: recomposição real por IA com contrato horizontal/vertical, microdiagramação textual e auditoria automática.",
+                            message="Pipeline V11 iniciado: roteamento adaptativo por IA com preservação de diagramação, microdiagramação, auditoria automática de safe area e trava contra bordas sólidas/borradas.",
                             details={
                                 "source_dimensions": {"width": source_width, "height": source_height},
                                 "target_dimensions": {"width": target_dimensions[0], "height": target_dimensions[1]},
-                                "strategy": "openai_unified_full_design_recomposition_no_local_collage",
+                                "strategy": "openai_adaptive_strategy_router_clean_edges",
                             },
                         ),
                     })
 
-                    result = await adapt_image_to_custom_layout(
-                        client=client,
-                        image_bytes=image_bytes,
-                        target_width=target_dimensions[0],
-                        target_height=target_dimensions[1],
-                        openai_key=openai_key,
-                        openai_quality=openai_quality,
-                        instruction_text=body.instrucoes_edicao,
-                        request_id=request_id,
-                    )
+                    if requested_version_count > 1:
+                        variant_tasks = [
+                            adapt_image_to_custom_layout(
+                                client=client,
+                                image_bytes=image_bytes,
+                                target_width=target_dimensions[0],
+                                target_height=target_dimensions[1],
+                                openai_key=openai_key,
+                                openai_quality=openai_quality,
+                                instruction_text=_build_variant_instruction(body.instrucoes_edicao, index, requested_version_count),
+                                request_id=f"{request_id}-v{index}",
+                            )
+                            for index in range(1, requested_version_count + 1)
+                        ]
+                        variant_results_raw = await asyncio.gather(*variant_tasks)
+                        variant_results = [
+                            _mark_image_result_variant(item, index, requested_version_count)
+                            for index, item in enumerate(variant_results_raw, start=1)
+                        ]
+                        result = variant_results[0]
+                    else:
+                        variant_results = []
+                        result = await adapt_image_to_custom_layout(
+                            client=client,
+                            image_bytes=image_bytes,
+                            target_width=target_dimensions[0],
+                            target_height=target_dimensions[1],
+                            openai_key=openai_key,
+                            openai_quality=openai_quality,
+                            instruction_text=body.instrucoes_edicao,
+                            request_id=request_id,
+                        )
                 elif canvas_only_request:
                     expand_without_crop_needed = _needs_exact_canvas_expand(
                         source_width,
@@ -5772,18 +6009,42 @@ async def image_engine_edit_stream(
                         "openai_size": openai_size,
                     })
 
-                    result = await _edit_openai_image(
-                        client=client,
-                        image_bytes=image_bytes,
-                        filename=image_filename,
-                        content_type=image_content_type,
-                        final_prompt=final_prompt,
-                        aspect_ratio=aspect_ratio,
-                        quality=openai_quality,
-                        openai_key=openai_key,
-                        input_fidelity="high",
-                        openai_size=openai_size,
-                    )
+                    if requested_version_count > 1:
+                        direct_tasks = [
+                            _edit_openai_image(
+                                client=client,
+                                image_bytes=image_bytes,
+                                filename=image_filename,
+                                content_type=image_content_type,
+                                final_prompt=_build_variant_instruction(final_prompt, index, requested_version_count),
+                                aspect_ratio=aspect_ratio,
+                                quality=openai_quality,
+                                openai_key=openai_key,
+                                input_fidelity="high",
+                                openai_size=openai_size,
+                            )
+                            for index in range(1, requested_version_count + 1)
+                        ]
+                        variant_results_raw = await asyncio.gather(*direct_tasks)
+                        variant_results = [
+                            _mark_image_result_variant(item, index, requested_version_count)
+                            for index, item in enumerate(variant_results_raw, start=1)
+                        ]
+                        result = variant_results[0]
+                    else:
+                        variant_results = []
+                        result = await _edit_openai_image(
+                            client=client,
+                            image_bytes=image_bytes,
+                            filename=image_filename,
+                            content_type=image_content_type,
+                            final_prompt=final_prompt,
+                            aspect_ratio=aspect_ratio,
+                            quality=openai_quality,
+                            openai_key=openai_key,
+                            input_fidelity="high",
+                            openai_size=openai_size,
+                        )
 
                     if target_dimensions:
                         base_result_bytes, _ = await _read_result_bytes(client, result)
@@ -5861,12 +6122,63 @@ async def image_engine_edit_stream(
                                 original_reference_bytes=image_bytes,
                             )
 
+                if variant_results:
+                    effective_result_count = len(variant_results)
+                    variant_results[0] = result
+                    # Em rotas com pós-processamento de tamanho, a primeira versão passou pelo fluxo original.
+                    # As demais precisam receber o mesmo fechamento em paralelo antes do payload final.
+                    async def _postprocess_variant_result(item: Dict[str, Any]) -> Dict[str, Any]:
+                        if not target_dimensions:
+                            return item
+                        if item is result:
+                            return item
+                        try:
+                            if smart_layout_recomposition_request:
+                                return item
+                            base_bytes, _ = await _read_result_bytes(client, item)
+                            bw, bh = _read_image_dimensions(base_bytes)
+                            exact_expand_needed_extra = _needs_exact_canvas_expand(
+                                bw,
+                                bh,
+                                target_dimensions[0],
+                                target_dimensions[1],
+                                allow_resize_crop=normalized_allow_resize_crop,
+                            )
+                            if exact_expand_needed_extra:
+                                expanded = await _expand_image_to_exact_size_with_ai(
+                                    client=client,
+                                    image_bytes=base_bytes,
+                                    openai_key=openai_key,
+                                    openai_quality=openai_quality,
+                                    requested_width=target_dimensions[0],
+                                    requested_height=target_dimensions[1],
+                                )
+                                return _mark_image_result_variant(expanded, int(item.get("variant_index") or 1), len(variant_results))
+                            return await _apply_postprocess_if_needed(
+                                client=client,
+                                result=item,
+                                target_dimensions=target_dimensions,
+                                preserve_original_frame=body.preserve_original_frame,
+                                allow_resize_crop=body.allow_resize_crop,
+                                original_reference_bytes=image_bytes,
+                            )
+                        except Exception:
+                            return item
+
+                    if not smart_layout_recomposition_request:
+                        processed_variants = await asyncio.gather(*[_postprocess_variant_result(item) for item in variant_results])
+                        variant_results = [
+                            _mark_image_result_variant(item, index, len(processed_variants))
+                            for index, item in enumerate(processed_variants, start=1)
+                        ]
+                        result = variant_results[0]
+
                 layout_recomposition_meta = result.get("layout_recomposition") if isinstance(result, dict) else None
                 if layout_recomposition_meta:
                     _append_runtime_image_edit_log(
                         request_id=request_id,
                         stage="layout_recomposition_finished",
-                        message="Pipeline de recomposição inteligente finalizado com guard rails de layout e orientação.",
+                        message="Pipeline de recomposição inteligente finalizado com guard rails de layout, orientação e bordas limpas.",
                         details=layout_recomposition_meta,
                     )
                     yield _sse({
@@ -5975,8 +6287,14 @@ async def image_engine_edit_stream(
                     ),
                 })
 
+                deliverable_results = variant_results if variant_results else [result]
+
                 yield _sse({
-                    "status": "Concluído. Entregando a imagem editada.",
+                    "status": (
+                        f"Concluído. Entregando {len(deliverable_results)} versões da imagem."
+                        if len(deliverable_results) > 1
+                        else "Concluído. Entregando a imagem editada."
+                    ),
                     "progress": 100,
                     "improved_prompt": improved["prompt_final"],
                     "negative_prompt": improved["negative_prompt"],
@@ -5989,11 +6307,17 @@ async def image_engine_edit_stream(
                     "final_prompt": final_prompt,
                     "final_results": [
                         {
-                            "engine_id": result["engine_id"],
-                            "motor": result["motor"],
-                            "url": result["url"],
-                            "exact_canvas_expand": result.get("exact_canvas_expand"),
+                            "engine_id": item["engine_id"],
+                            "motor": item["motor"],
+                            "url": item["url"],
+                            "exact_canvas_expand": item.get("exact_canvas_expand"),
+                            "variant_index": item.get("variant_index"),
+                            "variant_total": item.get("variant_total"),
+                            "target_width": item.get("target_width"),
+                            "target_height": item.get("target_height"),
+                            "target_dimensions": item.get("target_dimensions"),
                         }
+                        for item in deliverable_results
                     ],
                     "exact_canvas_expand": result.get("exact_canvas_expand"),
                     "warning": None,
@@ -6401,12 +6725,18 @@ def _v12_exact_expand_score(diagnostics: Dict[str, Any]) -> float:
     return _v131_exact_expand_score(diagnostics)
 
 
-def _v133_instruction_requires_layout_lock(instruction: str, requested_width: Optional[int] = None, requested_height: Optional[int] = None) -> bool:
+def _v133_instruction_requires_layout_lock(
+    instruction: str,
+    requested_width: Optional[int] = None,
+    requested_height: Optional[int] = None,
+    source_width: Optional[int] = None,
+    source_height: Optional[int] = None,
+) -> bool:
     """Força layout-lock em pedidos de troca de resolução com preservação do layout.
 
     Regra de segurança:
     quando o usuário pede nova resolução + "mesmo layout/tudo igual/sem faltar nada",
-    é melhor preservar a arte original do que permitir recomposição V7.
+    é melhor preservar a arte original do que permitir recomposição adaptativa V10.2.
     """
     txt = (instruction or "").lower()
     if not txt:
@@ -6432,6 +6762,23 @@ def _v133_instruction_requires_layout_lock(instruction: str, requested_width: Op
             "apenas para resolução", "apenas para resolucao",
         )
     )
+
+    # Rollback estratégico V11:
+    # o layout-lock com camada original preservada é seguro só para ajustes pequenos.
+    # Quando a proporção muda bastante (ex.: 1024x1024 -> 1376x768 ou 768x1376),
+    # ele cria duplicações, emendas e laterais desconexas. Nesses casos a rota certa
+    # volta a ser a recomposição adaptativa, não o scaffold local preservado.
+    if requested_width and requested_height and source_width and source_height:
+        source_ratio = float(source_width) / max(1.0, float(source_height))
+        target_ratio = float(requested_width) / max(1.0, float(requested_height))
+        ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+        if ratio_delta >= 0.12:
+            return False
+
+    # Se o texto pediu várias resoluções, cada saída precisa de uma recomposição própria.
+    # Não pode prender tudo em uma única camada/canvas baseado na primeira resolução.
+    if len(_extract_requested_image_target_dimensions(instruction)) > 1:
+        return False
 
     creative_edit_intent = any(
         token in txt for token in (

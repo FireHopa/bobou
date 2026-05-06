@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import numpy as np
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL") or "gpt-image-1.5"
 OPENAI_LAYOUT_MODEL = os.getenv("OPENAI_LAYOUT_MODEL") or "gpt-5.4"
@@ -215,6 +215,54 @@ def _choose_full_bleed_crop_x(src: Image.Image, crop_w: int, copy_side: str = "c
 
     return int(max(0, min(extra_w, best_x)))
 
+def _adaptive_contract_prefers_safe_contain(layout_contract: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(layout_contract, dict):
+        return False
+    strategy = layout_contract.get("adaptive_strategy")
+    if not isinstance(strategy, dict):
+        return False
+    return bool(
+        strategy.get("qa_failover_to_safe_contain")
+        or strategy.get("posture") == "layout_preserving"
+        or strategy.get("edge_pressure")
+        or strategy.get("dense_text_layout")
+    )
+
+
+def _crop_would_remove_salient_edges(
+    src: Image.Image,
+    crop_box: Tuple[int, int, int, int],
+    *,
+    axis: str,
+    layout_contract: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Detecta quando o fechamento full-bleed ameaça remover conteúdo importante.
+
+    O modelo intermediário nem sempre respeita a safe area. Se o fechamento técnico
+    ainda precisar cortar exatamente uma faixa com saliência alta, o resultado final
+    costuma perder overline, cidade, data, CTA ou logos. Nesses casos, para pedidos
+    conservadores, o sistema preserva a peça inteira em canvas seguro.
+    """
+    if not _adaptive_contract_prefers_safe_contain(layout_contract):
+        return False
+    x1, y1, x2, y2 = crop_box
+    removed_scores: List[float] = []
+    if axis == "y":
+        if y1 > 0:
+            removed_scores.append(_strip_saliency_score(src, (0, 0, src.width, y1)))
+        if y2 < src.height:
+            removed_scores.append(_strip_saliency_score(src, (0, y2, src.width, src.height)))
+    elif axis == "x":
+        if x1 > 0:
+            removed_scores.append(_strip_saliency_score(src, (0, 0, x1, src.height)))
+        if x2 < src.width:
+            removed_scores.append(_strip_saliency_score(src, (x2, 0, src.width, src.height)))
+    if not removed_scores:
+        return False
+    # Threshold conservador: só troca o full-bleed por contain quando a faixa cortada
+    # tem contraste/borda suficientes para indicar informação real, não apenas fundo.
+    return max(removed_scores) >= 0.18
+
 def _finalize_to_exact_size(
     image_bytes: bytes,
     target_width: int,
@@ -234,6 +282,7 @@ def _finalize_to_exact_size(
 
         if abs(math.log(max(1e-6, source_ratio / max(1e-6, target_ratio)))) <= 0.015:
             final = src.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            final = _remove_solid_letterbox_if_needed(final, target_width, target_height)
             return _encode_png_bytes(final)
 
         copy_side = "center"
@@ -245,15 +294,26 @@ def _finalize_to_exact_size(
             crop_h = int(round(src.width / target_ratio))
             crop_h = max(1, min(src.height, crop_h))
             crop_y = _choose_full_bleed_crop_y(src, crop_h)
-            cropped = src.crop((0, crop_y, src.width, crop_y + crop_h))
+            crop_box = (0, crop_y, src.width, crop_y + crop_h)
+            if _crop_would_remove_salient_edges(src, crop_box, axis="y", layout_contract=layout_contract):
+                final = _build_safe_exact_canvas_from_full_image(src, target_width, target_height)
+                final = _remove_solid_letterbox_if_needed(final, target_width, target_height)
+                return _encode_png_bytes(final)
+            cropped = src.crop(crop_box)
         else:
             # Saída mais horizontal que o alvo: precisa cortar largura.
             crop_w = int(round(src.height * target_ratio))
             crop_w = max(1, min(src.width, crop_w))
             crop_x = _choose_full_bleed_crop_x(src, crop_w, copy_side=copy_side)
-            cropped = src.crop((crop_x, 0, crop_x + crop_w, src.height))
+            crop_box = (crop_x, 0, crop_x + crop_w, src.height)
+            if _crop_would_remove_salient_edges(src, crop_box, axis="x", layout_contract=layout_contract):
+                final = _build_safe_exact_canvas_from_full_image(src, target_width, target_height)
+                final = _remove_solid_letterbox_if_needed(final, target_width, target_height)
+                return _encode_png_bytes(final)
+            cropped = src.crop(crop_box)
 
         final = cropped.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        final = _remove_solid_letterbox_if_needed(final, target_width, target_height)
         return _encode_png_bytes(final)
 
 def _flatten_image_rgb(image: Image.Image) -> np.ndarray:
@@ -272,40 +332,264 @@ def _estimate_background_color(arr: np.ndarray) -> np.ndarray:
     return np.median(samples, axis=0)
 
 
+def _smooth_profile(profile: np.ndarray, radius: int = 18) -> np.ndarray:
+    """Suaviza perfis de cor 1D sem aplicar blur na arte final."""
+    arr = np.asarray(profile, dtype=np.float32)
+    if arr.ndim != 2 or arr.shape[0] <= 2:
+        return arr
+    radius = max(2, min(int(radius), max(2, arr.shape[0] // 5)))
+    kernel = np.ones(radius * 2 + 1, dtype=np.float32)
+    kernel = kernel / max(1e-6, float(kernel.sum()))
+    padded = np.pad(arr, ((radius, radius), (0, 0)), mode="edge")
+    out = np.zeros_like(arr)
+    for c in range(arr.shape[1]):
+        out[:, c] = np.convolve(padded[:, c], kernel, mode="valid")
+    return out
+
+
+def _resize_profile(profile: np.ndarray, target_len: int) -> np.ndarray:
+    arr = np.asarray(profile, dtype=np.float32)
+    if target_len <= 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    if arr.ndim != 2 or arr.shape[0] <= 1:
+        value = arr[0] if arr.ndim == 2 and arr.shape[0] else np.array([8, 18, 45], dtype=np.float32)
+        return np.tile(value.reshape(1, 3), (target_len, 1)).astype(np.float32)
+    src_x = np.linspace(0.0, 1.0, arr.shape[0])
+    dst_x = np.linspace(0.0, 1.0, target_len)
+    out = np.zeros((target_len, 3), dtype=np.float32)
+    for c in range(3):
+        out[:, c] = np.interp(dst_x, src_x, arr[:, c])
+    return out
+
+
+def _pick_accent_colors(arr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    rgb = np.asarray(arr, dtype=np.float32)
+    if rgb.size == 0:
+        return np.array([0, 230, 255], dtype=np.float32), np.array([255, 43, 214], dtype=np.float32)
+    flat = rgb.reshape(-1, 3)
+    luminance = flat @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    saturation = flat.max(axis=1) - flat.min(axis=1)
+    mask = (luminance >= np.percentile(luminance, 78)) & (saturation >= np.percentile(saturation, 58))
+    vivid = flat[mask]
+    if vivid.shape[0] < 10:
+        vivid = flat[np.argsort(luminance)[-max(10, min(800, flat.shape[0])):]]
+    cyan_score = vivid[:, 1] + vivid[:, 2] * 1.15 - vivid[:, 0] * 0.7
+    magenta_score = vivid[:, 0] + vivid[:, 2] * 1.05 - vivid[:, 1] * 0.55
+    cyan = vivid[int(np.argmax(cyan_score))].astype(np.float32)
+    magenta = vivid[int(np.argmax(magenta_score))].astype(np.float32)
+    # Mantém o fundo na identidade da arte mesmo quando a amostra for muito escura.
+    if float(cyan.max()) < 80:
+        cyan = np.array([0, 220, 245], dtype=np.float32)
+    if float(magenta.max()) < 90:
+        magenta = np.array([235, 35, 210], dtype=np.float32)
+    return cyan, magenta
+
+
 def _make_soft_gradient_background(source_image: Image.Image, target_size: Tuple[int, int]) -> Image.Image:
-    """Fallback não destrutivo, sem blur, mirror, smear ou stretch."""
+    """Cria um fundo ambiente sem barras sólidas.
+
+    V9: o fallback/safe-contain não pode gerar laterais chapadas. Em vez de uma cor
+    média por borda, este fundo sintetiza a ambiência da peça a partir de perfis das
+    quatro bordas, glows suaves e ruído determinístico. Não espelha, não estica e não
+    cola recortes da arte original.
+    """
     target_width, target_height = target_size
-    arr = _flatten_image_rgb(source_image)
+    arr_u8 = _flatten_image_rgb(source_image)
+    arr = arr_u8.astype(np.float32)
     h, w = arr.shape[:2]
-    band_x = max(2, int(w * 0.035))
-    band_y = max(2, int(h * 0.035))
-    left = np.median(arr[:, :band_x, :].reshape(-1, 3), axis=0)
-    right = np.median(arr[:, -band_x:, :].reshape(-1, 3), axis=0)
-    top = np.median(arr[:band_y, :, :].reshape(-1, 3), axis=0)
-    bottom = np.median(arr[-band_y:, :, :].reshape(-1, 3), axis=0)
-    yy = np.linspace(0, 1, target_height)[:, None, None]
-    xx = np.linspace(0, 1, target_width)[None, :, None]
-    horizontal = left[None, None, :] * (1 - xx) + right[None, None, :] * xx
-    vertical = top[None, None, :] * (1 - yy) + bottom[None, None, :] * yy
-    gradient = (horizontal * 0.55 + vertical * 0.45).astype(np.uint8)
-    return Image.fromarray(gradient, mode="RGB").convert("RGBA")
+    band_x = max(3, int(w * 0.055))
+    band_y = max(3, int(h * 0.055))
+
+    left_profile = _smooth_profile(np.median(arr[:, :band_x, :], axis=1), radius=max(4, h // 44))
+    right_profile = _smooth_profile(np.median(arr[:, -band_x:, :], axis=1), radius=max(4, h // 44))
+    top_profile = _smooth_profile(np.median(arr[:band_y, :, :], axis=0), radius=max(4, w // 44))
+    bottom_profile = _smooth_profile(np.median(arr[-band_y:, :, :], axis=0), radius=max(4, w // 44))
+
+    left_y = _resize_profile(left_profile, target_height)[:, None, :]
+    right_y = _resize_profile(right_profile, target_height)[:, None, :]
+    top_x = _resize_profile(top_profile, target_width)[None, :, :]
+    bottom_x = _resize_profile(bottom_profile, target_width)[None, :, :]
+
+    yy = np.linspace(0.0, 1.0, target_height, dtype=np.float32)[:, None, None]
+    xx = np.linspace(0.0, 1.0, target_width, dtype=np.float32)[None, :, None]
+    horizontal = left_y * (1.0 - xx) + right_y * xx
+    vertical = top_x * (1.0 - yy) + bottom_x * yy
+    gradient = horizontal * 0.58 + vertical * 0.42
+
+    cyan, magenta = _pick_accent_colors(arr_u8)
+    x2 = np.linspace(0.0, 1.0, target_width, dtype=np.float32)[None, :]
+    y2 = np.linspace(0.0, 1.0, target_height, dtype=np.float32)[:, None]
+    glow_a = np.exp(-(((x2 - 0.72) / 0.38) ** 2 + ((y2 - 0.22) / 0.42) ** 2))[:, :, None]
+    glow_b = np.exp(-(((x2 - 0.13) / 0.30) ** 2 + ((y2 - 0.86) / 0.36) ** 2))[:, :, None]
+    glow_c = np.exp(-(((x2 - 0.92) / 0.28) ** 2 + ((y2 - 0.88) / 0.30) ** 2))[:, :, None]
+    gradient = gradient * (1.0 + glow_a * 0.10 + glow_b * 0.08)
+    gradient = gradient + cyan.reshape(1, 1, 3) * glow_a * 0.12
+    gradient = gradient + magenta.reshape(1, 1, 3) * glow_b * 0.10
+    gradient = gradient + magenta.reshape(1, 1, 3) * glow_c * 0.07
+
+    # Variação sutil para impedir aparência de faixa sólida mesmo em peças muito escuras.
+    seed = int((target_width * 73856093) ^ (target_height * 19349663) ^ int(arr_u8.mean() * 83492791)) & 0xFFFFFFFF
+    rng = np.random.default_rng(seed)
+    noise = rng.normal(0.0, 3.0, (target_height, target_width, 1)).astype(np.float32)
+    waves = (
+        np.sin((x2 * 17.0 + y2 * 3.0) * math.pi) +
+        np.sin((x2 * 5.0 - y2 * 11.0) * math.pi)
+    )[:, :, None] * 2.2
+    gradient = gradient + noise + waves
+
+    # Vinheta discreta para manter profundidade e esconder transições laterais.
+    dist = np.sqrt((x2 - 0.5) ** 2 + (y2 - 0.5) ** 2)[:, :, None]
+    vignette = np.clip(1.08 - dist * 0.48, 0.72, 1.05)
+    gradient = gradient * vignette
+
+    out = np.clip(gradient, 0, 255).astype(np.uint8)
+    return Image.fromarray(out, mode="RGB").convert("RGBA")
+
+
+def _feather_layer_for_canvas(layer: Image.Image, canvas_size: Tuple[int, int], offset: Tuple[int, int]) -> Image.Image:
+    """Suaviza apenas a transição da camada quando ela não ocupa o canvas inteiro."""
+    target_width, target_height = canvas_size
+    x, y = offset
+    rgba = layer.convert("RGBA")
+    if rgba.width >= target_width and rgba.height >= target_height:
+        return rgba
+    alpha = np.asarray(rgba.getchannel("A"), dtype=np.float32)
+    min_dim = max(1, min(target_width, target_height))
+    feather = max(16, min(54, int(min_dim * 0.055)))
+
+    if x > 0 and rgba.width > 8:
+        fx = min(feather, max(2, rgba.width // 5))
+        ramp = np.linspace(0.0, 1.0, fx, dtype=np.float32)[None, :]
+        alpha[:, :fx] *= ramp
+    if x + rgba.width < target_width and rgba.width > 8:
+        fx = min(feather, max(2, rgba.width // 5))
+        ramp = np.linspace(1.0, 0.0, fx, dtype=np.float32)[None, :]
+        alpha[:, -fx:] *= ramp
+    if y > 0 and rgba.height > 8:
+        fy = min(feather, max(2, rgba.height // 5))
+        ramp = np.linspace(0.0, 1.0, fy, dtype=np.float32)[:, None]
+        alpha[:fy, :] *= ramp
+    if y + rgba.height < target_height and rgba.height > 8:
+        fy = min(feather, max(2, rgba.height // 5))
+        ramp = np.linspace(1.0, 0.0, fy, dtype=np.float32)[:, None]
+        alpha[-fy:, :] *= ramp
+
+    alpha_img = Image.fromarray(np.clip(alpha, 0, 255).astype(np.uint8), mode="L")
+    rgba.putalpha(alpha_img)
+    return rgba
+
+
+def _build_safe_exact_canvas_from_full_image(src: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    """Fecha no tamanho exato preservando a imagem inteira sem criar bordas sólidas.
+
+    Quando o crop técnico cortaria informação relevante, a V9 mantém a peça inteira,
+    mas sintetiza um fundo ambiente contínuo e aplica feather nas bordas da camada.
+    Isso elimina o problema visual de faixas laterais chapadas.
+    """
+    canvas = _make_soft_gradient_background(src, (target_width, target_height))
+    layer = src.convert("RGBA")
+    layer.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
+    x = max(0, (target_width - layer.width) // 2)
+    y = max(0, (target_height - layer.height) // 2)
+    layer = _feather_layer_for_canvas(layer, (target_width, target_height), (x, y))
+    canvas.alpha_composite(layer, (x, y))
+    return canvas
+
+
+def _solid_edge_bar_bounds(image: Image.Image) -> Optional[Tuple[int, int, int, int]]:
+    """Detecta letterbox/pillarbox sólido criado por contain técnico.
+
+    Retorna a caixa útil (left, top, right, bottom) quando encontra barras sólidas.
+    É um guard técnico final, não um detector criativo.
+    """
+    rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
+    h, w = rgb.shape[:2]
+    if h < 80 or w < 80:
+        return None
+
+    def channel_bar_width(axis: str, from_end: bool = False) -> int:
+        if axis == "x":
+            max_scan = max(4, int(w * 0.24))
+            min_scan = max(3, int(w * 0.028))
+            prev_edges: List[float] = []
+            for i in range(1, max_scan):
+                x = w - 1 - i if from_end else i
+                if not (1 <= x < w):
+                    continue
+                # A barra pode ter gradiente vertical, então std global engana.
+                # O sinal correto é quase nenhuma variação horizontal por vários pixels
+                # e uma quebra vertical forte quando começa a arte central.
+                if from_end and x + 1 < w:
+                    edge = float(np.mean(np.abs(rgb[:, x + 1, :] - rgb[:, x, :])))
+                else:
+                    edge = float(np.mean(np.abs(rgb[:, x, :] - rgb[:, x - 1, :])))
+                prev_edges.append(edge)
+                baseline = float(np.median(prev_edges[-max(4, min_scan):])) if prev_edges else 0.0
+                if i >= min_scan and edge >= max(8.5, baseline * 9.0):
+                    return i
+            return 0
+        max_scan = max(4, int(h * 0.24))
+        min_scan = max(3, int(h * 0.028))
+        prev_edges: List[float] = []
+        for i in range(1, max_scan):
+            y = h - 1 - i if from_end else i
+            if not (1 <= y < h):
+                continue
+            if from_end and y + 1 < h:
+                edge = float(np.mean(np.abs(rgb[y + 1, :, :] - rgb[y, :, :])))
+            else:
+                edge = float(np.mean(np.abs(rgb[y, :, :] - rgb[y - 1, :, :])))
+            prev_edges.append(edge)
+            baseline = float(np.median(prev_edges[-max(4, min_scan):])) if prev_edges else 0.0
+            if i >= min_scan and edge >= max(8.5, baseline * 9.0):
+                return i
+        return 0
+
+    left = channel_bar_width("x", False)
+    right = w - channel_bar_width("x", True)
+    top = channel_bar_width("y", False)
+    bottom = h - channel_bar_width("y", True)
+
+    min_bar_x = int(w * 0.035)
+    min_bar_y = int(h * 0.035)
+    # Letterbox/pillarbox técnico aparece como par de barras.
+    # Uma única área escura de canto/rodapé pode fazer parte da arte e não deve ser reparada.
+    has_x_bar = left >= min_bar_x and (w - right) >= min_bar_x
+    has_y_bar = top >= min_bar_y and (h - bottom) >= min_bar_y
+    if not has_x_bar and not has_y_bar:
+        return None
+    if right - left < int(w * 0.45) or bottom - top < int(h * 0.45):
+        return None
+    return left, top, right, bottom
+
+
+def _remove_solid_letterbox_if_needed(final: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    """Última trava: se ainda aparecer barra sólida, refaz o fundo e dissolve a borda."""
+    bounds = _solid_edge_bar_bounds(final)
+    if not bounds:
+        return final
+    left, top, right, bottom = bounds
+    content = final.crop((left, top, right, bottom)).convert("RGBA")
+    canvas = _make_soft_gradient_background(content, (target_width, target_height))
+    content.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
+    x = max(0, (target_width - content.width) // 2)
+    y = max(0, (target_height - content.height) // 2)
+    content = _feather_layer_for_canvas(content, (target_width, target_height), (x, y))
+    canvas.alpha_composite(content, (x, y))
+    return canvas
 
 
 def _build_safe_single_piece_fallback(source_image: Image.Image, target_size: Tuple[int, int]) -> Image.Image:
-    """Fallback final que nunca monta colagem de pedaços.
-
-    Ele usa uma única cópia preservada da peça inteira, sobre fundo discreto.
-    Melhor entregar uma peça conservadora do que uma colagem quebrada.
-    """
+    """Fallback final que nunca monta colagem de pedaços nem bordas sólidas."""
     target_width, target_height = target_size
     canvas = _make_soft_gradient_background(source_image, target_size)
     layer = source_image.convert("RGBA")
     layer.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
     x = max(0, (target_width - layer.width) // 2)
     y = max(0, (target_height - layer.height) // 2)
+    layer = _feather_layer_for_canvas(layer, (target_width, target_height), (x, y))
     canvas.alpha_composite(layer, (x, y))
     return canvas
-
 
 def _as_pct_bbox(value: Any) -> Optional[Tuple[float, float, float, float]]:
     if not isinstance(value, (list, tuple)) or len(value) != 4:
@@ -362,22 +646,15 @@ def _required_roles_from_layout(ai_layout: Optional[Dict[str, Any]]) -> List[str
     for item in required:
         if not isinstance(item, dict):
             continue
+        if not _is_critical_item(item):
+            continue
         role = _normalize_role(item.get("role"))
-        importance = str(item.get("importance") or "normal").lower()
         text = str(item.get("visible_text") or "").lower()
-        if role in {"cta", "logo", "seal", "price", "date", "title", "overline", "subtitle", "hero"} or importance in {"critical", "high"}:
-            if "program" in text or "confira" in text or "saiba" in text or "inscre" in text:
-                role = "cta"
-            if role not in roles:
-                roles.append(role)
+        if "program" in text or "confira" in text or "saiba" in text or "inscre" in text:
+            role = "cta"
+        if role not in roles:
+            roles.append(role)
     return roles
-
-
-
-def _is_cta_text(text: str) -> bool:
-    text_l = str(text or "").lower()
-    return any(token in text_l for token in ["program", "confira", "saiba", "inscre", "compr", "agend", "comece", "quero", "clique"])
-
 
 def _extract_layout_items(ai_layout: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Extrai os elementos visuais normalizados da leitura de layout da IA.
@@ -489,10 +766,29 @@ def _role_to_contract_slot(role: str) -> Optional[str]:
 
 
 def _is_critical_item(item: Dict[str, Any]) -> bool:
+    """Define criticidade sem transformar alucinações da análise em obrigações.
+
+    V11: preço, logo e selo só são obrigatórios quando realmente houver texto/
+    evidência visível. Antes o analyzer às vezes classificava sombras, bolinhas
+    ou ornamentos como price/logo/seal; o QA passava a exigir elementos que a
+    peça original não tinha e acionava fallbacks ruins.
+    """
     role = _normalize_role(item.get("role"))
     importance = str(item.get("importance") or "normal").lower()
-    return importance in {"critical", "high"} or role in {"title", "overline", "subtitle", "price", "date", "logo", "seal", "cta", "hero"}
+    text = str(item.get("visible_text") or "").strip()
+    text_l = text.lower()
 
+    if role == "hero":
+        return importance in {"critical", "high"}
+    if role == "support_panel":
+        return False
+    if role in {"title", "overline", "subtitle", "date", "cta"}:
+        return bool(text) or importance in {"critical", "high"}
+    if role == "price":
+        return bool(text) and bool(re.search(r"(?:r\$|\$|€|\d|gratis|gratuito|pre[cç]o|valor)", text_l))
+    if role in {"logo", "seal"}:
+        return bool(text) and importance in {"critical", "high"}
+    return bool(text) and importance in {"critical", "high"}
 
 def _copy_group_boxes(items: List[Dict[str, Any]]) -> List[Tuple[float, float, float, float]]:
     copy_roles = {"title", "overline", "subtitle", "price", "date", "logo", "seal", "cta"}
@@ -520,17 +816,426 @@ def _layout_map_from_ai(ai_layout: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _infer_spatial_sides(ai_layout: Optional[Dict[str, Any]]) -> Tuple[str, str]:
+    """Infere o mapa espacial sem inventar coluna lateral.
+
+    Regressão corrigida na V11: quando a análise não traz um mapa confiável,
+    o código antigo assumia visual=left/copy=right. Em peças centralizadas e
+    minimalistas isso empurrava a IA para uma diagramação lateral que não existia
+    na referência, gerando descentralização, cortes e fundos estranhos.
+    """
     if not isinstance(ai_layout, dict):
-        return "center", "none"
+        return "center", "center"
+
     layout_map = _layout_map_from_ai(ai_layout)
-    visual_side = str(layout_map.get("visual_side") or "left").strip().lower()
-    copy_side = str(layout_map.get("copy_column_side") or "right").strip().lower()
-    if visual_side not in {"left", "right", "center"}:
-        visual_side = "left"
-    if copy_side not in {"left", "right", "center", "none"}:
-        copy_side = "right"
+    visual_side_raw = layout_map.get("visual_side") if isinstance(layout_map, dict) else None
+    copy_side_raw = layout_map.get("copy_column_side") if isinstance(layout_map, dict) else None
+
+    def normalize(value: Any, allowed: set[str], default: str) -> str:
+        side = str(value or "").strip().lower()
+        return side if side in allowed else default
+
+    visual_side = normalize(visual_side_raw, {"left", "right", "center"}, "center")
+    copy_side = normalize(copy_side_raw, {"left", "right", "center", "none"}, "center")
+
+    # Se o modelo não informou lado de copy, infere pelo centro dos blocos textuais.
+    if copy_side in {"", "none", "center"} and not copy_side_raw:
+        boxes: List[Tuple[float, float, float, float]] = []
+        for item in _extract_layout_items(ai_layout):
+            role = _normalize_role(item.get("role"))
+            text = str(item.get("visible_text") or "").strip()
+            bbox = item.get("bbox")
+            if bbox and (role in {"title", "overline", "subtitle", "date", "cta", "price"} or text):
+                boxes.append(bbox)
+        edges = _group_edges_pct(boxes)
+        if edges:
+            gx1, _gy1, gx2, _gy2 = edges
+            center_x = (gx1 + gx2) / 2.0
+            if center_x <= 42.0:
+                copy_side = "left"
+            elif center_x >= 58.0:
+                copy_side = "right"
+            else:
+                copy_side = "center"
+
     return visual_side, copy_side
 
+def _instruction_has_any(instruction: str, tokens: List[str]) -> bool:
+    text = str(instruction or "").lower()
+    return any(token in text for token in tokens)
+
+
+def _layout_item_stats(ai_layout: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    items = _extract_layout_items(ai_layout)
+    text_roles = {"title", "overline", "subtitle", "price", "date", "cta", "other"}
+    text_count = 0
+    critical_count = 0
+    top_edge_count = 0
+    bottom_edge_count = 0
+    side_edge_count = 0
+    roles: List[str] = []
+    for item in items:
+        role = _normalize_role(item.get("role"))
+        if role not in roles:
+            roles.append(role)
+        if role in text_roles and str(item.get("visible_text") or "").strip():
+            text_count += 1
+        if _is_critical_item(item):
+            critical_count += 1
+        bbox = item.get("bbox")
+        if bbox:
+            x1, y1, x2, y2 = _bbox_edges_pct(bbox)
+            if y1 <= 6.0:
+                top_edge_count += 1
+            if y2 >= 94.0:
+                bottom_edge_count += 1
+            if x1 <= 4.0 or x2 >= 96.0:
+                side_edge_count += 1
+    return {
+        "item_count": len(items),
+        "text_count": text_count,
+        "critical_count": critical_count,
+        "top_edge_count": top_edge_count,
+        "bottom_edge_count": bottom_edge_count,
+        "side_edge_count": side_edge_count,
+        "roles": roles,
+    }
+
+
+def _make_adaptive_strategy_decision(
+    *,
+    ai_layout: Optional[Dict[str, Any]],
+    instruction_text: str,
+    source_width: int,
+    source_height: int,
+    target_width: int,
+    target_height: int,
+    generated_width: int,
+    generated_height: int,
+) -> Dict[str, Any]:
+    """Decide a postura da edição antes de gerar a imagem.
+
+    A V7 sempre entrava no mesmo modo de recomposição para quase qualquer troca de
+    resolução. Isso funcionava em peças simples, mas em peças densas a IA mudava a
+    diagramação mais do que deveria ou colocava elementos críticos perto demais das
+    bordas. A V8 mantém a rota de IA, mas deixa a decisão estratégica explícita:
+    preservar layout, recompor de forma balanceada ou aceitar reestruturação maior.
+    """
+    source_ratio = source_width / max(1.0, float(source_height))
+    target_ratio = target_width / max(1.0, float(target_height))
+    generated_ratio = generated_width / max(1.0, float(generated_height))
+    ratio_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, source_ratio))))
+    generation_to_target_delta = abs(math.log(max(1e-6, target_ratio / max(1e-6, generated_ratio))))
+    orientation_changed = (source_width >= source_height) != (target_width >= target_height)
+    stats = _layout_item_stats(ai_layout)
+
+    preserve_intent = _instruction_has_any(
+        instruction_text,
+        [
+            "apenas", "somente", "só", "so", "mínimo", "minimo", "mantendo", "manter",
+            "preserv", "sem mudar", "sem alterar", "igual", "mesmo layout", "mesma diagrama",
+            "encaixe", "encaixar", "ajustes necessários", "ajustes necessarios",
+        ],
+    )
+    creative_intent = _instruction_has_any(
+        instruction_text,
+        [
+            "troque", "mude o fundo", "mudar o fundo", "adicione", "remova", "substitua",
+            "recrie do zero", "redesenhe tudo", "novo estilo", "estilo anime", "estilo cartoon",
+            "cinematográfico", "cinematografico", "crie uma nova",
+        ],
+    )
+    dense_text_layout = stats["text_count"] >= 4 or stats["critical_count"] >= 6
+    edge_pressure = (stats["top_edge_count"] + stats["bottom_edge_count"] + stats["side_edge_count"]) >= 2
+    target_landscape = target_width >= target_height
+
+    reasons: List[str] = []
+    if orientation_changed:
+        reasons.append("orientation_changed")
+    if ratio_delta >= 0.42:
+        reasons.append("large_ratio_change")
+    if generation_to_target_delta >= 0.12:
+        reasons.append("openai_canvas_needs_final_crop")
+    if preserve_intent:
+        reasons.append("user_requested_minimal_adjustment")
+    if dense_text_layout:
+        reasons.append("dense_text_or_many_critical_elements")
+    if edge_pressure:
+        reasons.append("source_has_edge_anchored_elements")
+    if creative_intent:
+        reasons.append("creative_edit_requested")
+
+    if creative_intent and not preserve_intent:
+        strategy_id = "adaptive_full_recomposition_v9"
+        posture = "creative_relayout"
+        allow_major_relayout = True
+        max_attempts = 2
+    elif preserve_intent or dense_text_layout or edge_pressure:
+        strategy_id = "adaptive_layout_preservation_v10"
+        posture = "layout_preserving"
+        allow_major_relayout = False
+        max_attempts = 3 if (orientation_changed or dense_text_layout) else 2
+    else:
+        strategy_id = "adaptive_balanced_recomposition_v9"
+        posture = "balanced_relayout"
+        allow_major_relayout = False
+        max_attempts = 2
+
+    return {
+        "strategy_id": strategy_id,
+        "posture": posture,
+        "allow_major_relayout": allow_major_relayout,
+        "max_attempts": max_attempts,
+        "ratio_delta": round(ratio_delta, 4),
+        "orientation_changed": orientation_changed,
+        "target_orientation": "landscape" if target_landscape else "portrait",
+        "source_orientation": "landscape" if source_width >= source_height else "portrait",
+        "generated_to_target_delta": round(generation_to_target_delta, 4),
+        "preserve_intent": preserve_intent,
+        "creative_intent": creative_intent,
+        "dense_text_layout": dense_text_layout,
+        "edge_pressure": edge_pressure,
+        "layout_stats": stats,
+        "reasons": reasons,
+        "safe_area_pct": {
+            "x1": 8.0,
+            "y1": 10.0 if generation_to_target_delta >= 0.12 else 7.0,
+            "x2": 92.0,
+            "y2": 90.0 if generation_to_target_delta >= 0.12 else 93.0,
+        },
+        "qa_failover_to_safe_contain": False,
+    }
+
+
+def _adaptive_strategy_text(strategy: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(strategy, dict):
+        return "Modo adaptativo indisponível. Preserve a referência e evite cortes."
+    posture = str(strategy.get("posture") or "balanced_relayout")
+    safe = strategy.get("safe_area_pct") if isinstance(strategy.get("safe_area_pct"), dict) else {}
+    x1 = float(safe.get("x1", 8.0))
+    y1 = float(safe.get("y1", 9.0))
+    x2 = float(safe.get("x2", 92.0))
+    y2 = float(safe.get("y2", 91.0))
+    reasons = ", ".join(str(x) for x in (strategy.get("reasons") or [])) or "sem motivo adicional"
+
+    common = f"""
+Decisão adaptativa da IA antes da geração:
+- modo escolhido: {strategy.get('strategy_id')}
+- postura: {posture}
+- motivos técnicos: {reasons}
+- safe area interna obrigatória para TODO elemento crítico: x {x1:.0f}%–{x2:.0f}%, y {y1:.0f}%–{y2:.0f}% da imagem intermediária e também do arquivo final.
+- A saída intermediária pode ser maior/proporcionalmente diferente do alvo; por isso overline, título, cidade, datas, CTA, logos, preço, rostos/produtos e textos pequenos NÃO podem nascer perto de y 0%, y 100%, x 0% ou x 100%.
+""".strip()
+
+    if posture == "layout_preserving":
+        specific = """
+Regras do modo PRESERVAR DIAGRAMAÇÃO:
+1. Trate a imagem original como layout aprovado. Não reinterprete a peça do zero.
+2. Preserve a ordem visual, hierarquia e agrupamento original. Só ajuste escala, respiro, quebras e posição quando necessário para caber no novo formato.
+3. Não mude a distribuição sem necessidade. Se a peça original é centralizada, mantenha uma composição centralizada adaptada; se ela tem coluna lateral, mantenha a coluna no lado correto.
+4. Em conversão de vertical para horizontal, não jogue a faixa superior/overline para fora da tela. Ela deve ficar inteira e com margem superior real.
+5. O bloco inferior, cidade, data/local e CTA devem continuar como família visual, com margem inferior real. Não empurre o CTA para fora nem para o meio sem necessidade.
+6. Elementos decorativos podem ser expandidos/recriados no fundo, mas a informação comercial precisa permanecer intacta.
+""".strip()
+    elif posture == "creative_relayout":
+        specific = """
+Regras do modo RECOMPOSIÇÃO AMPLA:
+1. Pode reorganizar mais a composição para parecer nativa no novo formato.
+2. Mesmo assim, preserve todos os textos, logos, CTA, datas, produtos e hierarquia de campanha.
+3. A liberdade criativa não autoriza remover, resumir ou trocar informação.
+""".strip()
+    else:
+        specific = """
+Regras do modo BALANCEADO:
+1. Reorganize apenas o suficiente para o formato solicitado parecer profissional.
+2. Preserve o DNA espacial da peça original e evite centralização automática quando houver coluna lateral.
+3. Faça microdiagramação para encaixe, mas sem alterar conteúdo.
+""".strip()
+    return f"{common}\n{specific}"
+
+
+def _qa_has_severe_edge_or_missing_issue(qa: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(qa, dict):
+        return False
+    issues = [str(x) for x in (qa.get("issues") or [])]
+    score = int(qa.get("score", 0) or 0)
+    severe_tokens = (
+        "missing_", "critical_missing", "cut_risk", "touching_edge", "too_close_top",
+        "too_close_bottom", "too_low_or_cut", "outside_expected_slot", "not_cohesive",
+    )
+    return bool(score >= 12 or any(any(token in issue for token in severe_tokens) for issue in issues))
+
+
+def _build_safe_area_repair_prompt(base_prompt: str, qa: Dict[str, Any], contract: Dict[str, Any], strategy: Dict[str, Any]) -> str:
+    issues = ", ".join(str(x) for x in (qa.get("issues") or [])) or "elementos perto das bordas"
+    return f"""
+{base_prompt}
+
+PASSO EXTRA DE REPARO DE SAFE AREA.
+A tentativa anterior ainda falhou nestes pontos: {issues}.
+Use a imagem enviada nesta chamada como referência da tentativa anterior, mas CORRIJA a diagramação antes de finalizar:
+1. Faça um leve zoom-out/reencaixe da composição informativa para dentro da safe area.
+2. Preserve todos os textos exatamente como estão na campanha original. Não reescreva, não resuma e não invente.
+3. Overline/faixa superior, título, cidade, data/local e CTA precisam ficar inteiros, legíveis e com margem real.
+4. Não deixe nenhum texto ou botão tocando a borda superior/inferior.
+5. Preencha o fundo com a própria estética da peça, sem blur, mirror, smear, stretch, colagem ou bordas chapadas.
+6. Mantenha o modo adaptativo escolhido: {strategy.get('strategy_id')}.
+7. Se houver conflito entre full-bleed e preservar elementos, vença a preservação dos elementos críticos.
+
+Checklist final obrigatório antes de gerar: topo inteiro, rodapé inteiro, CTA inteiro, cidade inteira, data/local inteiro, título inteiro, sem corte e sem desalinhamento grosseiro.
+Contrato de layout:
+{_layout_contract_text(contract)}
+""".strip()
+
+
+
+def _is_clean_light_minimal_design(image: Image.Image) -> bool:
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32)
+    if arr.size == 0:
+        return False
+    luma = arr @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    sat = arr.max(axis=2) - arr.min(axis=2)
+    bright_low_sat = (luma >= 202.0) & (sat <= 42.0)
+    return bool(float(np.mean(bright_low_sat)) >= 0.42 and float(np.median(luma)) >= 188.0)
+
+
+def _detect_soft_edge_haze_issue(image_bytes: bytes) -> Dict[str, Any]:
+    """Detecta moldura difusa nas bordas em artes claras/minimalistas.
+
+    Não tenta reparar por pós-processamento para não criar barras artificiais.
+    O detector serve para pedir nova tentativa de IA com bordas limpas.
+    """
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as im:
+            image = im.convert("RGBA")
+    except Exception:
+        return {"has_issue": False, "score": 0.0, "sides": []}
+    if not _is_clean_light_minimal_design(image):
+        return {"has_issue": False, "score": 0.0, "sides": []}
+
+    rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
+    h, w = rgb.shape[:2]
+    luma = rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    sat = rgb.max(axis=2) - rgb.min(axis=2)
+    edges = np.asarray(image.convert("L").filter(ImageFilter.FIND_EDGES), dtype=np.float32)
+    center = rgb[int(h * 0.18): int(h * 0.82), int(w * 0.16): int(w * 0.84), :]
+    center_luma = center @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    center_sat = center.max(axis=2) - center.min(axis=2)
+    bg_mask = (center_luma >= 205.0) & (center_sat <= 42.0)
+    if np.count_nonzero(bg_mask) >= 32:
+        bg = np.median(center[bg_mask], axis=0).astype(np.float32)
+    else:
+        bg = np.median(center.reshape(-1, 3), axis=0).astype(np.float32)
+
+    bands = {
+        "top": (slice(0, max(22, int(h * 0.11))), slice(0, w)),
+        "bottom": (slice(max(0, h - max(22, int(h * 0.11))), h), slice(0, w)),
+        "left": (slice(0, h), slice(0, max(24, int(w * 0.08)))),
+        "right": (slice(0, h), slice(max(0, w - max(24, int(w * 0.08))), w)),
+    }
+    sides: List[str] = []
+    scores: Dict[str, float] = {}
+    for side, (ys, xs) in bands.items():
+        band_rgb = rgb[ys, xs, :]
+        band_luma = luma[ys, xs]
+        band_sat = sat[ys, xs]
+        band_edges = edges[ys, xs]
+        delta = np.linalg.norm(band_rgb - bg.reshape(1, 1, 3), axis=2)
+        # Área de baixa informação: não conta textos, cantos coloridos nítidos ou formas decorativas.
+        low_info = (band_edges <= 24.0) & ~((band_sat >= 64.0) & (delta >= 24.0)) & ~(band_luma <= 150.0)
+        if np.count_nonzero(low_info) < max(64, int(low_info.size * 0.18)):
+            score = 0.0
+        else:
+            score = float(np.mean(delta[low_info]) + np.mean(band_sat[low_info]) * 0.20 + np.std(band_luma[low_info]) * 0.12)
+        scores[side] = round(score, 2)
+        if score >= 18.0:
+            sides.append(side)
+
+    return {"has_issue": bool(sides), "score": max(scores.values()) if scores else 0.0, "sides": sides, "scores": scores}
+
+
+
+
+def _clean_light_edge_haze(image: Image.Image) -> Image.Image:
+    """Remove moldura borrada/desconexa em artes claras por reenquadramento mínimo.
+
+    Depois da V9, o problema deixou de ser barra sólida e passou a ser uma névoa
+    difusa nas extremidades. A correção mais segura para peças clean é um crop
+    técnico pequeno, seguido de resize para o tamanho exato. Isso remove a moldura
+    gerada pela IA sem criar blur, sem preencher bordas manualmente e sem tocar nos
+    textos ou blocos principais. A função só roda quando o detector já confirmou
+    que a peça é majoritariamente clara/minimalista.
+    """
+    if not _is_clean_light_minimal_design(image):
+        return image
+
+    rgba = image.convert("RGBA")
+    w, h = rgba.size
+    if w < 96 or h < 96:
+        return rgba
+
+    # Crop mínimo e assimétrico: remove mais no eixo vertical, onde a IA costuma
+    # criar vinheta/névoa, e pouco nas laterais para não amputar elementos decorativos.
+    crop_y = max(10, min(46, int(round(h * 0.055))))
+    crop_x = max(6, min(28, int(round(w * 0.018))))
+
+    # Protege contra imagens pequenas e contra crops exagerados.
+    if (w - crop_x * 2) < int(w * 0.90) or (h - crop_y * 2) < int(h * 0.86):
+        crop_x = max(0, int(w * 0.012))
+        crop_y = max(0, int(h * 0.040))
+
+    if crop_x <= 0 and crop_y <= 0:
+        return rgba
+
+    cropped = rgba.crop((crop_x, crop_y, w - crop_x, h - crop_y))
+    return cropped.resize((w, h), Image.Resampling.LANCZOS)
+
+
+def _clean_light_edge_haze_bytes_if_needed(image_bytes: bytes) -> Tuple[bytes, bool, Dict[str, Any]]:
+    initial = _detect_soft_edge_haze_issue(image_bytes)
+    if not initial.get("has_issue"):
+        return image_bytes, False, initial
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as im:
+            cleaned = _clean_light_edge_haze(im.convert("RGBA"))
+        cleaned_bytes = _encode_png_bytes(cleaned)
+        after = _detect_soft_edge_haze_issue(cleaned_bytes)
+        return cleaned_bytes, True, {"before": initial, "after": after}
+    except Exception:
+        return image_bytes, False, initial
+
+def _merge_edge_haze_issue_into_qa(qa: Dict[str, Any], edge_haze: Dict[str, Any]) -> Dict[str, Any]:
+    if not edge_haze.get("has_issue"):
+        return qa
+    merged = dict(qa or {})
+    issues = list(merged.get("issues") or [])
+    sides = ",".join(str(x) for x in (edge_haze.get("sides") or []))
+    issue = f"soft_disconnected_edge_haze:{sides}" if sides else "soft_disconnected_edge_haze"
+    if issue not in issues:
+        issues.append(issue)
+    merged["issues"] = issues
+    merged["passed"] = False
+    merged["score"] = int(merged.get("score", 0) or 0) + 18
+    merged["edge_haze_guard"] = edge_haze
+    return merged
+
+
+def _build_clean_edge_repair_prompt(base_prompt: str, edge_haze: Dict[str, Any], contract: Dict[str, Any]) -> str:
+    sides = ", ".join(str(x) for x in (edge_haze.get("sides") or [])) or "bordas externas"
+    return f"""
+{base_prompt}
+
+PASSO EXTRA DE REPARO DE BORDAS LIMPAS.
+A tentativa anterior criou bordas borradas/desconexas em: {sides}.
+Refaça a arte mantendo a mesma diagramação, mas corrija a integração das extremidades:
+1. As bordas externas precisam parecer parte natural do mesmo design, sem vinheta cinza, névoa colorida, halo borrado, sombra de moldura, faixa lavada ou canto desconexo.
+2. Em fundo branco/minimalista, mantenha o canvas limpo, contínuo e nítido. Use o mesmo fundo branco suave da peça, não uma moldura desfocada.
+3. Elementos decorativos das bordas podem aparecer, mas precisam ser nítidos e integrados, não uma mancha borrada.
+4. Não use blur, fundo borrado, borda espelhada, smear, stretch, colagem ou preenchimento genérico.
+5. Preserve textos, cidade, data, CTA, hierarquia, cores e composição.
+
+Contrato de layout:
+{_layout_contract_text(contract)}
+""".strip()
 
 def _format_slot(slot: Tuple[float, float, float, float]) -> str:
     return f"x {slot[0]:.0f}%–{slot[2]:.0f}%, y {slot[1]:.0f}%–{slot[3]:.0f}%"
@@ -602,7 +1307,7 @@ def _build_layout_guardrail_contract(
             "a versão vertical deve parecer peça nativa em portrait, não crop da horizontal",
             "a coluna de copy continua ancorada no alto/direita, mas dentro da safe area x 8%–92%",
             "título, descrição, data, logos e CTA não podem encostar na borda direita, porque haverá fechamento lateral para 768x1376",
-            "bicicleta, patinete, prédios, rua e elementos digitais ficam preservados no lado esquerdo e parte inferior, sem cortes grosseiros",
+            "o visual principal e os elementos decorativos existentes ficam preservados e reencaixados sem cortes grosseiros, sem inventar novos objetos",
             "CTA e logos ficam agrupados na área inferior da coluna direita, acima da base visual, não colados na borda inferior",
             "preço deve ficar associado ao bloco de oferta, entre cena e copy, nunca perdido no centro e nunca solto no topo",
             "painéis/dashboard/hologramas permanecem integrados à cena esquerda/centro-esquerda, nunca como ilha no topo",
@@ -625,18 +1330,20 @@ def _build_layout_guardrail_contract(
             "painéis/dashboard/hologramas permanecem integrados à cena, nunca como ilha no topo",
         ]
     else:
+        # Layout centralizado ou indeterminado. Não força coluna direita/esquerda.
+        # Isso corrige peças clean/quadradas com título e CTA centralizados.
         slots = {
-            "hero_visual": (6.0, 30.0, 94.0, 90.0) if not landscape else (8.0, 18.0, 92.0, 78.0),
-            "support_panels": (8.0, 18.0, 92.0, 58.0) if not landscape else (10.0, 12.0, 90.0, 48.0),
-            "copy_column": (8.0, 7.0, 92.0, 55.0) if not landscape else (10.0, 8.0, 90.0, 72.0),
-            "price": (55.0, 30.0, 88.0, 48.0) if not landscape else (58.0, 22.0, 88.0, 45.0),
-            "footer_logos": (48.0, 66.0, 92.0, 76.0) if not landscape else (52.0, 77.0, 92.0, 88.0),
-            "footer_cta": (46.0, 75.0, 92.0, 84.0) if not landscape else (50.0, 87.0, 92.0, 95.0),
+            "hero_visual": (4.0, 22.0, 96.0, 92.0) if not landscape else (4.0, 14.0, 96.0, 82.0),
+            "support_panels": (3.0, 8.0, 97.0, 96.0) if not landscape else (3.0, 7.0, 97.0, 93.0),
+            "copy_column": (6.0, 5.0, 94.0, 68.0) if not landscape else (12.0, 7.0, 88.0, 78.0),
+            "price": (16.0, 42.0, 84.0, 70.0) if not landscape else (25.0, 40.0, 75.0, 72.0),
+            "footer_logos": (12.0, 64.0, 88.0, 82.0) if not landscape else (25.0, 70.0, 75.0, 86.0),
+            "footer_cta": (12.0, 72.0, 88.0, 94.0) if not landscape else (25.0, 76.0, 75.0, 95.0),
         }
         hard_rules = [
-            "preserve a lógica espacial dominante detectada na referência, sem centralização automática",
-            "CTA e logos precisam ficar agrupados na parte inferior do arquivo final",
-            "elementos decorativos nunca devem ficar isolados no topo",
+            "se a referência for centralizada, mantenha a composição centralizada; não force coluna lateral",
+            "CTA, data/local e card de informação devem continuar agrupados e alinhados ao bloco principal",
+            "elementos decorativos das bordas devem continuar como decoração de fundo, nítidos e sem invadir o conteúdo",
             "em portrait, mantenha todos os elementos críticos dentro da safe area lateral x 8%–92%",
         ]
 
@@ -727,7 +1434,7 @@ def _final_crop_window_note(
         return (
             f"A saída intermediária será {generated_width}x{generated_height} e será fechada em {target_width}x{target_height}. "
             f"Como o alvo é mais estreito, considere a janela útil lateral aproximada entre x {visible_left:.1f}% e {visible_right:.1f}% da imagem intermediária. "
-            "Não coloque título, overline, preço, data, logos, CTA, produto, rosto, bicicleta, patinete ou objetos principais fora dessa janela. "
+            "Não coloque título, overline, preço, data, logos, CTA, produto, rosto ou objetos principais fora dessa janela. "
             "Além da janela técnica, mantenha todos os elementos críticos com margem interna real: não encoste nada em x 0%, x 100%, y 0% ou y 100%. "
             "Para retrato 768x1376, trabalhe com safe area real x 8%–92%, deixando margem visível nas laterais."
         )
@@ -980,7 +1687,7 @@ def _build_retry_prompt(base_prompt: str, qa: Dict[str, Any], contract: Dict[str
 Regras extras para portrait:
 - Não reaproveite a composição horizontal como crop. Recrie a arte como vertical nativa.
 - Todos os elementos críticos devem ficar dentro da safe area x 8%–92%.
-- Bicicleta, patinete, prédios, rua, título, preço, data, logos e CTA não podem ser cortados.
+- Título, subtítulo, data/local, card de informação, CTA, ícones e elementos visuais existentes não podem ser cortados.
 - CTA e logos devem ficar agrupados na área inferior da coluna de oferta, acima da base visual, com margem segura.
 - O visual principal pode ocupar esquerda/base, mas não pode engolir ou cortar a copy.
 """ if orientation == "portrait" else ""
@@ -1128,6 +1835,29 @@ Regras:
     except Exception:
         return None
 
+
+def _sanitize_prompt_text_for_edge_integrity(value: Any) -> str:
+    """Remove termos da leitura de layout que podem induzir bordas borradas/desconexas."""
+    text = str(value or "")
+    replacements = {
+        "glow/blur": "glow suave integrado",
+        "blur/glow": "glow suave integrado",
+        "blur": "iluminação suave",
+        "borrado": "limpo",
+        "borrada": "limpa",
+        "borradas": "limpas",
+        "borrados": "limpos",
+        "desfoque": "transição limpa",
+        "desfocado": "limpo",
+        "desfocada": "limpa",
+        "desconexo": "integrado",
+        "desconexa": "integrada",
+    }
+    out = text
+    for old, new in replacements.items():
+        out = out.replace(old, new).replace(old.capitalize(), new)
+    return out
+
 def _layout_context_text(ai_layout: Optional[Dict[str, Any]]) -> str:
     if not isinstance(ai_layout, dict):
         return "Sem análise auxiliar disponível. Use a imagem de referência como fonte única de verdade."
@@ -1152,6 +1882,8 @@ def _layout_context_text(ai_layout: Optional[Dict[str, Any]]) -> str:
         preserved: List[str] = []
         for item in required[:14]:
             if not isinstance(item, dict):
+                continue
+            if not _is_critical_item(item):
                 continue
             role = str(item.get("role") or "elemento")
             visible_text = str(item.get("visible_text") or "").strip()
@@ -1178,9 +1910,9 @@ def _layout_context_text(ai_layout: Optional[Dict[str, Any]]) -> str:
     bg = ai_layout.get("background")
     if isinstance(bg, dict):
         if bg.get("style"):
-            parts.append(f"background_style: {bg.get('style')}")
+            parts.append(f"background_style: {_sanitize_prompt_text_for_edge_integrity(bg.get('style'))}")
         if bg.get("notes"):
-            parts.append(f"background_notes: {bg.get('notes')}")
+            parts.append(f"background_notes: {_sanitize_prompt_text_for_edge_integrity(bg.get('notes'))}")
     risks = ai_layout.get("risk_notes")
     if isinstance(risks, list) and risks:
         parts.append("riscos: " + "; ".join(str(x) for x in risks[:6]))
@@ -1196,71 +1928,58 @@ def _build_unified_recomposition_prompt(
     instruction_text: str,
     layout_context: str,
     layout_contract: Dict[str, Any],
+    adaptive_strategy: Optional[Dict[str, Any]] = None,
 ) -> str:
     safe_area_note = _final_crop_window_note(target_width, target_height, generated_width, generated_height)
     contract_text = _layout_contract_text(layout_contract)
+    adaptive_text = _adaptive_strategy_text(adaptive_strategy)
     portrait = target_width < target_height
     formato = "vertical/portrait" if portrait else "horizontal/landscape"
-    resultado = "peça publicitária vertical full-bleed" if portrait else "peça publicitária horizontal full-bleed"
 
     text_reflow_rules = """
 Política obrigatória para textos em alteração de resolução:
-1. Quando a imagem tiver muito texto, datas, locais, CTA, preços ou blocos repetidos, preservar não significa copiar a posição pixel-perfect da referência.
-2. Você PODE fazer microdiagramação para encaixar tudo corretamente no novo formato: reduzir ou ampliar levemente textos, ajustar quebras de linha, espaçamentos, entrelinhas, alinhamento e posição dentro da mesma família visual.
-3. Esse ajuste deve ser mínimo, profissional e invisível: a arte precisa parecer reeditada por designer, não remontada por recortes.
-4. Você NÃO pode trocar o texto, reescrever, resumir, inventar palavras, alterar datas, alterar locais, apagar CTA, apagar logos, apagar selos ou remover qualquer elemento obrigatório.
-5. Listas de datas/locais devem preservar ordem, conteúdo literal e legibilidade, mas podem ser reencaixadas em uma grade/coluna mais limpa para evitar desalinhamento.
-6. Se houver conflito entre manter a posição antiga e deixar o resultado alinhado, vença a diagramação correta: ajuste o layout sem perder conteúdo.
+1. Preserve o conteúdo literal dos textos existentes. Não reescreva, não resuma, não invente, não altere cidade, data, local, CTA ou título.
+2. Você PODE fazer microdiagramação profissional: escala, quebra de linha, espaçamento, alinhamento e reposicionamento mínimo para caber no novo formato.
+3. O resultado deve parecer uma peça nativa no novo tamanho, não uma imagem antiga colada dentro de outro canvas.
+4. Se houver conflito entre manter posição antiga e evitar corte/desalinhamento, vença a diagramação correta, preservando todos os textos e blocos.
+5. Não crie elementos comerciais que não existem na referência: preço, selo, logo, skyline, prédios, rua, objetos, personagens, dashboards ou painéis extras.
+""".strip()
+
+    universal_rules = """
+Regras universais de recomposição:
+1. Use a imagem enviada como referência obrigatória de conteúdo, hierarquia, cores, estilo e distribuição.
+2. Preserve a lógica espacial real da referência. Se a peça é centralizada, mantenha centralizada. Se ela tem coluna lateral, preserve o lado correto.
+3. Todos os elementos críticos precisam ficar inteiros, legíveis e dentro da safe area: overline/faixa superior, título, subtítulo, card de cidade/local, data, hotel/local, CTA, ícones e elementos decorativos relevantes.
+4. Não use blur, mirror, smear, stretch, borda espelhada, fundo borrado, colagem, picture-in-picture, moldura, faixa sólida, emenda vertical ou lateral duplicada.
+5. As bordas externas devem parecer continuação natural do próprio design, com elementos nítidos e coerentes.
+6. Em artes claras/minimalistas, mantenha fundo branco/clean contínuo, sem névoa cinza, halo colorido, vinheta borrada, sombra de moldura ou laterais lavadas.
+7. Elementos decorativos das bordas podem ser reposicionados ou completados, mas não podem ser cortados de forma estranha nem virar ruído borrado.
+8. Não adicione novos cenários ou objetos que não aparecem na base. Se não existe skyline/prédio/rua/foto real na referência, não invente isso.
+9. Não remova CTA, cidade, data, local, título, subtítulo ou ícones importantes.
+10. Antes de finalizar, confira: nada cortado, nada descentralizado sem motivo, nada borrado nas bordas, nenhum texto pela metade, CTA completo e card de local inteiro.
 """.strip()
 
     if portrait:
         direction_rules = """
-Direção de arte obrigatória para PORTRAIT:
-1. Recrie a composição em layout vertical nativo, preservando o MAPA ESPACIAL da peça original. Não faça apenas crop da arte quadrada ou da arte horizontal.
-2. Se a referência tiver visual principal à esquerda e coluna de copy à direita, preserve essa lógica em portrait: cena/prédios/objetos ancorados na esquerda e na base; copy como bloco alto/direito com leitura clara.
-3. A coluna de texto/oferta deve ficar no alto/direita ou centro-direita, dentro da safe area x 8%–92%. Nada crítico pode encostar nas bordas laterais.
-4. O título, subtítulo, preço, data, logos e CTA precisam formar uma família visual. Não espalhe os elementos.
-5. O selo de preço deve ficar associado à oferta, entre o bloco visual e a copy, ou próximo do título/descrição. Nunca deixe o preço perdido no centro, cortado ou como elemento solto.
-6. Logos e CTA devem permanecer agrupados na parte inferior da coluna de oferta, acima da base visual. Em portrait eles NÃO precisam ficar colados no rodapé extremo, mas precisam parecer parte do bloco de conversão.
-7. O CTA, especialmente se for "Confira a Programação", deve aparecer inteiro, legível, com texto completo e margem segura.
-8. Bicicleta, patinete, prédios, rua, vegetação, gráficos, hologramas e trilhas de luz devem ser preservados e reencaixados como uma cena única. Bicicleta e patinete não podem ser cortados de forma grosseira.
-9. Em 768x1376, deixe respiro vertical: céu e topo limpos, conteúdo com hierarquia, base visual bem aterrada e sem elementos empilhados de forma apertada.
-10. Elementos decorativos como dashboards, painéis, hologramas e linhas luminosas são de APOIO. Eles devem ficar integrados ao fundo/visual principal, nunca colados na borda superior, nunca isolados como um card solto e nunca mais importantes que a mensagem principal.
-11. O fundo precisa preencher 100% do canvas com cena real da própria arte, com iluminação, perspectiva, textura e profundidade consistentes.
-12. Não crie miniaturas, picture-in-picture, mosaico, colagem de prints, caixas sobrepostas ou pedaços duplicados da imagem original.
-13. Não deixe áreas chapadas cinza/verde, faixas laterais, margens externas, blocos retangulares visíveis, emendas duras ou fragmentos desalinhados.
-14. Não use blur, mirror, smear, stretch, borda espelhada, fundo borrado ou preenchimento lateral genérico.
-15. Preserve o máximo possível dos textos, marcas, cores e identidade original. Não invente branding e não troque a campanha.
-16. Antes de finalizar mentalmente, faça um checklist visual: overline, título, subtítulo, preço, data, logos/selo, CTA, bicicleta/patinete e visual principal aparecem inteiros, sem cortes, agrupados corretamente e com a coluna de texto ancorada.
-17. Resultado esperado: uma peça publicitária vertical full-bleed pronta para uso, parecida com uma versão profissionalmente reeditada no Canva/Photoshop para stories/reels/poster vertical, não uma montagem automática.
+Direção de arte para PORTRAIT:
+1. Crie uma versão vertical nativa da mesma peça, com respiro superior, bloco principal legível e CTA/card inferior preservados.
+2. Não transforme a horizontal/quadrada em crop ampliado. Reencaixe os blocos para caber no formato vertical.
+3. Se a referência é centralizada, mantenha eixo central, com título, subtítulo, card de cidade/data/local e CTA alinhados de forma coesa.
+4. O CTA deve aparecer inteiro e legível, preferencialmente abaixo do card de informação, com margem inferior segura.
+5. O fundo deve preencher 100% do canvas sem imagem antiga colada, sem laterais borradas e sem elementos novos inventados.
 """.strip()
     else:
         direction_rules = """
-Direção de arte obrigatória para LANDSCAPE:
-1. Recrie a composição em layout horizontal unificado, mas preserve o MAPA ESPACIAL da peça original.
-2. Se a referência já tiver visual principal à esquerda e coluna de copy à direita, mantenha essa lógica. Não transforme a coluna de texto em uma ilha central.
-3. Para peças quadradas com texto no lado direito, a versão horizontal deve ter uma coluna direita clara, agrupada e estável: overline/título, descrição, data, logos e CTA precisam formar um mesmo bloco visual.
-4. A coluna de texto/oferta deve permanecer no lado direito do canvas, aproximadamente no terço direito ou entre 60% e 97% da largura, com alinhamento parecido ao original e sem grande área branca sobrando à direita.
-5. O bloco visual principal deve permanecer à esquerda ou centro-esquerda, integrado à cena, com prédios, rua, bicicleta, patinete e elementos digitais harmonizados como uma única imagem.
-6. Ao transformar de quadrado para horizontal, expanda/reconstrua o ambiente para o lado livre da composição, especialmente rua/céu/vegetação, sem centralizar tudo e sem afastar a coluna de texto da direita. O bloco de copy precisa parecer encaixado no canto direito da arte, não flutuando no meio de uma faixa branca.
-7. O selo de preço deve continuar associado ao bloco textual/oferta, não isolado no centro e não distante demais da copy.
-8. Logos e CTA devem permanecer na mesma família visual, no rodapé direito ou parte inferior da coluna direita. Não separe logos do CTA.
-9. Se a referência tiver botão CTA no rodapé, ele é elemento CRÍTICO. Ele deve aparecer inteiro, legível e com texto completo no resultado final. Não basta preservar apenas os logos.
-10. Se o CTA visível for semelhante a "Confira a Programação", preserve o botão completo no canto inferior direito, abaixo dos logos, com margem segura e visualmente próximo do rodapé como na referência.
-11. Encontre o meio-termo vertical: não deixe o CTA cortado, mas também não empurre título, overline, texto, preço e cena principal para o topo. O overline e o título não podem nascer no topo absoluto da imagem intermediária, pois o fechamento técnico pode cortar. Mantenha respiro superior e inferior equilibrado.
-12. Elementos decorativos como gráficos flutuantes, dashboards, painéis, hologramas e linhas luminosas são de APOIO. Eles devem ficar integrados ao fundo/visual principal, nunca colados na borda superior, nunca isolados como um card solto e nunca mais importantes que a mensagem principal.
-13. Não mova um painel, dashboard ou gráfico para o topo extremo. Se houver dashboard na referência, mantenha-o dentro da cena, em escala secundária, com margem interna e sem corte.
-14. O fundo precisa preencher 100% do canvas com cena real da própria arte, com iluminação, perspectiva, textura e profundidade consistentes.
-15. Não crie miniaturas, picture-in-picture, mosaico, colagem de prints, caixas sobrepostas ou pedaços duplicados da imagem original.
-16. Não deixe áreas chapadas cinza/verde, faixas laterais, margens externas, blocos retangulares visíveis, emendas duras ou fragmentos desalinhados.
-17. Não use blur, mirror, smear, stretch, borda espelhada, fundo borrado ou preenchimento lateral genérico.
-18. Preserve o máximo possível dos textos, marcas, cores e identidade original. Não invente branding e não troque a campanha.
-19. Antes de finalizar mentalmente, faça um checklist visual: overline, título, subtítulo, preço, data, logos/selo e CTA aparecem inteiros, sem cortes, agrupados corretamente, com margem segura e com a coluna de texto realmente ancorada no lado correto.
-20. Resultado esperado: uma peça publicitária horizontal full-bleed pronta para uso, parecida com uma versão profissionalmente reeditada no Canva/Photoshop, não uma montagem automática.
+Direção de arte para LANDSCAPE:
+1. Crie uma versão horizontal nativa da mesma peça, preservando a campanha e a diagramação aprovada.
+2. Se a referência é centralizada, mantenha a mensagem centralizada e use as laterais apenas como respiro/decorativo coerente. Não empurre o bloco principal para um lado sem necessidade.
+3. Se a referência tem conteúdo lateral, preserve esse mapa; mas não aplique regra lateral a peças centralizadas.
+4. O bloco de título, subtítulo, card de cidade/data/local e CTA precisa continuar alinhado e visualmente agrupado.
+5. O fundo horizontal precisa parecer redesenhado no mesmo estilo, sem duplicação, blur, emenda vertical, faixa sólida ou moldura.
 """.strip()
 
     return f"""
-Use a imagem enviada como referência visual obrigatória e recomponha a peça publicitária como UMA ARTE ÚNICA, finalizada, {formato} e limpa.
+Use a imagem enviada como referência visual obrigatória e recomponha a peça publicitária como UMA ARTE ÚNICA, finalizada, {formato}, limpa e no tamanho final {target_width}x{target_height}.
 
 Objetivo final: entregar a mesma campanha no tamanho exato {target_width}x{target_height}.
 {safe_area_note}
@@ -1275,6 +1994,10 @@ Contrato obrigatório de recomposição:
 {contract_text}
 
 {text_reflow_rules}
+
+{adaptive_text}
+
+{universal_rules}
 
 {direction_rules}
 """.strip()
@@ -1357,6 +2080,17 @@ async def adapt_image_to_custom_layout(
         generated_width=generated_size[0],
         generated_height=generated_size[1],
     )
+    adaptive_strategy = _make_adaptive_strategy_decision(
+        ai_layout=ai_layout,
+        instruction_text=instruction_text,
+        source_width=source_width,
+        source_height=source_height,
+        target_width=target_width,
+        target_height=target_height,
+        generated_width=generated_size[0],
+        generated_height=generated_size[1],
+    )
+    layout_contract["adaptive_strategy"] = adaptive_strategy
     final_prompt = _build_unified_recomposition_prompt(
         target_width=target_width,
         target_height=target_height,
@@ -1365,6 +2099,7 @@ async def adapt_image_to_custom_layout(
         instruction_text=instruction_text,
         layout_context=layout_context,
         layout_contract=layout_contract,
+        adaptive_strategy=adaptive_strategy,
     )
 
     fallback_applied = False
@@ -1373,6 +2108,8 @@ async def adapt_image_to_custom_layout(
     generated_dimensions: Optional[Dict[str, int]] = None
     guardrail_qa: Optional[Dict[str, Any]] = None
     retry_count = 0
+    qa_safe_fallback_applied = False
+    clean_edge_postprocess: Dict[str, Any] = {"applied": False}
 
     if not openai_key:
         fallback_applied = True
@@ -1384,13 +2121,16 @@ async def adapt_image_to_custom_layout(
             best_final_bytes: Optional[bytes] = None
             best_generated_dimensions: Optional[Dict[str, int]] = None
             best_qa: Optional[Dict[str, Any]] = None
-            prompts_to_try = [final_prompt]
+            max_attempts = max(2, min(3, int(adaptive_strategy.get("max_attempts") or 2)))
+            attempts_to_try: List[Tuple[str, bytes]] = [(final_prompt, image_bytes)]
 
-            for attempt_index in range(2):
-                prompt_to_use = prompts_to_try[attempt_index]
+            for attempt_index in range(max_attempts):
+                if attempt_index >= len(attempts_to_try):
+                    break
+                prompt_to_use, input_image_bytes = attempts_to_try[attempt_index]
                 ai_result = await _edit_openai_unified_layout(
                     client=client,
-                    image_bytes=image_bytes,
+                    image_bytes=input_image_bytes,
                     openai_key=openai_key,
                     prompt=prompt_to_use,
                     quality=openai_quality,
@@ -1412,6 +2152,8 @@ async def adapt_image_to_custom_layout(
                 )
                 api_calls_used += 1
                 candidate_qa = _evaluate_layout_guardrails(ai_layout, final_layout, layout_contract)
+                edge_haze_guard = _detect_soft_edge_haze_issue(candidate_final_bytes)
+                candidate_qa = _merge_edge_haze_issue_into_qa(candidate_qa, edge_haze_guard)
 
                 if best_qa is None or int(candidate_qa.get("score", 999)) < int(best_qa.get("score", 999)):
                     best_final_bytes = candidate_final_bytes
@@ -1421,16 +2163,42 @@ async def adapt_image_to_custom_layout(
                 if candidate_qa.get("passed"):
                     break
 
-                if attempt_index == 0:
-                    retry_count = 1
-                    prompts_to_try.append(_build_retry_prompt(final_prompt, candidate_qa, layout_contract))
+                if attempt_index < max_attempts - 1:
+                    retry_count = attempt_index + 1
+                    edge_haze_guard = candidate_qa.get("edge_haze_guard") if isinstance(candidate_qa, dict) else None
+                    if isinstance(edge_haze_guard, dict) and edge_haze_guard.get("has_issue"):
+                        attempts_to_try.append((_build_clean_edge_repair_prompt(final_prompt, edge_haze_guard, layout_contract), image_bytes))
+                    elif attempt_index == 0:
+                        attempts_to_try.append((_build_retry_prompt(final_prompt, candidate_qa, layout_contract), image_bytes))
+                    elif _qa_has_severe_edge_or_missing_issue(candidate_qa):
+                        attempts_to_try.append((_build_safe_area_repair_prompt(final_prompt, candidate_qa, layout_contract, adaptive_strategy), candidate_final_bytes))
+                    else:
+                        attempts_to_try.append((_build_retry_prompt(final_prompt, candidate_qa, layout_contract), image_bytes))
 
             if best_final_bytes is None:
                 raise ValueError("Nenhuma tentativa de recomposição retornou bytes finais.")
             final_bytes = best_final_bytes
             generated_dimensions = best_generated_dimensions
             guardrail_qa = best_qa
-            if guardrail_qa and not guardrail_qa.get("passed"):
+            if (
+                False
+                and guardrail_qa
+                and _qa_has_severe_edge_or_missing_issue(guardrail_qa)
+                and adaptive_strategy.get("qa_failover_to_safe_contain")
+                and int(guardrail_qa.get("score", 0) or 0) >= 32
+            ):
+                # Segurança final: se todas as tentativas ainda ameaçarem cortar CTA/títulos/textos,
+                # é melhor entregar a peça original inteira em canvas adaptado do que uma arte bonita
+                # porém comercialmente quebrada. Esse fallback só entra em score muito alto.
+                qa_safe_fallback_applied = True
+                fallback_applied = True
+                warning = (
+                    "A IA escolheu fallback conservador porque as tentativas de recomposição ainda indicavam risco alto de corte/perda de elementos: "
+                    + ", ".join(str(x) for x in guardrail_qa.get("issues") or [])
+                )
+                final_image = _build_safe_single_piece_fallback(source_image, (target_width, target_height))
+                final_bytes = _encode_png_bytes(final_image)
+            elif guardrail_qa and not guardrail_qa.get("passed"):
                 warning = (
                     "Recomposição entregue com o melhor candidato disponível, mas a auditoria automática ainda encontrou pontos de atenção: "
                     + ", ".join(str(x) for x in guardrail_qa.get("issues") or [])
@@ -1441,15 +2209,34 @@ async def adapt_image_to_custom_layout(
             final_image = _build_safe_single_piece_fallback(source_image, (target_width, target_height))
             final_bytes = _encode_png_bytes(final_image)
 
+    # V11: não faz crop/zoom técnico nas bordas depois da IA. Esse pós-processamento
+    # tentou resolver haze no V10, mas em peças clean acabou ampliando, cortando e
+    # piorando a diagramação. Agora apenas registra o detector; a correção acontece
+    # por prompt/retry e pela remoção dos fallbacks com blur.
+    clean_edge_report = _detect_soft_edge_haze_issue(final_bytes)
+    clean_edge_postprocess = {
+        "applied": False,
+        "report": {"detected": clean_edge_report, "reason": "v11_no_destructive_edge_crop"},
+    }
+    if isinstance(guardrail_qa, dict):
+        guardrail_qa = dict(guardrail_qa)
+        guardrail_qa["clean_edge_postprocess"] = clean_edge_postprocess
+
+    engine_id = "openai_adaptive_layout_recomposition_v11"
+    motor = "Recomposição adaptativa por IA V11"
+    if fallback_applied:
+        engine_id = "safe_single_piece_fallback_v11"
+        motor = "Fallback seguro de peça única V11"
+
     return {
-        "engine_id": "openai_unified_layout_recomposition_v7" if not fallback_applied else "safe_single_piece_fallback_v7",
-        "motor": "Recomposição real por IA V7" if not fallback_applied else "Fallback seguro de peça única V7",
+        "engine_id": engine_id,
+        "motor": motor,
         "url": _result_url_from_image_bytes(final_bytes, "image/png"),
         "warning": warning,
         "exact_canvas_expand": None,
         "layout_recomposition": {
             "request_id": request_id,
-            "algorithm_version": "v7_text_reflow_layout_checker_orientation_contract",
+            "algorithm_version": "v11_stable_native_recomposition_no_blur_no_false_fallback",
             "diagnostics": {
                 "source_size": {"width": source_width, "height": source_height},
                 "target_size": {"width": target_width, "height": target_height},
@@ -1460,20 +2247,26 @@ async def adapt_image_to_custom_layout(
                 "api_calls_used": api_calls_used,
                 "retry_count": retry_count,
                 "fallback_applied": fallback_applied,
+                "qa_safe_fallback_applied": qa_safe_fallback_applied,
                 "guardrail_qa": guardrail_qa,
+                "adaptive_strategy": adaptive_strategy,
                 "layout_contract": layout_contract,
                 "background": _infer_background_meta(ai_layout, source_image),
                 "quality": openai_quality,
                 "no_blur_mirror_smear_stretch_policy": True,
                 "no_local_collage_policy": True,
-                "strategy": "openai_unified_full_design_edit_then_contract_qa_and_exact_finalize" if not fallback_applied else "safe_single_piece_no_collage_fallback",
+                "no_solid_letterbox_policy": True,
+                "solid_border_guard": "detect_and_repair_before_delivery",
+                "clean_edge_haze_guard": "detect_and_retry_without_destructive_crop",
+                "clean_edge_postprocess": clean_edge_postprocess,
+                "strategy": adaptive_strategy.get("strategy_id") if not fallback_applied else "emergency_safe_fallback",
             },
             "plan": {
                 "layout_kind": "unified_ai_landscape_recomposition" if target_width >= target_height else "unified_ai_portrait_recomposition",
                 "source_size": {"width": source_width, "height": source_height},
                 "target_size": {"width": target_width, "height": target_height},
                 "generated_size": {"width": generated_size[0], "height": generated_size[1]},
-                "finalization": "full_bleed_orientation_aware_crop_with_text_reflow_checker_v7" if not fallback_applied else "single_piece_contain_on_clean_background",
+                "finalization": "adaptive_full_bleed_safe_area_finalize_v11_native" if not fallback_applied else "emergency_fallback_only",
                 "prompt": final_prompt,
             },
         },
