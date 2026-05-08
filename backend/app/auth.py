@@ -296,5 +296,6 @@ def activate_credit_plan(
         "credits_added": plan.total_credits,
         "base_credits": plan.base_credits,
         "bonus_credits": plan.bonus_credits,
+        "kind": plan.kind,
         "credits": current_credits,
     }

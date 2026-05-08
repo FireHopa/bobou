@@ -34,6 +34,7 @@ from .credits import (
     attach_credit_headers,
     charge_credits,
     ensure_credits,
+    estimate_action_credits,
 )
 from .db import init_db, get_session, engine
 from .models import Robot, ChatMessage, CompetitionAnalysis, SkyBobJob, AuthorityEdit, AuthorityAgentRun, BusinessCore, User
@@ -368,7 +369,12 @@ def create_robot(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    action = charge_credits(session, current_user, "robot_create")
+    estimated_credits = estimate_action_credits(
+        "robot_create",
+        input_texts=[brief.model_dump()],
+        output_texts=[built],
+    )
+    action = charge_credits(session, current_user, "robot_create", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
     robot = Robot(
@@ -551,7 +557,12 @@ def authority_assistant_route(
             session.add(edit)
             session.commit()
 
-    action = charge_credits(session, current_user, "authority_assistant_edit")
+    estimated_credits = estimate_action_credits(
+        "authority_assistant_edit",
+        input_texts=[before_instructions, body.message, body.history or [], edits_history],
+        output_texts=[result],
+    )
+    action = charge_credits(session, current_user, "authority_assistant_edit", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
     return AuthorityAssistantOut(
@@ -663,7 +674,14 @@ async def chat_audio(
     assistant_msg = ChatMessage(robot_id=robot.id, role="assistant", content=answer)
     session.add(assistant_msg)
 
-    action = charge_credits(session, current_user, "robot_audio_message")
+    estimated_audio_seconds = max(1.0, len(audio_bytes) / 16_000)
+    estimated_credits = estimate_action_credits(
+        "robot_audio_message",
+        input_texts=[robot.system_instructions, history, text],
+        output_texts=[answer],
+        audio_seconds=estimated_audio_seconds,
+    )
+    action = charge_credits(session, current_user, "robot_audio_message", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
     session.add(assistant_msg)
@@ -715,7 +733,13 @@ def chat(
     assistant_msg = ChatMessage(robot_id=robot.id, role="assistant", content=answer)
     session.add(assistant_msg)
 
-    action = charge_credits(session, current_user, "robot_chat_message")
+    estimated_credits = estimate_action_credits(
+        "robot_chat_message",
+        input_texts=[robot.system_instructions, history, body.message],
+        output_texts=[answer],
+        web_search_calls=1 if body.use_web else 0,
+    )
+    action = charge_credits(session, current_user, "robot_chat_message", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
     session.add(assistant_msg)
@@ -905,7 +929,13 @@ def competition_find_competitors_v2(
         "offer": briefing.get("servicos"),
     }
     data = find_competitors(mapped)
-    action = charge_credits(session, current_user, "competition_find_competitors")
+    estimated_credits = estimate_action_credits(
+        "competition_find_competitors",
+        input_texts=[mapped],
+        output_texts=[data],
+        web_search_calls=1,
+    )
+    action = charge_credits(session, current_user, "competition_find_competitors", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
     return data
 
@@ -940,7 +970,13 @@ def competition_analyze_v2(
 
     bg.add_task(_run_analysis_job, obj.public_id)
 
-    action = charge_credits(session, current_user, "competition_analyze")
+    estimated_credits = estimate_action_credits(
+        "competition_analyze",
+        input_texts=[briefing or {}, instas, sites],
+        output_tokens=5_000,
+        web_search_calls=2,
+    )
+    action = charge_credits(session, current_user, "competition_analyze", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
     return CompetitionJobV2Out(
@@ -1084,7 +1120,12 @@ def authority_agents_run(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    action = charge_credits(session, current_user, "authority_agent_run")
+    estimated_credits = estimate_action_credits(
+        "authority_agent_run",
+        input_texts=[payload.agent_key, nucleus],
+        output_texts=[output],
+    )
+    action = charge_credits(session, current_user, "authority_agent_run", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
     run = AuthorityAgentRun(
@@ -1257,7 +1298,12 @@ def authority_agents_suggest_themes(
     try:
         themes = suggest_themes_for_task(payload.agent_key, payload.nucleus, payload.task)
 
-        action = charge_credits(session, current_user, "authority_agent_theme_suggestion")
+        estimated_credits = estimate_action_credits(
+            "authority_agent_theme_suggestion",
+            input_texts=[payload.agent_key, payload.nucleus, payload.task],
+            output_texts=[themes],
+        )
+        action = charge_credits(session, current_user, "authority_agent_theme_suggestion", estimated_credits=estimated_credits)
         attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
         return {"themes": themes}
@@ -1277,7 +1323,12 @@ def authority_agents_suggest_video_format(
 
     try:
         result = suggest_video_format_for_theme(payload.agent_key, nucleus, payload.theme)
-        action = charge_credits(session, current_user, "authority_agent_video_format_suggestion")
+        estimated_credits = estimate_action_credits(
+            "authority_agent_video_format_suggestion",
+            input_texts=[payload.agent_key, nucleus, payload.theme],
+            output_texts=[result],
+        )
+        action = charge_credits(session, current_user, "authority_agent_video_format_suggestion", estimated_credits=estimated_credits)
         attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
         return result
     except ValueError as e:
@@ -1300,7 +1351,12 @@ def skybob_preflight(
 
     try:
         result = generate_skybob_catalog_analysis(nucleus)
-        action = charge_credits(session, current_user, "skybob_preflight")
+        estimated_credits = estimate_action_credits(
+            "skybob_preflight",
+            input_texts=[nucleus],
+            output_texts=[result],
+        )
+        action = charge_credits(session, current_user, "skybob_preflight", estimated_credits=estimated_credits)
         attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
         return result
     except Exception as e:
@@ -1334,7 +1390,12 @@ def skybob_start_job(
     session.commit()
     session.refresh(job)
 
-    action = charge_credits(session, current_user, "skybob_full_run")
+    estimated_credits = estimate_action_credits(
+        "skybob_full_run",
+        input_texts=[nucleus, payload.preferences or {}, payload.previous_study or {}, payload.catalog_analysis or {}],
+        output_tokens=12_000,
+    )
+    action = charge_credits(session, current_user, "skybob_full_run", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
     bg.add_task(_run_skybob_job, job.public_id)
@@ -1395,7 +1456,12 @@ def skybob_run(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    action = charge_credits(session, current_user, "skybob_refine_run")
+    estimated_credits = estimate_action_credits(
+        "skybob_refine_run",
+        input_texts=[nucleus, payload.preferences or {}, payload.previous_study or {}, payload.catalog_analysis or {}, payload.mode or "full"],
+        output_texts=[study],
+    )
+    action = charge_credits(session, current_user, "skybob_refine_run", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
     core = _get_business_core(session, current_user, create=True)

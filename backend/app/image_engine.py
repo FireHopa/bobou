@@ -30,6 +30,7 @@ from .credits import (
     attach_credit_headers,
     charge_credits,
     ensure_credits,
+    estimate_action_credits,
 )
 from .db import get_session
 from .deps import get_current_user
@@ -5345,8 +5346,18 @@ async def image_engine_stream(
     asset_type = _asset_type_from_context(None, engine_aspect_ratio)
     preset = _marketing_preset(asset_type, None)
 
-    ensure_credits(current_user, "image_generate_from_scratch")
-    action = charge_credits(session, current_user, "image_generate_from_scratch")
+    estimated_credits = estimate_action_credits(
+        "image_generate_from_scratch",
+        input_texts=[body.model_dump()],
+        image_openai_generations=1,
+        image_flux_generations=1,
+        image_google_generations=1,
+        image_prompt_refinements=1,
+        image_local_steps=1,
+        requested_versions=1,
+    )
+    ensure_credits(current_user, "image_generate_from_scratch", estimated_credits=estimated_credits)
+    action = charge_credits(session, current_user, "image_generate_from_scratch", estimated_credits=estimated_credits)
 
     async def event_generator():
         try:
@@ -5600,8 +5611,16 @@ async def image_engine_edit_stream(
     openai_size = _openai_size_from_aspect_ratio(aspect_ratio)
     resolution_source_label = (resolution_source or "").strip() or ("manual" if target_dimensions else "default")
 
-    ensure_credits(current_user, "image_edit")
-    action = charge_credits(session, current_user, "image_edit")
+    estimated_credits = estimate_action_credits(
+        "image_edit",
+        input_texts=[body.model_dump(), {"source_width": source_width, "source_height": source_height, "targets": requested_target_dimensions}],
+        image_openai_edits=max(1, requested_version_count),
+        image_prompt_refinements=1,
+        image_local_steps=max(1, requested_version_count),
+        requested_versions=max(1, requested_version_count),
+    )
+    ensure_credits(current_user, "image_edit", estimated_credits=estimated_credits)
+    action = charge_credits(session, current_user, "image_edit", estimated_credits=estimated_credits)
 
     async def event_generator():
         try:
