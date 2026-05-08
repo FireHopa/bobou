@@ -35,7 +35,7 @@ import { Input } from "@/components/ui/input";
 import { API_BASE_URL } from "@/constants/app";
 import { appendImageHistory, downloadImage } from "@/lib/imageHistory";
 import { dataUrlToFile, readImageDimensionsFromUrl } from "@/lib/image";
-import { extractImageRequestResolution } from "@/lib/imageRequestResolution";
+import { extractImageRequestResolution, extractImageRequestResolutions } from "@/lib/imageRequestResolution";
 import { cn } from "@/lib/utils";
 import { extractResponseErrorMessage, syncCreditsFromResponse } from "@/lib/credits";
 
@@ -46,6 +46,12 @@ type ImageResult = {
   exact_canvas_expand?: unknown;
   variant_index?: number;
   variant_total?: number;
+  target_width?: number;
+  target_height?: number;
+  target_dimensions?: {
+    width?: number;
+    height?: number;
+  };
 };
 
 type ReferenceAttachment = {
@@ -97,6 +103,13 @@ type ActiveJob = {
   pendingCanvasItemId: string;
   progress: number;
   status: string;
+};
+
+type QueuedImageJob = {
+  id: string;
+  instruction: string;
+  baseReference: ReferenceAttachment;
+  createdAt: number;
 };
 
 
@@ -227,7 +240,8 @@ const EDIT_SCOPE_OPTIONS: Array<{
 ];
 
 const BASE_CANVAS_ITEM_ID = "active-base-reference";
-const MAX_ACTIVE_JOBS = 2;
+const MAX_ACTIVE_JOBS = 1;
+const MAX_QUEUED_JOBS = 12;
 
 const SMART_EDIT_PIPELINE_DEFS: Array<Omit<PipelineStep, "status" | "detail">> = [
   { id: "base", title: "Base recebida", description: "A imagem original entra como fonte de verdade." },
@@ -1026,6 +1040,7 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>(projectSeed.snapshot.canvasItems);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(projectSeed.snapshot.selectedItemId);
   const [activeJobs, setActiveJobs] = useState<ActiveJob[]>([]);
+  const [queuedJobs, setQueuedJobs] = useState<QueuedImageJob[]>([]);
   const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>(() => createSmartEditPipelineSteps());
   const [aiInspection, setAiInspection] = useState<AiInspectionState>({});
   const [viewport, setViewport] = useState(projectSeed.snapshot.viewport);
@@ -1057,6 +1072,8 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const activeJobsRef = useRef(new Map<string, AbortController>());
+  const queuedJobsRef = useRef<QueuedImageJob[]>([]);
+  const runQueuedJobsTimerRef = useRef<number | null>(null);
   const createdObjectUrlsRef = useRef<string[]>([]);
   const canvasItemsRef = useRef<CanvasItem[]>([]);
   const panningRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -1485,7 +1502,13 @@ const abortActiveJobsForProjectSwitch = useCallback(() => {
     controller.abort();
   }
   activeJobsRef.current.clear();
+  queuedJobsRef.current = [];
+  if (runQueuedJobsTimerRef.current) {
+    window.clearTimeout(runQueuedJobsTimerRef.current);
+    runQueuedJobsTimerRef.current = null;
+  }
   setActiveJobs([]);
+  setQueuedJobs([]);
 }, []);
 
 const handleCreateProject = useCallback(async () => {
@@ -1711,9 +1734,15 @@ const handleDeleteProject = useCallback(
       for (const controller of activeJobsRef.current.values()) {
         controller.abort();
       }
+      activeJobsRef.current.clear();
+      if (runQueuedJobsTimerRef.current) {
+        window.clearTimeout(runQueuedJobsTimerRef.current);
+        runQueuedJobsTimerRef.current = null;
+      }
       for (const url of createdObjectUrlsRef.current) {
         URL.revokeObjectURL(url);
       }
+      createdObjectUrlsRef.current = [];
     };
   }, []);
   useEffect(() => {
@@ -1850,15 +1879,47 @@ const handleDeleteProject = useCallback(
     ]);
   }, []);
 
-  const upsertBaseCanvasItem = useCallback((reference: ReferenceAttachment) => {
+  const enqueueGenerateJob = useCallback((instruction: string, baseReferenceForJob: ReferenceAttachment) => {
+    if (queuedJobsRef.current.length >= MAX_QUEUED_JOBS) {
+      pushAssistantMessage(
+        `A fila já tem ${MAX_QUEUED_JOBS} pedidos. Aguarde uma entrega antes de adicionar outro.`,
+        "warning"
+      );
+      return false;
+    }
+
+    const nextJob: QueuedImageJob = {
+      id: makeId(),
+      instruction,
+      baseReference: baseReferenceForJob,
+      createdAt: Date.now(),
+    };
+    const nextQueue = [...queuedJobsRef.current, nextJob];
+    queuedJobsRef.current = nextQueue;
+    setQueuedJobs(nextQueue);
+    pushAssistantMessage(`Pedido adicionado à fila. Posição ${nextQueue.length}.`, "success");
+    return true;
+  }, [pushAssistantMessage]);
+
+  const takeNextQueuedJob = useCallback(() => {
+    const [nextJob, ...remainingJobs] = queuedJobsRef.current;
+    queuedJobsRef.current = remainingJobs;
+    setQueuedJobs(remainingJobs);
+    return nextJob;
+  }, []);
+
+  const upsertBaseCanvasItem = useCallback((reference: ReferenceAttachment, options?: {
+    sourceCanvasItemId?: string;
+    sourcePosition?: Pick<CanvasItem, "x" | "y">;
+  }) => {
     const nextBaseItem: CanvasItem = {
       id: BASE_CANVAS_ITEM_ID,
       kind: "base",
       url: reference.previewUrl,
       title: "Base ativa",
       subtitle: reference.file.name,
-      x: 0,
-      y: 0,
+      x: options?.sourcePosition?.x ?? 0,
+      y: options?.sourcePosition?.y ?? 0,
       width: reference.width,
       height: reference.height,
       naturalWidth: reference.width,
@@ -1869,20 +1930,26 @@ const handleDeleteProject = useCallback(
 
     setCanvasItems((current) => {
       const previousBase = current.find((item) => item.id === BASE_CANVAS_ITEM_ID);
-      const otherItems = current.filter((item) => item.id !== BASE_CANVAS_ITEM_ID);
-      const archivedPreviousBase =
-        previousBase && previousBase.url !== nextBaseItem.url
-          ? [
-              {
-                ...previousBase,
-                id: `archived-base-${makeId()}`,
-                kind: "result" as const,
-                title: previousBase.title || "Base anterior",
-                subtitle: previousBase.subtitle || "Base anterior preservada no canvas",
-                status: "Base anterior preservada",
-              },
-            ]
-          : [];
+      const otherItems = current.filter(
+        (item) => item.id !== BASE_CANVAS_ITEM_ID && item.id !== options?.sourceCanvasItemId
+      );
+      const shouldArchivePreviousBase = Boolean(
+        previousBase &&
+        previousBase.url !== nextBaseItem.url &&
+        !options?.sourceCanvasItemId
+      );
+      const archivedPreviousBase = shouldArchivePreviousBase && previousBase
+        ? [
+            {
+              ...previousBase,
+              id: `archived-base-${makeId()}`,
+              kind: "result" as const,
+              title: previousBase.title || "Base anterior",
+              subtitle: previousBase.subtitle || "Base anterior preservada no canvas",
+              status: "Base anterior preservada",
+            },
+          ]
+        : [];
 
       return [nextBaseItem, ...archivedPreviousBase, ...otherItems];
     });
@@ -1942,9 +2009,12 @@ const handleDeleteProject = useCallback(
         const file = await fileFromUrl(item.url, `${item.kind === "result" ? "resultado" : "base"}-${Date.now()}.png`);
         const nextBase = await loadReferenceAttachment(file);
         setBaseReference(nextBase);
-        upsertBaseCanvasItem(nextBase);
+        upsertBaseCanvasItem(nextBase, {
+          sourceCanvasItemId: item.id,
+          sourcePosition: { x: item.x, y: item.y },
+        });
         requestAnimationFrame(() => fitCanvasToItems());
-        pushAssistantMessage("Pronto. Essa imagem agora é a nova base ativa para as próximas edições.", "success");
+        pushAssistantMessage("Pronto. Essa imagem agora é a base ativa destacada no canvas.", "success");
       } catch {
         pushAssistantMessage("Não consegui transformar essa imagem em nova base agora.", "warning");
       }
@@ -2117,9 +2187,11 @@ const handleDeleteProject = useCallback(
   );
 
   const handleGenerate = useCallback(
-    async (manualInstruction?: string) => {
+    async (manualInstruction?: string, options?: { fromQueue?: boolean; baseReferenceOverride?: ReferenceAttachment }) => {
       const instruction = (manualInstruction ?? promptInput).trim();
-      const requestedResolutionFromChat = extractImageRequestResolution(instruction);
+      const referenceForRequest = options?.baseReferenceOverride ?? baseReference;
+      const requestedResolutionsFromChat = extractImageRequestResolutions(instruction);
+      const requestedResolutionFromChat = requestedResolutionsFromChat[0] ?? extractImageRequestResolution(instruction);
       const requestedResolutionFromPanel =
         resolutionMode === "custom" && hasValidCustomDimensions
           ? {
@@ -2134,7 +2206,7 @@ const handleDeleteProject = useCallback(
         ? getFormatoFromDimensions(effectiveRequestedResolution.width, effectiveRequestedResolution.height)
         : effectiveFormato;
 
-      if (!baseReference) {
+      if (!referenceForRequest) {
         pushAssistantMessage("Antes de pedir uma edição, você precisa carregar a imagem-base.", "warning");
         setStatusText("Sem base ativa.");
         return;
@@ -2146,7 +2218,15 @@ const handleDeleteProject = useCallback(
       }
 
       if (activeJobsRef.current.size >= MAX_ACTIVE_JOBS) {
-        pushAssistantMessage(`No canvas você pode manter até ${MAX_ACTIVE_JOBS} processamentos em paralelo. Aguarde um concluir para abrir outro.`, "warning");
+        if (!options?.fromQueue) {
+          const enqueued = enqueueGenerateJob(instruction, referenceForRequest);
+          if (enqueued) {
+            setPromptInput("");
+            setStatusText(`Pedido adicionado à fila. ${queuedJobsRef.current.length} aguardando.`);
+          }
+          return;
+        }
+        pushAssistantMessage("A fila aguardou, mas ainda existe outro processamento ativo. Vou tentar novamente em seguida.", "warning");
         return;
       }
 
@@ -2161,6 +2241,7 @@ const handleDeleteProject = useCallback(
           qualidade,
           mode: "simple_reference_edit",
           requestedResolutionFromChat,
+          requestedResolutionsFromChat,
           effectiveWidth: effectiveRequestedResolution?.width,
           effectiveHeight: effectiveRequestedResolution?.height,
           preserveOriginalFrame,
@@ -2177,7 +2258,7 @@ const handleDeleteProject = useCallback(
       });
       setPipelineSteps(() => {
         let next = createSmartEditPipelineSteps();
-        next = setPipelineStepStatus(next, "base", "done", `${baseReference.width}×${baseReference.height}`);
+        next = setPipelineStepStatus(next, "base", "done", `${referenceForRequest.width}×${referenceForRequest.height}`);
         next = setPipelineStepStatus(next, "interpret", "active", "Lendo imagem-base");
         return next;
       });
@@ -2186,7 +2267,7 @@ const handleDeleteProject = useCallback(
       const position = getNextCanvasPosition(canvasItemsRef.current);
       const controller = new AbortController();
       const jobId = makeId();
-      const attachments = buildChatAttachments(baseReference);
+      const attachments = buildChatAttachments(referenceForRequest);
 
       activeJobsRef.current.set(jobId, controller);
       setActiveJobs((current) => [
@@ -2203,15 +2284,15 @@ const handleDeleteProject = useCallback(
       pushUserMessage(instruction, attachments);
       setPromptInput("");
 
-      const placeholderWidth = effectiveRequestedResolution?.width ?? baseReference.width;
-      const placeholderHeight = effectiveRequestedResolution?.height ?? baseReference.height;
+      const placeholderWidth = effectiveRequestedResolution?.width ?? referenceForRequest.width;
+      const placeholderHeight = effectiveRequestedResolution?.height ?? referenceForRequest.height;
 
       setCanvasItems((current) => [
         ...current,
         {
           id: pendingCanvasItemId,
           kind: "pending",
-          url: baseReference.previewUrl,
+          url: referenceForRequest.previewUrl,
           title: `Preview ${current.filter((item) => item.id !== BASE_CANVAS_ITEM_ID).length + 1}`,
           subtitle: instruction,
           status: "Preparando prompt...",
@@ -2228,7 +2309,7 @@ const handleDeleteProject = useCallback(
       setSelectedItemId(pendingCanvasItemId);
 
       const formData = new FormData();
-      formData.append("reference_image", baseReference.file);
+      formData.append("reference_image", referenceForRequest.file);
       formData.append("formato", effectiveFormatoForRequest);
       formData.append("qualidade", qualidade);
       formData.append("instrucoes_edicao", instruction);
@@ -2465,11 +2546,28 @@ const handleDeleteProject = useCallback(
       } finally {
         activeJobsRef.current.delete(jobId);
         setActiveJobs((current) => current.filter((item) => item.id !== jobId));
+
+        if (queuedJobsRef.current.length > 0 && activeJobsRef.current.size < MAX_ACTIVE_JOBS) {
+          if (runQueuedJobsTimerRef.current) {
+            window.clearTimeout(runQueuedJobsTimerRef.current);
+          }
+          runQueuedJobsTimerRef.current = window.setTimeout(() => {
+            runQueuedJobsTimerRef.current = null;
+            if (activeJobsRef.current.size >= MAX_ACTIVE_JOBS) return;
+            const nextQueuedJob = takeNextQueuedJob();
+            if (!nextQueuedJob) return;
+            void handleGenerate(nextQueuedJob.instruction, {
+              fromQueue: true,
+              baseReferenceOverride: nextQueuedJob.baseReference,
+            });
+          }, 350);
+        }
       }
     },
     [
       allowResizeCrop,
       baseReference,
+      enqueueGenerateJob,
       editScope,
       currentFormatBadgeLabel,
       effectiveFormato,
@@ -2483,6 +2581,7 @@ const handleDeleteProject = useCallback(
       pushUserMessage,
       qualidade,
       resolutionMode,
+      takeNextQueuedJob,
       updateCanvasItem,
     ]
   );
@@ -2789,7 +2888,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
         <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 shadow-lg">
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Canvas</div>
           <div className="mt-1 text-sm font-medium text-slate-100">
-            {resultsCount} resultado{resultsCount === 1 ? "" : "s"} • {activeJobs.length} em andamento
+            {resultsCount} resultado{resultsCount === 1 ? "" : "s"} • {activeJobs.length} em andamento • {queuedJobs.length} na fila
           </div>
         </div>
         <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 shadow-lg">
@@ -2942,7 +3041,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               >
                 <div className="absolute -top-12 left-0 flex items-center gap-2">
                   <div className="rounded-full border border-white/10 bg-slate-950/90 px-3 py-1 text-[11px] font-semibold text-white shadow-lg">
-                    {isBase ? "Base" : isPending ? "Preview" : "Resultado"}
+                    {isBase ? "Base ativa" : isPending ? "Preview" : "Resultado"}
                   </div>
                   <div className="rounded-full border border-white/10 bg-slate-950/90 px-3 py-1 text-[11px] text-slate-300 shadow-lg">
                     {formatResolutionLabel(item.naturalWidth, item.naturalHeight)}
@@ -2957,8 +3056,11 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 <div
                   className={cn(
                     "group relative h-full w-full overflow-hidden rounded-[28px] border shadow-[0_24px_80px_rgba(0,0,0,0.32)] transition-all",
-                    isSelected ? "border-blue-400/80 ring-2 ring-blue-400/30" : "border-white/10 hover:border-white/20",
-                    isBase ? "bg-slate-950/90" : "bg-black/40"
+                    isBase
+                      ? "border-cyan-300/95 bg-slate-950/90 shadow-[0_0_0_4px_rgba(34,211,238,0.14),0_24px_90px_rgba(8,145,178,0.32)] ring-4 ring-cyan-400/35"
+                      : isSelected
+                      ? "border-blue-400/80 bg-black/40 ring-2 ring-blue-400/30"
+                      : "border-white/10 bg-black/40 hover:border-white/20"
                   )}
                   onMouseDown={(event) => startCanvasItemDrag(event, item)}
                   onClick={(event) => {
@@ -3040,7 +3142,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
 
       <FloatingPanel
         title="IA Assistente"
-        subtitle={`${activeJobs.length}/${MAX_ACTIVE_JOBS} processando`}
+        subtitle={`${activeJobs.length} processando • ${queuedJobs.length} na fila`}
         position={assistantPanelPosition}
         setPosition={setAssistantPanelPosition}
         size={effectiveAssistantPanelSize}
@@ -3175,6 +3277,31 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
             </div>
           ) : null}
 
+          {queuedJobs.length > 0 ? (
+            <div className="mt-4 rounded-[22px] border border-cyan-400/15 bg-cyan-500/10 p-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold text-cyan-100">Fila de pedidos</div>
+                <div className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2 py-0.5 text-[10px] text-cyan-100">
+                  {queuedJobs.length} aguardando
+                </div>
+              </div>
+              <div className="space-y-2">
+                {queuedJobs.slice(0, 4).map((job, index) => (
+                  <div key={job.id} className="rounded-2xl border border-white/10 bg-slate-950/45 px-3 py-2 text-xs text-slate-200">
+                    <div className="font-semibold text-slate-100">#{index + 1} na fila</div>
+                    <div className="mt-1 max-h-10 overflow-hidden leading-relaxed text-slate-300">{job.instruction}</div>
+                    <div className="mt-1 truncate text-[10px] text-slate-500">Base: {job.baseReference.file.name}</div>
+                  </div>
+                ))}
+                {queuedJobs.length > 4 ? (
+                  <div className="px-2 text-[11px] text-slate-500">
+                    + {queuedJobs.length - 4} pedido{queuedJobs.length - 4 === 1 ? "" : "s"} oculto{queuedJobs.length - 4 === 1 ? "" : "s"}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           <div
             ref={chatViewportRef}
             className="image-engine-scroll mt-4 max-h-[32vh] min-h-[220px] space-y-4 overflow-y-auto rounded-[24px] border border-white/10 bg-slate-950/40 p-4"
@@ -3257,10 +3384,10 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               <Button
                 className="h-10 rounded-xl bg-blue-600 px-5 text-white hover:bg-blue-500"
                 onClick={() => handleGenerate()}
-                disabled={!baseReference || !promptInput.trim() || activeJobs.length >= MAX_ACTIVE_JOBS}
+                disabled={!baseReference || !promptInput.trim()}
               >
                 {activeJobs.length > 0 ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizonal className="h-4 w-4" />}
-                Enviar pedido
+                {activeJobs.length > 0 ? "Adicionar à fila" : "Enviar pedido"}
               </Button>
             </div>
           </div>
@@ -3384,7 +3511,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                   <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                     <span>Canvas</span>
                     <span className="font-semibold text-white">
-                      {resultsCount} pronto{resultsCount === 1 ? "" : "s"} / {activeJobs.length} em andamento
+                      {resultsCount} pronto{resultsCount === 1 ? "" : "s"} / {activeJobs.length} em andamento / {queuedJobs.length} na fila
                     </span>
                   </div>
                 </div>
