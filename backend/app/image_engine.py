@@ -265,30 +265,55 @@ def _extract_requested_image_version_count(instruction: str, explicit_count: Opt
 
 
 def _extract_requested_image_target_dimensions(instruction: str, *, max_items: int = 4) -> List[Tuple[int, int]]:
-    """Extrai todos os tamanhos explícitos do texto: 1376x768, 768×1376 etc.
+    """Extrai resoluções pedidas no texto, incluindo dimensões explícitas e presets.
 
-    Diferente de "quantidade de versões", isso representa múltiplas entregas em
-    resoluções diferentes. Mantém ordem e remove duplicados.
+    Exemplos:
+    - 1376x768 ou 768×1376 entram como tamanho customizado.
+    - 16:9/horizontal vira 1536x1024.
+    - 9:16/vertical/story/reels vira 1024x1536.
+
+    Mantém a ordem em que aparecem no prompt, remove duplicados e limita a quantidade
+    para evitar custo acidental em pedidos muito longos.
     """
     text = instruction or ""
-    found: List[Tuple[int, int]] = []
-    seen = set()
-    for match in re.finditer(r"(?<!\d)(\d{3,5})\s*[x×]\s*(\d{3,5})(?!\d)", text, flags=re.IGNORECASE):
+    candidates: List[Tuple[int, Tuple[int, int]]] = []
+
+    def add_candidate(index: int, width: int, height: int) -> None:
+        if width < 256 or height < 256 or width > 4096 or height > 4096:
+            return
+        candidates.append((index, (width, height)))
+
+    for match in re.finditer(r"(?<!\d)(\d{3,5})\s*(?:x|×|by|por)\s*(\d{3,5})(?!\d)", text, flags=re.IGNORECASE):
         try:
-            width = int(match.group(1))
-            height = int(match.group(2))
+            add_candidate(match.start(), int(match.group(1)), int(match.group(2)))
         except Exception:
             continue
-        if width < 64 or height < 64 or width > 8192 or height > 8192:
+
+    aliases: List[Tuple[str, Tuple[int, int]]] = [
+        (r"\b(?:16\s*[:/]\s*9|horizontal\s*16\s*[:/]\s*9|horizontal|formato\s+horizontal|vers[aã]o\s+horizontal|imagem\s+horizontal|paisagem|landscape)\b", (1536, 1024)),
+        (r"\b(?:9\s*[:/]\s*16|vertical\s*9\s*[:/]\s*16|vertical|formato\s+vertical|vers[aã]o\s+vertical|imagem\s+vertical|story|stories|reel|reels|short|shorts|portrait)\b", (1024, 1536)),
+        (r"\b(?:1\s*[:/]\s*1|quadrado|feed\s+quadrado|square)\b", (1024, 1024)),
+        (r"\b(?:full\s*hd|fhd|1080p)\b", (1920, 1080)),
+        (r"\b(?:4k|ultra\s*hd|uhd)\b", (3840, 2160)),
+        (r"\b(?:2k|qhd)\b", (2560, 1440)),
+        (r"\b(?:hd|720p)\b", (1280, 720)),
+    ]
+
+    for pattern, dimensions in aliases:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            add_candidate(match.start(), dimensions[0], dimensions[1])
+
+    found: List[Tuple[int, int]] = []
+    seen = set()
+    for _, dimensions in sorted(candidates, key=lambda item: item[0]):
+        if dimensions in seen:
             continue
-        key = (width, height)
-        if key in seen:
-            continue
-        seen.add(key)
-        found.append(key)
+        seen.add(dimensions)
+        found.append(dimensions)
         if len(found) >= max_items:
             break
     return found
+
 
 
 def _build_dimension_instruction(base_instruction: str, target_width: int, target_height: int, index: int, total: int) -> str:
