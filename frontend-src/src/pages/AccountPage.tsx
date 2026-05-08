@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeft,
   ArrowUpRight,
   Building2,
   Camera,
@@ -32,13 +33,6 @@ import {
   formatCredits,
   type CreditCatalogResponse,
 } from "@/lib/credits";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 
@@ -217,6 +211,97 @@ function ConnectedAppsStrip({
 }
 
 
+function getCreditItemKind(item: { kind?: string } | Record<string, unknown> | null | undefined): string {
+  return typeof (item as { kind?: string } | null | undefined)?.kind === "string"
+    ? String((item as { kind?: string }).kind)
+    : "plan";
+}
+
+function getPlanHighlights(planId: string, title: string): string[] {
+  const normalized = `${planId} ${title}`.toLowerCase();
+
+  if (normalized.includes("basico") || normalized.includes("basic")) {
+    return [
+      "Para começar e testar o sistema com uso leve.",
+      "Bom para poucos pedidos por semana e rotina individual.",
+    ];
+  }
+
+  if (normalized.includes("profissional") || normalized.includes("growth")) {
+    return [
+      "Para quem usa o sistema com frequência e quer um volume equilibrado.",
+      "Bom para autoridade, SkyBob e algumas imagens no mês.",
+    ];
+  }
+
+  if (normalized.includes("avancado") || normalized.includes("scale")) {
+    return [
+      "Para produção recorrente com mais conteúdo, análises e imagem.",
+      "Entrega melhor custo para quem usa o sistema de forma intensa.",
+    ];
+  }
+
+  if (normalized.includes("equipe") || normalized.includes("elite")) {
+    return [
+      "Para times ou operação pesada com alto volume de pedidos.",
+      "Indicado para escalar sem depender de recargas frequentes.",
+    ];
+  }
+
+  return [
+    "Opção indicada para complementar o uso da conta.",
+    "Ideal para manter saldo disponível sem parar a operação.",
+  ];
+}
+
+function getPackHighlights(planId: string, title: string): string[] {
+  const normalized = `${planId} ${title}`.toLowerCase();
+
+  if (normalized.includes("10")) {
+    return [
+      "Recarga rápida para poucos pedidos extras.",
+      "Boa para completar o saldo sem trocar de plano.",
+    ];
+  }
+
+  if (normalized.includes("30")) {
+    return [
+      "Recarga intermediária para continuar operando com folga.",
+      "Boa para complementar o mês sem alterar o plano principal.",
+    ];
+  }
+
+  if (normalized.includes("75")) {
+    return [
+      "Recarga robusta para estudos, autoridade e imagem.",
+      "Útil para períodos com demanda mais alta.",
+    ];
+  }
+
+  if (normalized.includes("150")) {
+    return [
+      "Maior recarga avulsa disponível no momento.",
+      "Ideal para operação forte sem mudar o plano principal.",
+    ];
+  }
+
+  return [
+    "Recarga avulsa para aumentar o saldo da conta.",
+    "Use quando quiser complementar os créditos sem mudar o plano mensal.",
+  ];
+}
+
+function formatEstimatedCost(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+
 export default function AccountPage() {
   const { user, updateUser, updateCredits } = useAuthStore();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -232,7 +317,8 @@ export default function AccountPage() {
   const [isLinkingFacebook, setIsLinkingFacebook] = useState(false);
   const [isLinkingYouTube, setIsLinkingYouTube] = useState(false);
   const [isDisconnectingYouTube, setIsDisconnectingYouTube] = useState(false);
-  const [isCreditsDialogOpen, setIsCreditsDialogOpen] = useState(false);
+  const [accountView, setAccountView] = useState<"account" | "credits">("account");
+  const [selectedCreditCategory, setSelectedCreditCategory] = useState<string>("");
   const [isLoadingCreditCatalog, setIsLoadingCreditCatalog] = useState(false);
   const [activatingPlanId, setActivatingPlanId] = useState<string | null>(null);
   const [creditCatalog, setCreditCatalog] = useState<CreditCatalogResponse>({
@@ -694,10 +780,23 @@ export default function AccountPage() {
   }, [creditCatalog.actions]);
 
   const availablePlans = creditCatalog.plans?.length ? creditCatalog.plans : CREDIT_PLANS;
+  const monthlyPlans = availablePlans.filter((plan) => getCreditItemKind(plan as { kind?: string }) !== "pack");
+  const creditPacks = availablePlans.filter((plan) => getCreditItemKind(plan as { kind?: string }) === "pack");
   const dailyFreeCredits = creditCatalog.daily_free_credits || DEFAULT_DAILY_FREE_CREDITS;
+  const pricingNote = typeof (creditCatalog as { pricing_note?: string }).pricing_note === "string"
+    ? (creditCatalog as { pricing_note?: string }).pricing_note
+    : null;
+  const recommendedPlanTitle =
+    monthlyPlans.find((plan) => Boolean((plan as { recommended?: boolean }).recommended))?.title || monthlyPlans[0]?.title || "Profissional";
   const accountDisplayName = user.name?.trim() || user.email;
   const accountInitial = accountDisplayName.charAt(0).toUpperCase();
   const canRemovePhoto = Boolean(user.profile_image_url) && !isRemovingProfileImage && !isUploadingProfileImage;
+  const creditCategoryEntries = Object.entries(creditActionsByCategory);
+  const activeCreditCategory =
+    selectedCreditCategory && creditActionsByCategory[selectedCreditCategory]
+      ? selectedCreditCategory
+      : creditCategoryEntries[0]?.[0] || "";
+  const selectedCreditActions = activeCreditCategory ? creditActionsByCategory[activeCreditCategory] || [] : [];
 
   const handleActivateCreditPlan = async (planId: string) => {
     if (activatingPlanId) return;
@@ -717,7 +816,6 @@ export default function AccountPage() {
       toastSuccess(
         `Plano ${response.title} ativado: +${formatCredits(response.credits_added)} créditos${bonusSuffix}.`,
       );
-      setIsCreditsDialogOpen(false);
     } catch (error) {
       toastApiError(error, "Erro ao adicionar créditos");
     } finally {
@@ -731,10 +829,14 @@ export default function AccountPage() {
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight text-white">Minha conta</h1>
           <p className="max-w-2xl text-sm leading-6 text-white/60">
-            Gerencie seu perfil, escolha sua foto e conecte suas integrações em um só lugar.
+            {accountView === "credits"
+              ? "Gerencie seus planos, recargas de créditos e a tabela de consumo do sistema."
+              : "Gerencie seu perfil, escolha sua foto e conecte suas integrações em um só lugar."}
           </p>
         </div>
 
+        {accountView === "account" ? (
+          <>
         <section className="relative overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.03] p-6 backdrop-blur-sm">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(64,129,255,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.06),transparent_30%)]" />
 
@@ -936,7 +1038,7 @@ export default function AccountPage() {
                     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Plano recomendado</p>
                       <p className="mt-2 text-lg font-semibold text-white">
-                        {availablePlans.find((plan) => plan.recommended)?.title || "Growth Stack"}
+                        {recommendedPlanTitle}
                       </p>
                     </div>
                   </div>
@@ -946,16 +1048,16 @@ export default function AccountPage() {
                   <div>
                     <p className="text-sm font-medium text-white">Adicionar mais créditos</p>
                     <p className="mt-2 text-sm leading-6 text-white/60">
-                      Escolha um plano para aumentar o saldo da sua conta imediatamente.
+                      Abra a área completa de créditos para ver planos, recargas avulsas e tabela de consumo.
                     </p>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => setIsCreditsDialogOpen(true)}
+                    onClick={() => setAccountView("credits")}
                     className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-white px-5 text-sm font-semibold text-slate-950 transition hover:scale-[1.01] hover:bg-white/90"
                   >
-                    Adicionar créditos
+                    Ver planos e créditos
                   </button>
                 </div>
               </div>
@@ -963,75 +1065,141 @@ export default function AccountPage() {
           </div>
         </section>
 
-        <Dialog open={isCreditsDialogOpen} onOpenChange={setIsCreditsDialogOpen}>
-          <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto border-white/10 bg-[#07111f] p-0">
-            <div className="relative overflow-hidden rounded-[2rem]">
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,197,94,0.18),transparent_28%),radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_32%)]" />
-              <div className="relative p-6 sm:p-8">
-                <DialogHeader className="pr-10">
-                  <DialogTitle>Adicionar créditos</DialogTitle>
-                  <DialogDescription>
-                    Planos fictícios prontos para teste. Ao clicar, os créditos entram imediatamente na conta e o saldo permanece acumulado.
-                  </DialogDescription>
-                </DialogHeader>
+          </>
+        ) : null}
 
-                <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-                  <div className="space-y-4">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {availablePlans.map((plan) => {
+        {accountView === "credits" ? (
+          <section className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[#07111f] p-5 sm:p-6 xl:p-8 backdrop-blur-sm">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_34%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_28%)]" />
+
+            <div className="relative space-y-6">
+              <div className="flex flex-col gap-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-3xl">
+                  <button
+                    type="button"
+                    onClick={() => setAccountView("account")}
+                    className="mb-4 inline-flex h-11 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-white/78 transition hover:bg-white/[0.08]"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Voltar para minha conta
+                  </button>
+
+                  <div className="inline-flex rounded-2xl border border-cyan-500/15 bg-cyan-500/10 p-3 text-cyan-300">
+                    <Coins className="h-6 w-6" />
+                  </div>
+                  <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white">Planos e créditos</h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-white/65">
+                    Escolha um plano, faça recargas avulsas quando precisar e acompanhe o consumo médio de cada operação em uma tela mais organizada.
+                  </p>
+                  {pricingNote ? (
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/55">
+                      {pricingNote}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3 lg:w-[420px] lg:grid-cols-1 xl:w-[480px] xl:grid-cols-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Saldo atual</p>
+                    <p className="mt-2 text-3xl font-semibold text-white">{formatCredits(user.credits)}</p>
+                    <p className="mt-1 text-sm text-white/50">Disponível agora na conta.</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Recarga diária</p>
+                    <p className="mt-2 text-3xl font-semibold text-emerald-300">+{formatCredits(dailyFreeCredits)}</p>
+                    <p className="mt-1 text-sm text-white/50">Créditos grátis por dia.</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Plano indicado</p>
+                    <p className="mt-2 text-2xl font-semibold text-white">{recommendedPlanTitle}</p>
+                    <p className="mt-1 text-sm text-white/50">Melhor equilíbrio de uso.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
+                <div className="space-y-6">
+                  <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
+                    <div className="mb-5">
+                      <h3 className="text-2xl font-semibold text-white">Planos mensais</h3>
+                      <p className="text-sm leading-6 text-white/55">
+                        Planos para uso contínuo. Escolha pelo volume de pedidos que você pretende rodar no mês.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {monthlyPlans.map((plan) => {
                         const isActivating = activatingPlanId === plan.id;
+                        const isRecommended = Boolean((plan as { recommended?: boolean }).recommended);
+                        const highlights = getPlanHighlights(plan.id, plan.title);
                         return (
                           <div
                             key={plan.id}
                             className={cn(
-                              "rounded-[28px] border p-5 transition-all duration-200",
-                              plan.recommended
-                                ? "border-cyan-400/30 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.08)]"
-                                : "border-white/10 bg-white/[0.03]",
+                              "flex h-full flex-col rounded-[28px] border p-5",
+                              isRecommended
+                                ? "border-cyan-400/35 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.08)]"
+                                : "border-white/10 bg-black/20",
                             )}
                           >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <h3 className="text-lg font-semibold text-white">{plan.title}</h3>
+                                  <h4 className="text-2xl font-semibold text-white">{plan.title}</h4>
                                   {plan.badge ? (
                                     <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-300">
                                       {plan.badge}
                                     </span>
                                   ) : null}
                                 </div>
-                                <p className="mt-2 text-sm leading-6 text-white/60">{plan.description}</p>
+                                <p className="mt-2 max-w-md text-sm leading-6 text-white/62">{plan.description}</p>
                               </div>
-                              <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-right">
-                                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Valor fictício</p>
-                                <p className="mt-1 text-lg font-semibold text-white">{plan.display_price}</p>
+
+                              <div className="shrink-0 rounded-2xl border border-white/10 bg-[#07111f] px-4 py-3 text-right">
+                                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Valor teste</p>
+                                <p className="mt-1 text-2xl font-semibold text-white">{plan.display_price}</p>
                               </div>
                             </div>
 
                             <div className="mt-5 grid grid-cols-3 gap-3">
-                              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                              <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                 <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Base</p>
-                                <p className="mt-2 text-base font-semibold text-white">{formatCredits(plan.base_credits)}</p>
+                                <p className="mt-2 text-lg font-semibold text-white">{formatCredits(plan.base_credits)}</p>
                               </div>
-                              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                              <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                 <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Bônus</p>
-                                <p className="mt-2 text-base font-semibold text-emerald-300">+{formatCredits(plan.bonus_credits)}</p>
+                                <p className="mt-2 text-lg font-semibold text-emerald-300">+{formatCredits(plan.bonus_credits)}</p>
                               </div>
-                              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                              <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                 <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Total</p>
-                                <p className="mt-2 text-base font-semibold text-white">{formatCredits(plan.total_credits)}</p>
+                                <p className="mt-2 text-lg font-semibold text-white">{formatCredits(plan.total_credits)}</p>
                               </div>
                             </div>
 
-                            <div className="mt-4 flex items-center justify-between gap-3">
-                              <div className="text-sm text-white/55">{plan.monthly_fit}</div>
+                            <div className="mt-5 rounded-2xl border border-white/10 bg-[#07111f] p-4">
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Ideal para</p>
+                              <ul className="mt-3 space-y-2 text-sm leading-6 text-white/65">
+                                {highlights.map((item) => (
+                                  <li key={item} className="flex gap-2">
+                                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
+                                    <span>{item}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+
+                            <div className="mt-auto flex items-end justify-between gap-4 pt-5">
+                              <div>
+                                <p className="text-sm font-medium text-white/75">{plan.monthly_fit}</p>
+                                <p className="text-sm text-white/45">Os créditos entram na hora para teste.</p>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => handleActivateCreditPlan(plan.id)}
                                 disabled={Boolean(activatingPlanId)}
                                 className={cn(
-                                  "inline-flex h-11 items-center justify-center rounded-2xl px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
-                                  plan.recommended
+                                  "inline-flex h-11 min-w-[132px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+                                  isRecommended
                                     ? "bg-cyan-300 text-slate-950 hover:bg-cyan-200"
                                     : "bg-white text-slate-950 hover:bg-white/90",
                                 )}
@@ -1043,76 +1211,170 @@ export default function AccountPage() {
                         );
                       })}
                     </div>
+                  </div>
 
-                    <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">Resumo operacional</h3>
-                          <p className="mt-1 text-sm leading-6 text-white/60">
-                            Referência rápida para manter o custo previsível no uso diário.
-                          </p>
-                        </div>
-                        {isLoadingCreditCatalog ? <Loader2 className="h-5 w-5 animate-spin text-white/50" /> : null}
+                  {creditPacks.length ? (
+                    <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
+                      <div className="mb-5">
+                        <h3 className="text-2xl font-semibold text-white">Créditos avulsos</h3>
+                        <p className="text-sm leading-6 text-white/55">
+                          Recargas prontas para complementar o saldo. Sem valor customizado.
+                        </p>
                       </div>
 
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Saldo atual</p>
-                          <p className="mt-2 text-2xl font-semibold text-white">{formatCredits(user.credits)}</p>
-                        </div>
-                        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Recarga automática diária</p>
-                          <p className="mt-2 text-2xl font-semibold text-emerald-300">+{formatCredits(dailyFreeCredits)}</p>
-                        </div>
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        {creditPacks.map((pack) => {
+                          const isActivating = activatingPlanId === pack.id;
+                          const highlights = getPackHighlights(pack.id, pack.title);
+                          return (
+                            <div key={pack.id} className="flex h-full flex-col rounded-[24px] border border-white/10 bg-black/20 p-5">
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <h4 className="text-2xl font-semibold text-white">{pack.title}</h4>
+                                    {pack.badge ? (
+                                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-300">
+                                        {pack.badge}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-2 text-sm leading-6 text-white/62">{pack.description}</p>
+                                </div>
+
+                                <div className="shrink-0 rounded-2xl border border-white/10 bg-[#07111f] px-4 py-3 text-right">
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Valor teste</p>
+                                  <p className="mt-1 text-2xl font-semibold text-white">{pack.display_price}</p>
+                                </div>
+                              </div>
+
+                              <div className="mt-5 grid grid-cols-3 gap-3">
+                                <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Base</p>
+                                  <p className="mt-2 text-lg font-semibold text-white">{formatCredits(pack.base_credits)}</p>
+                                </div>
+                                <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Bônus</p>
+                                  <p className="mt-2 text-lg font-semibold text-emerald-300">+{formatCredits(pack.bonus_credits)}</p>
+                                </div>
+                                <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Total</p>
+                                  <p className="mt-2 text-lg font-semibold text-white">{formatCredits(pack.total_credits)}</p>
+                                </div>
+                              </div>
+
+                              <ul className="mt-5 space-y-2 text-sm leading-6 text-white/65">
+                                {highlights.map((item) => (
+                                  <li key={item} className="flex gap-2">
+                                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300" />
+                                    <span>{item}</span>
+                                  </li>
+                                ))}
+                              </ul>
+
+                              <div className="mt-auto flex items-end justify-between gap-4 pt-5">
+                                <p className="max-w-[220px] text-sm text-white/45">Créditos adicionados na hora ao saldo da conta.</p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleActivateCreditPlan(pack.id)}
+                                  disabled={Boolean(activatingPlanId)}
+                                  className="inline-flex h-11 min-w-[148px] items-center justify-center rounded-2xl bg-white px-5 text-sm font-semibold text-slate-950 transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isActivating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprar créditos"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
+                  ) : null}
+                </div>
+
+                <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+                  <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
+                    <h3 className="text-lg font-semibold text-white">Como os créditos funcionam</h3>
+                    <ul className="mt-4 space-y-3 text-sm leading-6 text-white/60">
+                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />Cada pedido desconta créditos com base no uso estimado da operação.</li>
+                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />O cálculo considera IA, busca, imagem, processamento e estrutura da plataforma.</li>
+                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />Os créditos gratuitos diários entram sem apagar o saldo acumulado.</li>
+                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />Se precisar, você pode complementar o saldo com recargas prontas.</li>
+                    </ul>
                   </div>
 
                   <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="text-lg font-semibold text-white">Tabela de consumo</h3>
                         <p className="mt-1 text-sm leading-6 text-white/60">
-                          Cada execução válida consome créditos no backend, sem depender da interface.
+                          Visual compacta por categoria para não deixar a página extensa.
                         </p>
                       </div>
                       {isLoadingCreditCatalog ? <Loader2 className="h-5 w-5 animate-spin text-white/50" /> : null}
                     </div>
 
-                    <div className="mt-5 space-y-4">
-                      {Object.entries(creditActionsByCategory).map(([category, actions]) => (
-                        <div key={category} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                          <div className="mb-3 flex items-center justify-between gap-2">
-                            <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-white/70">{category}</h4>
-                            <span className="text-xs text-white/35">{actions.length} itens</span>
-                          </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {creditCategoryEntries.map(([category, actions]) => {
+                        const isActive = category === activeCreditCategory;
+                        return (
+                          <button
+                            key={category}
+                            type="button"
+                            onClick={() => setSelectedCreditCategory(category)}
+                            className={cn(
+                              "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] transition",
+                              isActive
+                                ? "border-cyan-400/35 bg-cyan-500/10 text-cyan-300"
+                                : "border-white/10 bg-white/[0.03] text-white/55 hover:bg-white/[0.06]",
+                            )}
+                          >
+                            <span>{category}</span>
+                            <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] normal-case tracking-normal">{actions.length}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                          <div className="space-y-3">
-                            {actions.map((action) => (
-                              <div
-                                key={action.key}
-                                className="flex items-start justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3"
-                              >
+                    <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{activeCreditCategory || "Categoria"}</p>
+                          <p className="text-xs text-white/45">Valores médios por operação.</p>
+                        </div>
+                        <span className="text-xs text-white/35">{selectedCreditActions.length} itens</span>
+                      </div>
+
+                      <div className="space-y-3">
+                        {selectedCreditActions.map((action) => {
+                          const estimatedCost = formatEstimatedCost((action as { estimated_cost_brl?: number }).estimated_cost_brl);
+                          const billingBasis = (action as { billing_basis?: string }).billing_basis;
+                          return (
+                            <div key={action.key} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                              <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium text-white">{action.title}</p>
                                   <p className="mt-1 text-xs leading-5 text-white/45">{action.description}</p>
                                 </div>
-                                <div className="shrink-0 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-sm font-semibold text-cyan-300">
-                                  {formatCredits(action.credits)}
+                                <div className="shrink-0 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-right">
+                                  <div className="text-sm font-semibold text-cyan-300">{formatCredits(action.credits)}</div>
+                                  {estimatedCost ? <div className="text-[11px] text-cyan-200/80">{estimatedCost}</div> : null}
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                              {billingBasis ? (
+                                <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-white/35">Base de cálculo: {billingBasis}</p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
+                </aside>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
+          </section>
+        ) : null}
       </div>
     </div>
   );
 }
+

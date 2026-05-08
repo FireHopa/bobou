@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Play,
@@ -24,7 +24,8 @@ import {
   ChevronRight,
   ChevronLeft,
   Wand2,
-  FolderKanban
+  FolderKanban,
+  Share2
 } from "lucide-react";
 import { api, getClientId } from "@/services/robots";
 import { linkedinService, type LinkedInPublishPayload } from "@/services/linkedin";
@@ -51,6 +52,7 @@ import { GoogleBusinessApplyModal, parseGoogleBusinessPreview } from "@/componen
 import { exportAuthorityFormat as exportFormat } from "@/lib/authorityExport";
 import { bobarService } from "@/services/bobar";
 import { buildAuthorityImportPayload } from "@/lib/bobarImported";
+import { saveAuthorityResultForSocialPublisher } from "@/lib/socialPublisherDraft";
 
 type ExtraFieldValues = Record<string, string>;
 type VideoFormatRecommendation = {
@@ -409,6 +411,7 @@ function ThemeModal({
 }
 
 export default function AuthorityAgentRunPage() {
+  const navigate = useNavigate();
   const { agentKey } = useParams<{ agentKey: string }>();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -437,6 +440,7 @@ export default function AuthorityAgentRunPage() {
   const [isAnalyzingVideoFormat, setIsAnalyzingVideoFormat] = useState(false);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [isSendingToBobar, setIsSendingToBobar] = useState(false);
+  const [isSendingToSocialPublisher, setIsSendingToSocialPublisher] = useState(false);
 
   const { user } = useAuthStore();
   const agent = AUTHORITY_AGENTS.find((a) => a.key === agentKey);
@@ -994,6 +998,20 @@ export default function AuthorityAgentRunPage() {
     }
   }
 
+  function handleSendToSocialPublisher() {
+    if (!result?.output_text || !agent) return;
+
+    setIsSendingToSocialPublisher(true);
+    try {
+      saveAuthorityResultForSocialPublisher(result.output_text, agent);
+      toastSuccess("Resultado enviado para o Publicador Social.");
+      navigate("/social-publisher?origem=agente-autoridade");
+    } catch (error) {
+      toastApiError(error, "Não foi possível enviar este resultado para o Publicador Social");
+      setIsSendingToSocialPublisher(false);
+    }
+  }
+
   function handleWhatsAppShare() {
     if (!result?.output_text) return;
     const whatsAppText = exportFormat(result.output_text, "whatsapp");
@@ -1191,6 +1209,17 @@ export default function AuthorityAgentRunPage() {
               >
                 {isSendingToBobar ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FolderKanban className="h-4 w-4 mr-2" />}
                 Mandar pro Bobar
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-card shadow-sm rounded-xl"
+                onClick={handleSendToSocialPublisher}
+                disabled={isSendingToSocialPublisher}
+              >
+                {isSendingToSocialPublisher ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Share2 className="h-4 w-4 mr-2" />}
+                Mandar pro Publicador Social
               </Button>
 
               <Button size="sm" variant="outline" className="bg-card shadow-sm rounded-xl" onClick={handlePrint}>

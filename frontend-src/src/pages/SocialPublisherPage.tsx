@@ -33,6 +33,12 @@ import { facebookService, type FacebookPage } from "@/services/facebook";
 import { instagramService } from "@/services/instagram";
 import { linkedinService, type LinkedInPublishMode } from "@/services/linkedin";
 import { youtubeService } from "@/services/youtube";
+import {
+  SOCIAL_PUBLISHER_DRAFT_STORAGE_KEY,
+  clearSocialPublisherImportNotice,
+  readSocialPublisherImportNotice,
+  type SocialPublisherImportNotice,
+} from "@/lib/socialPublisherDraft";
 
 type PlatformKey = "instagram" | "facebook" | "linkedin" | "youtube";
 type PublishStatus = "idle" | "publishing" | "success" | "error";
@@ -76,7 +82,7 @@ type PlatformCard = {
   glowClass: string;
 };
 
-const STORAGE_KEY = "bob:social-publisher:draft:v1";
+const STORAGE_KEY = SOCIAL_PUBLISHER_DRAFT_STORAGE_KEY;
 
 const platformLabels: Record<PlatformKey, string> = {
   instagram: "Instagram",
@@ -475,12 +481,19 @@ export default function SocialPublisherPage() {
   const [facebookSelectedPageId, setFacebookSelectedPageId] = React.useState("");
   const [isLoadingFacebookPages, setIsLoadingFacebookPages] = React.useState(false);
   const [isPublishingAll, setIsPublishingAll] = React.useState(false);
+  const [importNotice, setImportNotice] = React.useState<SocialPublisherImportNotice | null>(() => readSocialPublisherImportNotice());
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
   const [thumbnailFile, setThumbnailFile] = React.useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = React.useState<string>();
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = React.useState<string>();
 
   React.useEffect(() => saveDraft(state), [state]);
+
+  React.useEffect(() => {
+    if (!importNotice) return;
+    clearSocialPublisherImportNotice();
+    toastSuccess(`Rascunho importado de ${importNotice.agentName}.`);
+  }, [importNotice]);
 
   React.useEffect(() => {
     if (!videoFile) { setVideoPreviewUrl(undefined); return; }
@@ -730,6 +743,26 @@ export default function SocialPublisherPage() {
             </div>
           </div>
         </section>
+
+        {importNotice ? (
+          <section className="rounded-[30px] border border-cyan-300/20 bg-cyan-400/[0.075] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.20)]">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Importado do agente de autoridade</div>
+                <h2 className="mt-2 text-xl font-semibold text-white">{importNotice.title}</h2>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-white/62">O texto já foi colocado no compositor central e nas legendas por rede. Revise os canais selecionados, adicione imagem ou vídeo quando necessário e publique.</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0 border-white/15 bg-black/24 text-white hover:bg-white/10"
+                onClick={() => setImportNotice(null)}
+              >
+                Ocultar aviso
+              </Button>
+            </div>
+          </section>
+        ) : null}
 
         <section className="grid gap-6 2xl:grid-cols-[430px_minmax(0,1fr)_500px]">
           <aside className="space-y-6 2xl:sticky 2xl:top-6 2xl:self-start">

@@ -56,6 +56,7 @@ export interface CreditPlanActivationResponse {
   credits_added: number;
   base_credits: number;
   bonus_credits: number;
+  kind?: string;
   credits: number;
 }
 

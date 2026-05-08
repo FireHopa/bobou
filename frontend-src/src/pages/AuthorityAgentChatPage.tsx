@@ -27,7 +27,8 @@ import { TikTokPublishModal, type TikTokPublishValues } from "@/components/tikto
 import { exportAuthorityFormat as exportFormat } from "@/lib/authorityExport";
 import { bobarService } from "@/services/bobar";
 import { buildAuthorityImportPayload } from "@/lib/bobarImported";
-import { ArrowLeft, Loader2, Sparkles, RotateCcw, Printer, ChevronDown, FileText, Linkedin, Instagram, Facebook, Youtube, FolderKanban } from "lucide-react";
+import { saveAuthorityResultForSocialPublisher } from "@/lib/socialPublisherDraft";
+import { ArrowLeft, Loader2, Sparkles, RotateCcw, Printer, ChevronDown, FileText, Linkedin, Instagram, Facebook, Youtube, FolderKanban, Share2 } from "lucide-react";
 
 const ICEBREAKERS_GENERIC = [
   "Gere um plano rápido em tópicos",
@@ -77,6 +78,7 @@ export default function AuthorityAgentChatPage() {
   
   const [showDownloadMenu, setShowDownloadMenu] = React.useState(false);
   const [isSendingToBobar, setIsSendingToBobar] = React.useState(false);
+  const [isSendingToSocialPublisher, setIsSendingToSocialPublisher] = React.useState(false);
   const { user } = useAuthStore();
   const { data: businessCore } = useQuery({
     queryKey: ["business-core", "authority-agent-chat", user?.email],
@@ -233,6 +235,20 @@ export default function AuthorityAgentChatPage() {
       toastApiError(error, "Não foi possível enviar este resultado para o Bobar");
     } finally {
       setIsSendingToBobar(false);
+    }
+  }
+
+  function handleSendToSocialPublisher() {
+    if (!resultMd || !agent) return;
+
+    setIsSendingToSocialPublisher(true);
+    try {
+      saveAuthorityResultForSocialPublisher(resultMd, agent);
+      toastSuccess("Resultado enviado para o Publicador Social.");
+      nav("/social-publisher?origem=agente-autoridade");
+    } catch (error) {
+      toastApiError(error, "Não foi possível enviar este resultado para o Publicador Social");
+      setIsSendingToSocialPublisher(false);
     }
   }
 
@@ -826,7 +842,18 @@ export default function AuthorityAgentChatPage() {
                     Bobar
                   </Button>
 
-<Button 
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="bg-card shadow-sm rounded-xl h-9 px-4"
+                    onClick={handleSendToSocialPublisher}
+                    disabled={isSendingToSocialPublisher}
+                  >
+                    {isSendingToSocialPublisher ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Share2 className="h-4 w-4 mr-2" />}
+                    Publicador Social
+                  </Button>
+
+                  <Button 
                     size="sm" 
                     variant="outline"
                     className="bg-card shadow-sm rounded-xl h-9 px-4" 
