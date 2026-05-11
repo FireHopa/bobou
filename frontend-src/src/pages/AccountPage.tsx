@@ -102,7 +102,7 @@ function IntegrationCard({
       </div>
 
       <div className="relative mt-auto pt-5">
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-center justify-between gap-3 text-[11px] font-medium uppercase tracking-[0.24em] text-white/38">
             <span>Conta</span>
             <span
@@ -1098,20 +1098,20 @@ export default function AccountPage() {
                   ) : null}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-3 lg:w-[420px] lg:grid-cols-1 xl:w-[480px] xl:grid-cols-3">
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div className="grid min-w-0 gap-3 sm:grid-cols-3 lg:w-full lg:grid-cols-3 xl:w-[620px]">
+                  <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Saldo atual</p>
-                    <p className="mt-2 text-3xl font-semibold text-white">{formatCredits(user.credits)}</p>
+                    <p className="mt-2 break-words text-2xl font-semibold text-white sm:text-3xl">{formatCredits(user.credits)}</p>
                     <p className="mt-1 text-sm text-white/50">Disponível agora na conta.</p>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Recarga diária</p>
-                    <p className="mt-2 text-3xl font-semibold text-emerald-300">+{formatCredits(dailyFreeCredits)}</p>
+                    <p className="mt-2 break-words text-2xl font-semibold text-emerald-300 sm:text-3xl">+{formatCredits(dailyFreeCredits)}</p>
                     <p className="mt-1 text-sm text-white/50">Créditos grátis por dia.</p>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Plano indicado</p>
-                    <p className="mt-2 text-2xl font-semibold text-white">{recommendedPlanTitle}</p>
+                    <p className="mt-2 break-words text-xl font-semibold text-white sm:text-2xl">{recommendedPlanTitle}</p>
                     <p className="mt-1 text-sm text-white/50">Melhor equilíbrio de uso.</p>
                   </div>
                 </div>

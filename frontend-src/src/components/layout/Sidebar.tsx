@@ -24,6 +24,7 @@ import { transitions } from "@/lib/motion";
 import { AUTHORITY_AGENTS } from "@/constants/authorityAgents";
 import { useAuthStore } from "@/state/authStore";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ColorThemeToggle } from "@/components/layout/ColorThemeToggle";
 
 type Item = {
   to: string;
@@ -97,7 +98,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 h-dvh border-r border-[rgba(0,200,232,0.08)] bg-sidebar backdrop-blur shadow-sidebar transition-all flex flex-col overflow-y-auto overflow-x-hidden custom-scrollbar scrollbar-gutter-stable"
+        "fixed left-0 top-0 z-40 h-dvh border-r border-theme-subtle bg-sidebar backdrop-blur shadow-sidebar transition-all flex flex-col overflow-y-auto overflow-x-hidden custom-scrollbar scrollbar-gutter-stable"
       )}
       style={{ width }}
     >
@@ -106,7 +107,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
           to="/"
           className={cn(
             "group flex items-center gap-3 rounded-2xl px-3 py-3 transition",
-            "hover:bg-[rgba(0,200,232,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            "hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           )}
         >
           <img src={logoUrl} alt="Logo Autoridade" className={cn("h-10 w-auto max-w-[160px] object-contain", collapsed ? "max-w-[44px]" : "")} />
@@ -119,7 +120,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
           <button
             type="button"
             onClick={(e) => { e.preventDefault(); setCollapsed((v) => !v); }}
-            className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl border bg-background/40 shadow-soft transition hover:bg-[rgba(0,200,232,0.10)]")}
+            className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl border bg-background/40 shadow-soft transition hover:bg-theme-accent-soft")}
           >
             {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
@@ -139,11 +140,11 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                     onClick={(e) => { if (hasSub && !collapsed) { toggleSubMenu(it.label, e); } }}
                     className={cn(
                       "group flex flex-1 items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition relative",
-                      "hover:bg-[rgba(0,200,232,0.10)]",
-                      isActiveParent ? "bg-[rgba(0,200,232,0.08)] ring-1 ring-border/70" : "ring-1 ring-transparent"
+                      "hover:bg-theme-accent-soft",
+                      isActiveParent ? "bg-theme-accent-softer ring-1 ring-border/70" : "ring-1 ring-transparent"
                     )}
                   >
-                    <motion.div initial={false} animate={{ scale: isActiveParent ? 1.02 : 1 }} transition={transitions.base} className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-2xl border shadow-soft", isActiveParent ? "bg-[rgba(0,200,232,0.08)]" : "bg-[rgba(0,200,232,0.08)]")}>
+                    <motion.div initial={false} animate={{ scale: isActiveParent ? 1.02 : 1 }} transition={transitions.base} className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-2xl border shadow-soft", "bg-theme-accent-softer")}>
                       <it.Icon className={cn("h-5 w-5", isActiveParent ? "text-foreground" : "text-muted-foreground")} />
                     </motion.div>
                     {!collapsed && (
@@ -173,7 +174,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                               to={sub.to}
                               className={({ isActive }) => cn(
                                 "flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition",
-                                isActive ? "bg-[rgba(0,200,232,0.12)] text-[#00C8E8] font-medium shadow-[inset_3px_0_0_0_#00C8E8]" : "text-muted-foreground hover:bg-[rgba(0,200,232,0.10)] hover:text-foreground"
+                                isActive ? "bg-theme-accent-soft text-label font-medium shadow-theme-inset" : "text-muted-foreground hover:bg-theme-accent-soft hover:text-foreground"
                               )}
                             >
                               <sub.Icon className="h-4 w-4 shrink-0" />
@@ -190,15 +191,19 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
           })}
         </div>
 
+        <div className="mt-4 border-t border-theme-subtle pt-4">
+          <ColorThemeToggle collapsed={collapsed} />
+        </div>
+
         {/* -----------------------------------------------------
             FOOTER DA SIDEBAR: CRÉDITOS E PERFIL DO UTILIZADOR
             ----------------------------------------------------- */}
         {user && (
-          <div className="mt-4 flex flex-col gap-2 border-t border-[rgba(0,200,232,0.08)] pt-4 pb-1">
+          <div className="mt-4 flex flex-col gap-2 border-t border-theme-subtle pt-4 pb-1">
             {!collapsed ? (
               <>
                 {/* Tag de Créditos */}
-                <div className="flex items-center justify-center gap-2 rounded-xl bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-500 border border-blue-500/20">
+                <div className="flex items-center justify-center gap-2 rounded-xl bg-theme-accent-softer px-3 py-2 text-sm font-medium text-label border border-theme-soft">
                   <Coins className="h-4 w-4" />
                   <span>{user.credits ?? 0} Créditos</span>
                 </div>
@@ -206,11 +211,11 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                 {/* Link para Minha Conta */}
                 <Link
                   to="/conta"
-                  className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-[rgba(0,200,232,0.10)] cursor-pointer mt-1"
+                  className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-theme-accent-soft cursor-pointer mt-1"
                 >
-                  <Avatar className="h-10 w-10 shrink-0 rounded-full ring-2 ring-[#00C8E8]/20">
+                  <Avatar className="h-10 w-10 shrink-0 rounded-full ring-2 ring-theme-soft">
                     {user.profile_image_url ? <AvatarImage src={user.profile_image_url} alt={avatarLabel} /> : null}
-                    <AvatarFallback className="rounded-full bg-[#00C8E8] font-bold text-white">
+                    <AvatarFallback className="rounded-full bg-theme-accent font-bold text-theme-accent-foreground">
                       {avatarInitial}
                     </AvatarFallback>
                   </Avatar>
@@ -236,13 +241,13 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
             ) : (
               // Versão Colapsada
               <div className="flex flex-col items-center gap-3">
-                <div className="flex items-center justify-center rounded-xl bg-blue-500/10 h-10 w-10 text-blue-500 border border-blue-500/20" title={`${user.credits ?? 0} Créditos`}>
+                <div className="flex items-center justify-center rounded-xl bg-theme-accent-softer h-10 w-10 text-label border border-theme-soft" title={`${user.credits ?? 0} Créditos`}>
                   <Coins className="h-5 w-5" />
                 </div>
                 <Link to="/conta" title="Minha Conta">
-                  <Avatar className="h-10 w-10 shrink-0 rounded-full shadow-md ring-2 ring-[#00C8E8]/20 transition hover:ring-[#00C8E8]/50">
+                  <Avatar className="h-10 w-10 shrink-0 rounded-full shadow-md ring-2 ring-theme-soft transition hover:ring-theme-strong">
                     {user.profile_image_url ? <AvatarImage src={user.profile_image_url} alt={avatarLabel} /> : null}
-                    <AvatarFallback className="rounded-full bg-[#00C8E8] font-bold text-white">
+                    <AvatarFallback className="rounded-full bg-theme-accent font-bold text-theme-accent-foreground">
                       {avatarInitial}
                     </AvatarFallback>
                   </Avatar>

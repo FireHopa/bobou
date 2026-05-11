@@ -2,6 +2,8 @@ import * as React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { ColorThemeToggle } from "@/components/layout/ColorThemeToggle";
+import { cn } from "@/lib/utils";
 
 export function AppShell() {
   const location = useLocation();
@@ -15,6 +17,16 @@ export function AppShell() {
   const isSocialPublisherFullscreenRoute = location.pathname === "/social-publisher";
   const isFullscreenRoute = isReferenceEditorRoute || isSkyBobFullscreenRoute || isBobarFullscreenRoute || isSocialPublisherFullscreenRoute;
 
+  const pageThemeClass = React.useMemo(() => {
+    if (isBobarFullscreenRoute) return "theme-page-bobar theme-google-gray-compat";
+    if (isSkyBobFullscreenRoute) return "theme-page-skybob theme-google-gray-compat";
+    if (isSocialPublisherFullscreenRoute) return "theme-page-social-publisher theme-google-gray-compat";
+    if (isReferenceEditorRoute) return "theme-page-image-reference theme-google-gray-compat";
+    if (location.pathname === "/conta") return "theme-page-account theme-google-gray-compat";
+    if (location.pathname === "/image-engine") return "theme-page-image-engine theme-google-gray-compat";
+    return "theme-page-standard";
+  }, [isBobarFullscreenRoute, isReferenceEditorRoute, isSkyBobFullscreenRoute, isSocialPublisherFullscreenRoute, location.pathname]);
+
   return (
     <div className="min-h-dvh bg-background text-foreground">
       <a
@@ -24,7 +36,7 @@ export function AppShell() {
         Pular para o conteúdo
       </a>
 
-      {!isFullscreenRoute ? <Sidebar onWidthChange={setSidebarW} /> : null}
+      {!isFullscreenRoute ? <Sidebar onWidthChange={setSidebarW} /> : <ColorThemeToggle variant="floating" />}
 
       <div
         style={isFullscreenRoute ? undefined : { paddingLeft: sidebarW }}
@@ -38,15 +50,16 @@ export function AppShell() {
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: -6, filter: "blur(8px)" }}
             transition={{ duration: 0.22 }}
-            className={
+            className={cn(
+              pageThemeClass,
               isReferenceEditorRoute
                 ? "h-dvh overflow-hidden"
                 : isBobarFullscreenRoute
                   ? "min-h-dvh"
                   : isSkyBobFullscreenRoute || isSocialPublisherFullscreenRoute
                     ? "min-h-dvh"
-                    : "container py-10"
-            }
+                    : "container py-10",
+            )}
           >
             <Outlet />
           </motion.main>

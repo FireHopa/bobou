@@ -1208,8 +1208,8 @@ export default function SkyBobPage() {
         </div>
       )}
 
-      <div className="fixed right-4 top-4 z-50 sm:right-6 sm:top-6">
-        <Button variant="outline" onClick={handleBack} className="border-white/15 bg-black/20 backdrop-blur">
+      <div className="fixed left-4 top-4 z-50 sm:left-6 sm:top-6">
+        <Button variant="outline" onClick={handleBack} className="theme-back-button border-white/15 bg-black/20 text-white backdrop-blur hover:bg-white/10">
           <ArrowLeft className="h-4 w-4" />
           Voltar
         </Button>
