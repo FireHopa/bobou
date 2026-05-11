@@ -149,6 +149,36 @@ def _estimate_text_action_credits(
     return max(int(minimum_credits), brl_to_credits(_apply_structure(raw_brl, structure_brl=structure_brl)))
 
 
+# Fallback inicial usado durante a montagem do catálogo de ações.
+# O catálogo (_ACTIONS_BY_KEY) só existe depois que _ACTIONS é criado; por isso
+# estimate_action_credits não pode depender apenas da função definida no final do arquivo.
+_BOOTSTRAP_ACTION_COSTS: dict[str, int] = {
+    "robot_create": 900,
+    "robot_chat_message": 220,
+    "robot_audio_message": 300,
+    "authority_assistant_edit": 650,
+    "authority_agent_run": 1300,
+    "authority_agent_theme_suggestion": 600,
+    "authority_agent_video_format_suggestion": 380,
+    "competition_find_competitors": 900,
+    "competition_analyze": 2100,
+    "skybob_preflight": 1000,
+    "skybob_full_run": 3600,
+    "skybob_refine_run": 1700,
+    "image_generate_from_scratch": 3800,
+    "image_edit": 3200,
+}
+
+
+def get_action_cost(action_key: str) -> int:
+    catalog = globals().get("_ACTIONS_BY_KEY")
+    if isinstance(catalog, dict):
+        item = catalog.get(action_key)
+        if item is not None:
+            return int(getattr(item, "credits", 0) or 0)
+    return _BOOTSTRAP_ACTION_COSTS.get(action_key, 1000)
+
+
 def estimate_action_credits(
     action_key: str,
     *,
@@ -404,10 +434,6 @@ _PLAN_ALIASES = {
     "elite_orbit": "equipe",
 }
 _PLANS_BY_ID = {item.id: item for item in _PLANS}
-
-
-def get_action_cost(action_key: str) -> int:
-    return get_credit_action(action_key).credits
 
 
 def get_credit_action(action_key: str) -> CreditAction:
