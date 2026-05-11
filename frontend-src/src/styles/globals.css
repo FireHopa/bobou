@@ -1754,3 +1754,380 @@
     color: #03111D !important;
   }
 }
+
+/* -------------------------------------------------------------
+   Google Gray V7 full conversion
+   Regra final: quando o tema Cinza Google estiver ativo, o conteúdo
+   principal inteiro vira claro/cinza. Fundos escuros herdados deixam
+   de ficar escuros, evitando mistura visual e textos invisíveis.
+   ------------------------------------------------------------- */
+@layer utilities {
+  html[data-color-theme="googleGray"] {
+    --google-page-bg: #EEF2F7;
+    --google-surface: #FFFFFF;
+    --google-surface-soft: #F8FAFC;
+    --google-surface-tint: #F1F3F4;
+    --google-border: rgba(95, 99, 104, 0.22);
+    --google-border-strong: rgba(95, 99, 104, 0.34);
+    --google-text: #202124;
+    --google-muted: #5F6368;
+    --google-faint: #80868B;
+    --google-blue: #1A73E8;
+    --google-blue-soft: #E8F0FE;
+    --google-green: #188038;
+    --google-green-soft: #E6F4EA;
+    --google-yellow: #B06000;
+    --google-yellow-soft: #FEF7E0;
+    --google-red: #B3261E;
+    --google-red-soft: #FCE8E6;
+    --google-purple: #681DA8;
+    --google-purple-soft: #F3E8FD;
+    --google-shadow: 0 16px 38px rgba(60, 64, 67, 0.12), 0 2px 8px rgba(60, 64, 67, 0.08);
+    --google-shadow-soft: 0 10px 26px rgba(60, 64, 67, 0.10);
+    --google-grad-surface: linear-gradient(135deg, rgba(255,255,255,0.98), rgba(248,250,252,0.94) 58%, rgba(241,243,244,0.92));
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) {
+    background: var(--google-page-bg) !important;
+    color: var(--google-text) !important;
+    color-scheme: light !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .glass,
+    .bg-card,
+    [class*="bg-[#020611]"],
+    [class*="bg-[#020617]"],
+    [class*="bg-[#020817]"],
+    [class*="bg-[#03060F]"],
+    [class*="bg-[#040812]"],
+    [class*="bg-[#040914]"],
+    [class*="bg-[#05070D]"],
+    [class*="bg-[#050914]"],
+    [class*="bg-[#050b17]"],
+    [class*="bg-[#050b18]"],
+    [class*="bg-[#050d1c]"],
+    [class*="bg-[#060a14]"],
+    [class*="bg-[#06101f]"],
+    [class*="bg-[#070B14]"],
+    [class*="bg-[#070C16]"],
+    [class*="bg-[#07101D]"],
+    [class*="bg-[#07101f]"],
+    [class*="bg-[#07111F]"],
+    [class*="bg-[#07111f]"],
+    [class*="bg-[#08111c]"],
+    [class*="bg-[#081224]"],
+    [class*="bg-[#09101c]"],
+    [class*="bg-[#091426]"],
+    [class*="bg-[#091827]"],
+    [class*="bg-[#0a0f1b]"],
+    [class*="bg-[#0a1225]"],
+    [class*="bg-[#0b1220]"],
+    [class*="bg-[#0b1426]"],
+    [class*="bg-[#0b0b14]"],
+    [class*="bg-[#0b0b0d]"],
+    [class*="bg-[#0d0d12]"],
+    [class*="bg-[#0f0f18]"],
+    [class*="bg-[#10101a]"],
+    [class*="bg-[#10213d]"],
+    [class*="bg-[#111114]"],
+    [class*="bg-[#141f2b]"],
+    [class*="bg-[#16202a]"],
+    [class*="bg-[#162a20]"],
+    [class*="bg-[#17070d]"],
+    [class*="bg-[#18181b]"],
+    [class*="bg-[#1b2128]"],
+    [class*="bg-[#21162c]"],
+    [class*="bg-[#230a13]"],
+    [class*="bg-[#2a1616]"],
+    [class*="bg-[#2a2416]"],
+    [class*="bg-slate-950"],
+    [class*="bg-slate-900"],
+    [class*="bg-zinc-950"],
+    [class*="bg-zinc-900"],
+    [class*="bg-neutral-950"],
+    [class*="bg-neutral-900"],
+    [class*="bg-black/"],
+    [class*="bg-white/[0.02]"],
+    [class*="bg-white/[0.025]"],
+    [class*="bg-white/[0.03]"],
+    [class*="bg-white/[0.035]"],
+    [class*="bg-white/[0.04]"],
+    [class*="bg-white/[0.045]"],
+    [class*="bg-white/[0.05]"],
+    [class*="bg-white/5"],
+    [class*="bg-white/10"]
+  ) {
+    background: var(--google-grad-surface) !important;
+    border-color: var(--google-border) !important;
+    color: var(--google-text) !important;
+    box-shadow: var(--google-shadow-soft);
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .text-foreground,
+    .text-card-foreground,
+    .text-white,
+    [class*="text-white/"],
+    [class*="text-slate-50"],
+    [class*="text-slate-100"],
+    [class*="text-slate-200"],
+    [class*="text-slate-300"],
+    [class*="text-zinc-50"],
+    [class*="text-zinc-100"],
+    [class*="text-zinc-200"],
+    [class*="text-neutral-50"],
+    [class*="text-neutral-100"]
+  ) {
+    color: var(--google-text) !important;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .text-muted-foreground,
+    .text-secondary,
+    .text-tertiary,
+    [class*="text-slate-400"],
+    [class*="text-slate-500"],
+    [class*="text-zinc-300"],
+    [class*="text-zinc-400"],
+    [class*="text-neutral-300"],
+    [class*="text-neutral-400"]
+  ) {
+    color: var(--google-muted) !important;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    [class*="text-cyan-"],
+    [class*="text-sky-"],
+    [class*="text-blue-"],
+    .text-label
+  ) {
+    color: var(--google-blue) !important;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-emerald-"], [class*="text-green-"]) {
+    color: var(--google-green) !important;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-amber-"], [class*="text-yellow-"]) {
+    color: var(--google-yellow) !important;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-red-"], [class*="text-rose-"]) {
+    color: var(--google-red) !important;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-violet-"], [class*="text-purple-"], [class*="text-fuchsia-"]) {
+    color: var(--google-purple) !important;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(input, textarea, select, .bobar-select-trigger) {
+    background: var(--google-surface) !important;
+    border-color: var(--google-border-strong) !important;
+    color: var(--google-text) !important;
+    color-scheme: light !important;
+    box-shadow: none !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(input::placeholder, textarea::placeholder) {
+    color: var(--google-faint) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(select option) {
+    background: var(--google-surface) !important;
+    color: var(--google-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    button,
+    a,
+    [role="button"]
+  ) {
+    border-color: var(--google-border) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    button[class*="bg-white"],
+    button[class*="bg-slate-"],
+    button[class*="bg-gray-"],
+    button[class*="bg-zinc-"],
+    a[class*="bg-white"],
+    [role="button"][class*="bg-white"],
+    .btn-ghost
+  ) {
+    background: var(--google-surface) !important;
+    color: var(--google-text) !important;
+    border-color: var(--google-border-strong) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .btn-primary,
+    button[class*="bg-gradient-to-"],
+    a[class*="bg-gradient-to-"],
+    button[class*="from-blue-"],
+    button[class*="from-cyan-"],
+    button[class*="from-emerald-"],
+    button[class*="from-pink-"],
+    button[class*="bg-[#1877F2]"],
+    button[class*="bg-[#0A66C2]"],
+    button[class*="bg-[#FF0000]"],
+    button[class*="bg-[#FF0033]"],
+    button[class*="bg-[#25D366]"],
+    button[class*="bg-blue-500"],
+    button[class*="bg-blue-600"],
+    button[class*="bg-cyan-400"],
+    button[class*="bg-emerald-500"],
+    button[class*="bg-red-500"]
+  ) {
+    background: var(--grad-cta) !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    border-color: transparent !important;
+    text-shadow: 0 1px 1px rgba(32, 33, 36, 0.22);
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .btn-primary,
+    button[class*="bg-gradient-to-"],
+    a[class*="bg-gradient-to-"],
+    button[class*="from-blue-"],
+    button[class*="from-cyan-"],
+    button[class*="from-emerald-"],
+    button[class*="from-pink-"],
+    button[class*="bg-[#1877F2]"],
+    button[class*="bg-[#0A66C2]"],
+    button[class*="bg-[#FF0000]"],
+    button[class*="bg-[#FF0033]"],
+    button[class*="bg-[#25D366]"],
+    button[class*="bg-blue-500"],
+    button[class*="bg-blue-600"],
+    button[class*="bg-cyan-400"],
+    button[class*="bg-emerald-500"],
+    button[class*="bg-red-500"]
+  ) :where(svg, span, div) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(:disabled, [aria-disabled="true"]) {
+    opacity: 0.58 !important;
+  }
+
+  /* Bobar e fluxograma: conversão explícita do canvas e dos blocos. */
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) {
+    background:
+      radial-gradient(circle at 12% 0%, rgba(66,133,244,0.13), transparent 32%),
+      radial-gradient(circle at 86% 10%, rgba(52,168,83,0.10), transparent 30%),
+      var(--google-page-bg) !important;
+    color: var(--google-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) :where(.bobar-flow-shell, .bobar-flow-inspector) {
+    background: var(--google-surface) !important;
+    border-color: var(--google-border) !important;
+    color: var(--google-text) !important;
+    box-shadow: var(--google-shadow) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-header {
+    background: var(--google-surface-soft) !important;
+    border-color: var(--google-border) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-canvas {
+    background-color: #F8FAFC !important;
+    background-image:
+      radial-gradient(circle at top, rgba(66,133,244,0.10), transparent 32%),
+      linear-gradient(rgba(60,64,67,0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(60,64,67,0.08) 1px, transparent 1px) !important;
+    background-size: auto, 32px 32px, 32px 32px !important;
+    color: var(--google-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node {
+    background: #FFFFFF !important;
+    border-color: rgba(66, 133, 244, 0.26) !important;
+    color: var(--google-text) !important;
+    box-shadow: 0 18px 36px rgba(60, 64, 67, 0.16) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node[class*="ring-"] {
+    border-color: rgba(26, 115, 232, 0.62) !important;
+    box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.16), 0 18px 36px rgba(60, 64, 67, 0.16) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node :where([class*="bg-cyan-"], [class*="bg-sky-"]) {
+    background: var(--google-blue-soft) !important;
+    border-color: #D2E3FC !important;
+    color: #174EA6 !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node :where([class*="bg-violet-"], [class*="bg-purple-"]) {
+    background: var(--google-purple-soft) !important;
+    border-color: #E9D2FD !important;
+    color: var(--google-purple) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node :where([class*="bg-white/"], [class*="bg-white["]) {
+    background: var(--google-surface-soft) !important;
+    border-color: var(--google-border) !important;
+    color: var(--google-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node :where(
+    [class*="text-cyan-"],
+    [class*="text-violet-"],
+    [class*="text-purple-"],
+    [class*="text-white/"],
+    .text-white
+  ) {
+    color: inherit !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu {
+    background: var(--google-surface) !important;
+    border-color: var(--google-border-strong) !important;
+    color: var(--google-text) !important;
+    box-shadow: var(--google-shadow) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu :where(button) {
+    color: var(--google-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu :where(button:hover) {
+    background: var(--google-blue-soft) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu :where([class*="bg-cyan-"]) {
+    background: var(--google-blue-soft) !important;
+    color: var(--google-blue) !important;
+  }
+
+  /* Mantém a sidebar legível no grafite Google. */
+  html[data-color-theme="googleGray"] .bg-sidebar,
+  html[data-color-theme="googleGray"] .bg-sidebar :where(.glass, [class*="bg-[#"], [class*="bg-black/"], [class*="bg-white/"]) {
+    background: var(--grad-sidebar) !important;
+    color: #F8FAFC !important;
+    border-color: rgba(255,255,255,0.12) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bg-sidebar :where(.text-white, [class*="text-white/"], .text-foreground, .text-card-foreground) {
+    color: #F8FAFC !important;
+    -webkit-text-fill-color: #F8FAFC !important;
+  }
+
+  html[data-color-theme="googleGray"] .bg-sidebar :where(.text-muted-foreground, [class*="text-slate-"], [class*="text-zinc-"]) {
+    color: #BDC1C6 !important;
+    -webkit-text-fill-color: #BDC1C6 !important;
+  }
+}

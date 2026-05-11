@@ -2036,7 +2036,7 @@ function SelectField({
           disabled={disabled}
           onClick={() => setOpen((current) => !current)}
           className={cn(
-            "flex h-12 w-full items-center justify-between rounded-2xl border px-4 text-left shadow-[0_16px_40px_rgba(0,0,0,0.2)] transition",
+            "bobar-select-trigger flex h-12 w-full items-center justify-between rounded-2xl border px-4 text-left shadow-[0_16px_40px_rgba(0,0,0,0.2)] transition",
             "border-cyan-400/30 bg-[#0a1225] text-white hover:border-cyan-300/50 hover:bg-[#0d1830]",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/50 disabled:cursor-not-allowed disabled:opacity-50",
           )}
@@ -2064,7 +2064,7 @@ function SelectField({
               <div
                 ref={menuRef}
                 style={menuStyle}
-                className="overflow-hidden rounded-[1.4rem] border border-cyan-400/20 bg-[#07101f] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
+                className="bobar-select-menu overflow-hidden rounded-[1.4rem] border border-cyan-400/20 bg-[#07101f] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
               >
                 <div className="custom-scrollbar scrollbar-gutter-stable overflow-y-auto pr-1" style={{ maxHeight: menuStyle.maxHeight }}>
                   {options.map((option) => {
@@ -2735,8 +2735,8 @@ function FlowchartCanvas({
   }, [height, onMoveNode, onSelectNode, width]);
 
   return (
-    <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#040914]">
-      <div className="border-b border-white/10 px-5 py-4">
+    <div className="bobar-flow-shell overflow-hidden rounded-[2rem] border border-white/10 bg-[#040914]">
+      <div className="bobar-flow-header border-b border-white/10 px-5 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-100">
             Fluxograma
@@ -2830,7 +2830,7 @@ function FlowchartCanvas({
           }
         }}
         className={cn(
-          "custom-scrollbar relative overflow-auto overscroll-none bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.08),transparent_35%),linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:auto,32px_32px,32px_32px] outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/40",
+          "bobar-flow-canvas custom-scrollbar relative overflow-auto overscroll-none bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.08),transparent_35%),linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:auto,32px_32px,32px_32px] outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/40",
           isPanning && "cursor-grabbing select-none",
           viewportClassName || "h-[min(78vh,900px)]",
         )}
@@ -2908,7 +2908,7 @@ function FlowchartCanvas({
                   }
                 }}
                 className={cn(
-                  "absolute w-72 cursor-grab overflow-hidden rounded-[1.8rem] border p-4 shadow-[0_20px_40px_rgba(0,0,0,0.28)] transition active:cursor-grabbing",
+                  "bobar-flow-node absolute w-72 cursor-grab overflow-hidden rounded-[1.8rem] border p-4 shadow-[0_20px_40px_rgba(0,0,0,0.28)] transition active:cursor-grabbing",
                   selected
                     ? "border-cyan-300/55 bg-[#10213d] ring-2 ring-cyan-300/25"
                     : "border-white/10 bg-[#0b1426]/95 hover:border-white/20",
@@ -3415,7 +3415,7 @@ function FlowEditorInspector({
   return (
     <Card
       variant="glass"
-      className={cn("rounded-[2rem] border-white/10 bg-[#06101f]", className)}
+      className={cn("bobar-flow-inspector rounded-[2rem] border-white/10 bg-[#06101f]", className)}
     >
       <CardHeader>
         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
@@ -5638,7 +5638,7 @@ export default function BobarPage() {
     isFlowEditorOpen && isFlowCard && activeFlow && typeof document !== "undefined"
       ? createPortal(
           <div
-            className="fixed inset-0 z-[2147483647] h-screen w-screen overflow-hidden bg-[#020611] text-white"
+            className="theme-page-bobar theme-page-bobar-flow fixed inset-0 z-[2147483647] h-screen w-screen overflow-hidden bg-[#020611] text-white"
             style={{ position: "fixed", inset: 0 }}
           >
             <div className="flex h-screen w-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.08),transparent_28%),#020611]">
@@ -5764,7 +5764,7 @@ export default function BobarPage() {
   const ActiveImportIcon = activeImportAgent?.Icon || AUTHORITY_AGENTS[0]?.Icon;
 
   return (
-    <div className="relative min-h-dvh overflow-x-hidden bg-[#020611] px-3 pb-8 pt-4 text-white sm:px-4 lg:px-5 xl:px-6">
+    <div className="theme-page-bobar relative min-h-dvh overflow-x-hidden bg-[#020611] px-3 pb-8 pt-4 text-white sm:px-4 lg:px-5 xl:px-6">
       <Button
         type="button"
         variant="outline"

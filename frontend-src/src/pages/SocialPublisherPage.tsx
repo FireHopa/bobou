@@ -385,7 +385,7 @@ function NetworkSelectorCard({
 function InstagramPreview({ state, mediaUrls, displayName }: { state: ComposerState; mediaUrls: string[]; displayName: string }) {
   const caption = captionFor(state, "instagram");
   return (
-    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-black shadow-2xl">
+    <div className="theme-google-dark-surface overflow-hidden rounded-[28px] border border-white/10 bg-black shadow-2xl">
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 via-fuchsia-500 to-orange-400 text-sm font-bold text-white">
@@ -439,7 +439,7 @@ function FacebookPreview({ state, mediaUrls, pageName }: { state: ComposerState;
 function LinkedInPreview({ state }: { state: ComposerState }) {
   const caption = captionFor(state, "linkedin");
   return (
-    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#0a0f1b] text-white shadow-2xl">
+    <div className="theme-google-dark-surface overflow-hidden rounded-[28px] border border-white/10 bg-[#0a0f1b] text-white shadow-2xl">
       <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#0A66C2] text-lg font-bold text-white">L</div>
@@ -458,7 +458,7 @@ function LinkedInPreview({ state }: { state: ComposerState }) {
 
 function YouTubePreview({ state, videoUrl, thumbUrl }: { state: ComposerState; videoUrl?: string; thumbUrl?: string }) {
   return (
-    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#111114] text-white shadow-2xl">
+    <div className="theme-google-dark-surface overflow-hidden rounded-[28px] border border-white/10 bg-[#111114] text-white shadow-2xl">
       <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-white">Prévia do vídeo</div>
