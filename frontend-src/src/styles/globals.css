@@ -2131,3 +2131,1618 @@
     -webkit-text-fill-color: #BDC1C6 !important;
   }
 }
+
+/* -------------------------------------------------------------
+   Google Gray V8 definitive theme layer
+   Escopo: apenas html[data-color-theme="googleGray"].
+   Converte o produto para um tema claro/cinza consistente, preservando
+   o tema escuro original e mantendo previews intencionalmente escuros.
+   ------------------------------------------------------------- */
+@layer utilities {
+  html[data-color-theme="googleGray"] {
+    color-scheme: light;
+
+    --background: 216 38% 97%; /* #F6F8FB */
+    --foreground: 215 28% 17%; /* #1F2937 */
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 17%;
+    --primary: 217 89% 61%; /* #4285F4 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 37% 96%; /* #F2F5F9 */
+    --secondary-foreground: 215 28% 17%;
+    --muted: 217 33% 92%; /* #E5EAF2 */
+    --muted-foreground: 220 9% 46%; /* #6B7280 */
+    --accent: 215 38% 94%; /* #E9EEF5 */
+    --accent-foreground: 215 28% 17%;
+    --border: 218 26% 88%; /* #D8DEE8 */
+    --input: 218 26% 88%;
+    --ring: 217 89% 61%;
+    --g-blue: 217 89% 61%;
+    --g-green: 136 53% 43%;
+    --g-yellow: 45 97% 50%;
+    --g-red: 5 81% 56%;
+
+    --gg-bg-app: #F6F8FB;
+    --gg-bg-alt: #EEF2F7;
+    --gg-surface: #FFFFFF;
+    --gg-surface-secondary: #F2F5F9;
+    --gg-elevated: #FAFBFD;
+    --gg-highlight: #E9EEF5;
+    --gg-graphite: #374151;
+    --gg-graphite-medium: #2F3742;
+    --gg-graphite-dark: #27313D;
+    --gg-graphite-detail: #1F2937;
+    --gg-border: #D8DEE8;
+    --gg-border-soft: #E5EAF2;
+    --gg-text: #1F2937;
+    --gg-text-secondary: #374151;
+    --gg-text-support: #4B5563;
+    --gg-text-muted: #6B7280;
+    --gg-text-disabled: #9CA3AF;
+    --gg-text-inverse: #F9FAFB;
+    --gg-text-inverse-secondary: #E5E7EB;
+    --gg-text-inverse-muted: #CBD5E1;
+    --gg-blue: #4285F4;
+    --gg-blue-strong: #2563EB;
+    --gg-green: #34A853;
+    --gg-yellow: #FBBC05;
+    --gg-red: #EA4335;
+    --gg-blue-soft: #EAF2FF;
+    --gg-green-soft: #EAF8EF;
+    --gg-yellow-soft: #FFF7DA;
+    --gg-red-soft: #FDECEC;
+    --gg-cyan-soft: #E6F7FF;
+    --gg-shadow: 0 14px 34px rgba(31, 41, 55, 0.10), 0 2px 8px rgba(31, 41, 55, 0.06);
+    --gg-shadow-soft: 0 8px 22px rgba(31, 41, 55, 0.08);
+    --gg-grad-google: linear-gradient(135deg, #4285F4 0%, #34A853 48%, #FBBC05 74%, #EA4335 100%);
+    --gg-grad-surface: linear-gradient(135deg, #FFFFFF 0%, #FAFBFD 56%, #F2F5F9 100%);
+
+    --grad-cta: var(--gg-grad-google);
+    --grad-surface: var(--gg-grad-surface);
+    --glass-bg: 0 0% 100% / 0.92;
+    --glass-border: 218 26% 88% / 0.92;
+    --shadow-card: var(--gg-shadow);
+    --shadow-soft: var(--gg-shadow-soft);
+    --theme-accent: 217 89% 61%;
+    --theme-accent-strong: 221 83% 53%;
+    --theme-accent-foreground: 0 0% 100%;
+    --theme-accent-soft: 217 89% 61% / 0.12;
+    --theme-accent-softer: 217 89% 61% / 0.075;
+    --theme-border-soft: 218 26% 88%;
+    --theme-border-subtle: 217 33% 92%;
+    --theme-elevated: 0 0% 100%;
+    --theme-text-secondary: #374151;
+    --theme-text-tertiary: #6B7280;
+    --theme-scrollbar-thumb: rgba(107, 114, 128, 0.34);
+    --theme-scrollbar-thumb-hover: rgba(66, 133, 244, 0.46);
+  }
+
+  html[data-color-theme="googleGray"] body {
+    background:
+      radial-gradient(circle at 12% 0%, rgba(66, 133, 244, 0.10), transparent 30%),
+      radial-gradient(circle at 90% 8%, rgba(52, 168, 83, 0.08), transparent 28%),
+      var(--gg-bg-app) !important;
+    color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-floating-toggle {
+    left: 1rem !important;
+    right: auto !important;
+    bottom: 1rem !important;
+    top: auto !important;
+    background: rgba(255, 255, 255, 0.96) !important;
+    color: var(--gg-text) !important;
+    border-color: rgba(66, 133, 244, 0.28) !important;
+    box-shadow: var(--gg-shadow) !important;
+    opacity: 0.88 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-floating-toggle:hover,
+  html[data-color-theme="googleGray"] .theme-floating-toggle:focus-visible {
+    opacity: 1 !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-standard, .theme-page-account, .theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-bobar-flow) {
+    background:
+      radial-gradient(circle at 10% 0%, rgba(66,133,244,0.10), transparent 32%),
+      radial-gradient(circle at 90% 12%, rgba(52,168,83,0.08), transparent 30%),
+      var(--gg-bg-app) !important;
+    color: var(--gg-text) !important;
+    color-scheme: light !important;
+  }
+
+  /* Superfícies claras do tema. Não é um seletor global: só troca fundos herdados do dark dentro das páginas do app. */
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .glass,
+    .bg-card,
+    [class*="bg-[#020611]"],
+    [class*="bg-[#020617]"],
+    [class*="bg-[#020817]"],
+    [class*="bg-[#03060F]"],
+    [class*="bg-[#040812]"],
+    [class*="bg-[#040914]"],
+    [class*="bg-[#05070D]"],
+    [class*="bg-[#050914]"],
+    [class*="bg-[#050b16]"],
+    [class*="bg-[#050b17]"],
+    [class*="bg-[#050b18]"],
+    [class*="bg-[#050d1c]"],
+    [class*="bg-[#060a14]"],
+    [class*="bg-[#06101f]"],
+    [class*="bg-[#070B14]"],
+    [class*="bg-[#070C16]"],
+    [class*="bg-[#07101D]"],
+    [class*="bg-[#07101f]"],
+    [class*="bg-[#07111F]"],
+    [class*="bg-[#07111f]"],
+    [class*="bg-[#08111c]"],
+    [class*="bg-[#081224]"],
+    [class*="bg-[#09101c]"],
+    [class*="bg-[#091426]"],
+    [class*="bg-[#091827]"],
+    [class*="bg-[#0a0f1b]"],
+    [class*="bg-[#0a1225]"],
+    [class*="bg-[#0b1120]"],
+    [class*="bg-[#0b1220]"],
+    [class*="bg-[#0b1426]"],
+    [class*="bg-[#0f172A]"],
+    [class*="bg-[#0f172a]"],
+    [class*="bg-slate-950"],
+    [class*="bg-slate-900"],
+    [class*="bg-zinc-950"],
+    [class*="bg-zinc-900"],
+    [class*="bg-neutral-950"],
+    [class*="bg-neutral-900"],
+    [class*="bg-gray-950"],
+    [class*="bg-gray-900"],
+    [class*="bg-black/"],
+    [class*="bg-white/[0.02]"],
+    [class*="bg-white/[0.025]"],
+    [class*="bg-white/[0.03]"],
+    [class*="bg-white/[0.035]"],
+    [class*="bg-white/[0.04]"],
+    [class*="bg-white/[0.045]"],
+    [class*="bg-white/[0.05]"],
+    [class*="bg-white/5"],
+    [class*="bg-white/10"]
+  ) {
+    background: var(--gg-grad-surface) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow-soft);
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .text-foreground,
+    .text-card-foreground,
+    .text-white,
+    [class*="text-white/"],
+    [class*="text-slate-50"],
+    [class*="text-slate-100"],
+    [class*="text-slate-200"],
+    [class*="text-slate-300"],
+    [class*="text-gray-50"],
+    [class*="text-gray-100"],
+    [class*="text-gray-200"],
+    [class*="text-zinc-50"],
+    [class*="text-zinc-100"],
+    [class*="text-zinc-200"],
+    [class*="text-neutral-50"],
+    [class*="text-neutral-100"]
+  ) {
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .text-muted-foreground,
+    .text-secondary,
+    .text-tertiary,
+    [class*="text-white/3"],
+    [class*="text-white/4"],
+    [class*="text-white/5"],
+    [class*="text-white/6"],
+    [class*="text-slate-400"],
+    [class*="text-slate-500"],
+    [class*="text-gray-300"],
+    [class*="text-gray-400"],
+    [class*="text-gray-500"],
+    [class*="text-zinc-300"],
+    [class*="text-zinc-400"],
+    [class*="text-zinc-500"],
+    [class*="text-neutral-300"],
+    [class*="text-neutral-400"]
+  ) {
+    color: var(--gg-text-muted) !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-cyan-"], [class*="text-sky-"], [class*="text-blue-"], .text-label) { color: var(--gg-blue-strong) !important; -webkit-text-fill-color: currentColor !important; }
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-emerald-"], [class*="text-green-"]) { color: #137333 !important; -webkit-text-fill-color: currentColor !important; }
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-amber-"], [class*="text-yellow-"]) { color: #B06000 !important; -webkit-text-fill-color: currentColor !important; }
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-red-"], [class*="text-rose-"]) { color: #B3261E !important; -webkit-text-fill-color: currentColor !important; }
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where([class*="text-violet-"], [class*="text-purple-"], [class*="text-fuchsia-"]) { color: #681DA8 !important; -webkit-text-fill-color: currentColor !important; }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow, .theme-dialog-content) :where(input, textarea, select, .bobar-select-trigger) {
+    background: var(--gg-surface) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    color-scheme: light !important;
+    box-shadow: none !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow, .theme-dialog-content) :where(input::placeholder, textarea::placeholder) {
+    color: var(--gg-text-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow, .theme-dialog-content) :where(select option) {
+    background: var(--gg-surface) !important;
+    color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow, .theme-dialog-content) :where(:disabled, [aria-disabled="true"]) {
+    opacity: 1 !important;
+    background-color: var(--gg-border-soft) !important;
+    color: var(--gg-text-muted) !important;
+    cursor: not-allowed !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    .btn-primary,
+    button[class*="bg-gradient-to-"],
+    a[class*="bg-gradient-to-"],
+    button[class*="from-blue-"],
+    button[class*="from-cyan-"],
+    button[class*="from-emerald-"],
+    button[class*="from-pink-"],
+    button[class*="bg-[#1877F2]"],
+    button[class*="bg-[#0A66C2]"],
+    button[class*="bg-[#FF0000]"],
+    button[class*="bg-[#FF0033]"],
+    button[class*="bg-[#25D366]"],
+    button[class*="bg-blue-500"],
+    button[class*="bg-blue-600"],
+    button[class*="bg-cyan-300"],
+    button[class*="bg-cyan-400"],
+    button[class*="bg-emerald-500"],
+    button[class*="bg-red-500"],
+    a[class*="bg-blue-600"],
+    a[class*="bg-cyan-300"]
+  ) {
+    background: var(--gg-grad-google) !important;
+    border-color: transparent !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    text-shadow: 0 1px 1px rgba(31, 41, 55, 0.28);
+  }
+
+  html[data-color-theme="googleGray"] :where(main, .theme-page-bobar-flow) :where(
+    button[class*="bg-white"],
+    a[class*="bg-white"],
+    button[class*="bg-slate-"],
+    button[class*="bg-gray-"],
+    button[class*="bg-zinc-"],
+    [role="button"][class*="bg-white"],
+    .btn-ghost
+  ) {
+    background: var(--gg-surface) !important;
+    color: var(--gg-text) !important;
+    border-color: var(--gg-border) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.badge-cyan, .badge-blue) { background: var(--gg-blue-soft) !important; color: var(--gg-blue-strong) !important; border-color: #CFE0FF !important; }
+  html[data-color-theme="googleGray"] .badge-green { background: var(--gg-green-soft) !important; color: #137333 !important; border-color: #CBEAD4 !important; }
+  html[data-color-theme="googleGray"] .badge-orange { background: var(--gg-yellow-soft) !important; color: #B06000 !important; border-color: #FCE8B2 !important; }
+  html[data-color-theme="googleGray"] .badge-red { background: var(--gg-red-soft) !important; color: #B3261E !important; border-color: #F5C2BF !important; }
+  html[data-color-theme="googleGray"] .badge-purple { background: #F3E8FD !important; color: #681DA8 !important; border-color: #E9D2FD !important; }
+
+  /* Sidebar continua grafite, mas sem navy/preto absoluto. */
+  html[data-color-theme="googleGray"] .bg-sidebar,
+  html[data-color-theme="googleGray"] .bg-sidebar :where(.glass, [class*="bg-[#"], [class*="bg-black/"], [class*="bg-white/"]) {
+    background: linear-gradient(180deg, var(--gg-graphite) 0%, var(--gg-graphite-medium) 100%) !important;
+    color: var(--gg-text-inverse) !important;
+    border-color: rgba(249, 250, 251, 0.13) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bg-sidebar :where(.text-white, [class*="text-white/"], .text-foreground, .text-card-foreground) {
+    color: var(--gg-text-inverse) !important;
+    -webkit-text-fill-color: var(--gg-text-inverse) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bg-sidebar :where(.text-muted-foreground, [class*="text-slate-"], [class*="text-zinc-"]) {
+    color: var(--gg-text-inverse-muted) !important;
+    -webkit-text-fill-color: var(--gg-text-inverse-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bg-sidebar .theme-toggle-card,
+  html[data-color-theme="googleGray"] .bg-sidebar .theme-toggle-compact {
+    background: rgba(255, 255, 255, 0.10) !important;
+    color: var(--gg-text-inverse) !important;
+    border-color: rgba(255, 255, 255, 0.16) !important;
+  }
+
+  /* Bobar normal e fullscreen. */
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) {
+    --bobar-flow-edge: rgba(75, 85, 99, 0.58);
+    --bobar-flow-edge-selected: rgba(66, 133, 244, 0.95);
+    --bobar-flow-edge-pending: rgba(52, 168, 83, 0.90);
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) :where(.bobar-flow-shell, .bobar-flow-inspector) {
+    background: var(--gg-surface) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-header {
+    background: var(--gg-surface-secondary) !important;
+    border-color: var(--gg-border) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-canvas {
+    background-color: var(--gg-bg-alt) !important;
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(66, 133, 244, 0.11), transparent 34%),
+      linear-gradient(rgba(75, 85, 99, 0.085) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(75, 85, 99, 0.085) 1px, transparent 1px) !important;
+    background-size: auto, 32px 32px, 32px 32px !important;
+    color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-flow-edge { stroke: var(--bobar-flow-edge) !important; }
+  html[data-color-theme="googleGray"] .bobar-flow-edge-selected { stroke: var(--bobar-flow-edge-selected) !important; }
+  html[data-color-theme="googleGray"] .bobar-flow-edge-pending { stroke: var(--bobar-flow-edge-pending) !important; }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node {
+    background: var(--gg-surface) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    box-shadow: 0 18px 36px rgba(31, 41, 55, 0.14) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node[class*="ring-"] {
+    border-color: rgba(66, 133, 244, 0.64) !important;
+    box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.16), 0 18px 36px rgba(31, 41, 55, 0.14) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu,
+  html[data-color-theme="googleGray"] .theme-dialog-content {
+    background: var(--gg-surface) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu :where(button) { color: var(--gg-text) !important; }
+  html[data-color-theme="googleGray"] .bobar-select-menu :where(button:hover) { background: var(--gg-blue-soft) !important; }
+
+  /* Publicador: a tela fica clara, mas os previews marcados simulam a rede em modo escuro. */
+  html[data-color-theme="googleGray"] .theme-google-dark-surface,
+  html[data-color-theme="googleGray"] .theme-google-dark-surface :where([class*="bg-black"], [class*="bg-[#0a0f1b]"], [class*="bg-[#111114]"], [class*="bg-zinc-900"], [class*="bg-white/"]) {
+    background: #1F2937 !important;
+    border-color: rgba(249, 250, 251, 0.16) !important;
+    color: var(--gg-text-inverse) !important;
+    box-shadow: 0 22px 54px rgba(31, 41, 55, 0.22) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-google-dark-surface :where(.text-white, [class*="text-white/"], [class*="text-zinc-100"], [class*="text-zinc-200"], [class*="text-zinc-300"], [class*="text-zinc-400"], [class*="text-zinc-500"], [class*="text-slate-"]) {
+    color: var(--gg-text-inverse) !important;
+    -webkit-text-fill-color: var(--gg-text-inverse) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-google-dark-surface :where([class*="text-white/4"], [class*="text-white/5"], [class*="text-zinc-400"], [class*="text-zinc-500"]) {
+    color: var(--gg-text-inverse-muted) !important;
+    -webkit-text-fill-color: var(--gg-text-inverse-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-google-dark-surface :where([class*="bg-gradient"], [class*="bg-[#1877F2]"], [class*="bg-[#0A66C2]"], [class*="bg-[#FF0000]"]) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  /* Portais, modais e toasts fora do main. */
+  html[data-color-theme="googleGray"] .theme-dialog-overlay {
+    background: rgba(31, 41, 55, 0.38) !important;
+    backdrop-filter: blur(10px);
+  }
+
+  html[data-color-theme="googleGray"] .theme-dialog-close {
+    background: var(--gg-surface-secondary) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] [data-sonner-toast] {
+    background: var(--gg-surface) !important;
+    color: var(--gg-text) !important;
+    border: 1px solid var(--gg-border) !important;
+    box-shadow: var(--gg-shadow) !important;
+  }
+
+  html[data-color-theme="googleGray"] [data-sonner-toast] :where([data-title]) { color: var(--gg-text) !important; }
+  html[data-color-theme="googleGray"] [data-sonner-toast] :where([data-description]) { color: var(--gg-text-support) !important; }
+}
+
+/* -------------------------------------------------------------
+   Google Gray server audit hardening
+   Esta camada fica fora do @layer para ganhar prioridade real sobre
+   utilitários Tailwind como text-white/bg-[#020611]. Escopo exclusivo
+   do tema Cinza Google e das páginas do app.
+   ------------------------------------------------------------- */
+html[data-color-theme="googleGray"] {
+  --gg-bg-app: #F6F8FB;
+  --gg-bg-alt: #EEF2F7;
+  --gg-surface: #FFFFFF;
+  --gg-surface-secondary: #F2F5F9;
+  --gg-elevated: #FAFBFD;
+  --gg-highlight: #E9EEF5;
+  --gg-graphite: #374151;
+  --gg-graphite-medium: #2F3742;
+  --gg-graphite-dark: #27313D;
+  --gg-graphite-detail: #1F2937;
+  --gg-border: #D8DEE8;
+  --gg-border-soft: #E5EAF2;
+  --gg-text: #1F2937;
+  --gg-text-secondary: #374151;
+  --gg-text-support: #4B5563;
+  --gg-text-muted: #6B7280;
+  --gg-text-disabled: #9CA3AF;
+  --gg-text-inverse: #F9FAFB;
+  --gg-text-inverse-secondary: #E5E7EB;
+  --gg-text-inverse-muted: #CBD5E1;
+  --gg-blue: #4285F4;
+  --gg-blue-strong: #2563EB;
+  --gg-green: #34A853;
+  --gg-yellow: #FBBC05;
+  --gg-red: #EA4335;
+  --gg-blue-soft: #EAF2FF;
+  --gg-green-soft: #EAF8EF;
+  --gg-yellow-soft: #FFF7DA;
+  --gg-red-soft: #FDECEC;
+  --gg-cyan-soft: #E6F7FF;
+  --gg-shadow: 0 14px 34px rgba(31, 41, 55, 0.10), 0 2px 8px rgba(31, 41, 55, 0.06);
+  --gg-shadow-soft: 0 8px 22px rgba(31, 41, 55, 0.08);
+  --gg-grad-google: linear-gradient(135deg, #4285F4 0%, #34A853 48%, #FBBC05 74%, #EA4335 100%);
+  --gg-grad-surface: linear-gradient(135deg, #FFFFFF 0%, #FAFBFD 58%, #F2F5F9 100%);
+  color-scheme: light;
+}
+
+html[data-color-theme="googleGray"] body,
+html[data-color-theme="googleGray"] main.theme-page-standard,
+html[data-color-theme="googleGray"] main.theme-page-account,
+html[data-color-theme="googleGray"] main.theme-page-image-engine,
+html[data-color-theme="googleGray"] main.theme-page-image-reference,
+html[data-color-theme="googleGray"] main.theme-page-skybob,
+html[data-color-theme="googleGray"] main.theme-page-social-publisher,
+html[data-color-theme="googleGray"] main.theme-page-bobar,
+html[data-color-theme="googleGray"] .theme-page-bobar-flow {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(66, 133, 244, 0.10), transparent 30%),
+    radial-gradient(circle at 90% 10%, rgba(52, 168, 83, 0.08), transparent 28%),
+    var(--gg-bg-app) !important;
+  color: var(--gg-text) !important;
+  color-scheme: light !important;
+}
+
+html[data-color-theme="googleGray"] main :where(
+  .glass,
+  .bg-card,
+  .bg-popover,
+  [class*="bg-[#000000]"],
+  [class*="bg-[#020617]"],
+  [class*="bg-[#020611]"],
+  [class*="bg-[#03060F]"],
+  [class*="bg-[#040812]"],
+  [class*="bg-[#040914]"],
+  [class*="bg-[#05070D]"],
+  [class*="bg-[#050914]"],
+  [class*="bg-[#050b16]"],
+  [class*="bg-[#050b17]"],
+  [class*="bg-[#050b18]"],
+  [class*="bg-[#050d1c]"],
+  [class*="bg-[#060a14]"],
+  [class*="bg-[#06101f]"],
+  [class*="bg-[#070B14]"],
+  [class*="bg-[#070C16]"],
+  [class*="bg-[#07101D]"],
+  [class*="bg-[#07101f]"],
+  [class*="bg-[#07111F]"],
+  [class*="bg-[#07111f]"],
+  [class*="bg-[#08111c]"],
+  [class*="bg-[#081224]"],
+  [class*="bg-[#09101c]"],
+  [class*="bg-[#091426]"],
+  [class*="bg-[#091827]"],
+  [class*="bg-[#0a0f1b]"],
+  [class*="bg-[#0a1225]"],
+  [class*="bg-[#0B1120]"],
+  [class*="bg-[#0b1120]"],
+  [class*="bg-[#0b1220]"],
+  [class*="bg-[#0b1426]"],
+  [class*="bg-[#0F172A]"],
+  [class*="bg-[#0f172a]"],
+  [class*="bg-[#111827]"],
+  [class*="bg-[#111114]"],
+  [class*="bg-slate-950"],
+  [class*="bg-slate-900"],
+  [class*="bg-zinc-950"],
+  [class*="bg-zinc-900"],
+  [class*="bg-neutral-950"],
+  [class*="bg-neutral-900"],
+  [class*="bg-gray-950"],
+  [class*="bg-gray-900"],
+  [class*="bg-black/"],
+  [class*="bg-white/[0.02]"],
+  [class*="bg-white/[0.025]"],
+  [class*="bg-white/[0.03]"],
+  [class*="bg-white/[0.035]"],
+  [class*="bg-white/[0.04]"],
+  [class*="bg-white/[0.045]"],
+  [class*="bg-white/[0.05]"],
+  [class*="bg-white/5"],
+  [class*="bg-white/10"]
+):not(.bg-sidebar):not(.theme-google-dark-surface):not(.theme-google-dark-surface *) {
+  background: var(--gg-grad-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  box-shadow: var(--gg-shadow-soft) !important;
+}
+
+html[data-color-theme="googleGray"] main :where(
+  h1, h2, h3, h4, h5, h6,
+  .text-foreground,
+  .text-card-foreground,
+  .text-popover-foreground,
+  .text-white,
+  [class*="text-white/"],
+  [class*="text-slate-50"],
+  [class*="text-slate-100"],
+  [class*="text-slate-200"],
+  [class*="text-slate-300"],
+  [class*="text-gray-50"],
+  [class*="text-gray-100"],
+  [class*="text-gray-200"],
+  [class*="text-zinc-50"],
+  [class*="text-zinc-100"],
+  [class*="text-zinc-200"],
+  [class*="text-neutral-50"],
+  [class*="text-neutral-100"]
+):not(.bg-sidebar *):not(.theme-google-dark-surface *):not(.theme-google-dark-surface) {
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] main :where(
+  p, label,
+  .text-muted-foreground,
+  .text-secondary,
+  .text-tertiary,
+  .text-support,
+  [class*="text-white/3"],
+  [class*="text-white/4"],
+  [class*="text-white/5"],
+  [class*="text-white/6"],
+  [class*="text-white/7"],
+  [class*="text-slate-400"],
+  [class*="text-slate-500"],
+  [class*="text-gray-300"],
+  [class*="text-gray-400"],
+  [class*="text-gray-500"],
+  [class*="text-zinc-300"],
+  [class*="text-zinc-400"],
+  [class*="text-zinc-500"],
+  [class*="text-neutral-300"],
+  [class*="text-neutral-400"]
+):not(.bg-sidebar *):not(.theme-google-dark-surface *):not(.theme-google-dark-surface) {
+  color: var(--gg-text-support) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] main :where([class*="text-cyan-"], [class*="text-sky-"], [class*="text-blue-"], .text-label):not(.bg-sidebar *):not(.theme-google-dark-surface *) {
+  color: var(--gg-blue-strong) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main :where([class*="text-emerald-"], [class*="text-green-"]):not(.bg-sidebar *):not(.theme-google-dark-surface *) {
+  color: #137333 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main :where([class*="text-amber-"], [class*="text-yellow-"]):not(.bg-sidebar *):not(.theme-google-dark-surface *) {
+  color: #B06000 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main :where([class*="text-red-"], [class*="text-rose-"]):not(.bg-sidebar *):not(.theme-google-dark-surface *) {
+  color: #B3261E !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main :where([class*="text-violet-"], [class*="text-purple-"], [class*="text-fuchsia-"]):not(.bg-sidebar *):not(.theme-google-dark-surface *) {
+  color: #681DA8 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] :where(main, .theme-dialog-content, .bobar-select-menu, [data-radix-popper-content-wrapper]) :where(input, textarea, select, .bobar-select-trigger) {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  color-scheme: light !important;
+  box-shadow: none !important;
+}
+html[data-color-theme="googleGray"] :where(main, .theme-dialog-content, .bobar-select-menu, [data-radix-popper-content-wrapper]) :where(input::placeholder, textarea::placeholder) {
+  color: var(--gg-text-muted) !important;
+  opacity: 1 !important;
+}
+html[data-color-theme="googleGray"] :where(main, .theme-dialog-content, .bobar-select-menu, [data-radix-popper-content-wrapper]) :where(select option) {
+  background: var(--gg-surface) !important;
+  color: var(--gg-text) !important;
+}
+
+html[data-color-theme="googleGray"] main :where(button, a, [role="button"]) {
+  border-color: var(--gg-border) !important;
+}
+html[data-color-theme="googleGray"] main :where(
+  button[class*="bg-white"], a[class*="bg-white"], [role="button"][class*="bg-white"],
+  button[class*="bg-slate-"], button[class*="bg-gray-"], button[class*="bg-zinc-"],
+  .btn-ghost
+):not(.theme-google-dark-surface *):not(.theme-google-dark-surface) {
+  background: var(--gg-surface) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  border-color: var(--gg-border) !important;
+  box-shadow: none !important;
+}
+html[data-color-theme="googleGray"] main :where(
+  .btn-primary,
+  button[class*="bg-gradient-to-"], a[class*="bg-gradient-to-"],
+  button[class*="from-blue-"], button[class*="from-cyan-"], button[class*="from-emerald-"], button[class*="from-pink-"],
+  button[class*="bg-[#1877F2]"], button[class*="bg-[#0A66C2]"], button[class*="bg-[#FF0000]"], button[class*="bg-[#FF0033]"], button[class*="bg-[#25D366]"],
+  button[class*="bg-blue-"], button[class*="bg-cyan-"], button[class*="bg-emerald-"], button[class*="bg-red-"],
+  a[class*="bg-blue-"], a[class*="bg-cyan-"]
+) {
+  background: var(--gg-grad-google) !important;
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  text-shadow: 0 1px 1px rgba(31, 41, 55, 0.28);
+}
+html[data-color-theme="googleGray"] main :where(
+  .btn-primary,
+  button[class*="bg-gradient-to-"], a[class*="bg-gradient-to-"],
+  button[class*="from-blue-"], button[class*="from-cyan-"], button[class*="from-emerald-"], button[class*="from-pink-"],
+  button[class*="bg-[#1877F2]"], button[class*="bg-[#0A66C2]"], button[class*="bg-[#FF0000]"], button[class*="bg-[#FF0033]"], button[class*="bg-[#25D366]"],
+  button[class*="bg-blue-"], button[class*="bg-cyan-"], button[class*="bg-emerald-"], button[class*="bg-red-"]
+) :where(svg, span, div) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+html[data-color-theme="googleGray"] :where(main, .theme-dialog-content, .bobar-select-menu) :where(:disabled, [aria-disabled="true"]) {
+  opacity: 1 !important;
+  background: var(--gg-border-soft) !important;
+  color: var(--gg-text-muted) !important;
+  -webkit-text-fill-color: var(--gg-text-muted) !important;
+  cursor: not-allowed !important;
+}
+
+html[data-color-theme="googleGray"] :where(.badge-cyan, .badge-blue) { background: var(--gg-blue-soft) !important; color: var(--gg-blue-strong) !important; border-color: #CFE0FF !important; }
+html[data-color-theme="googleGray"] .badge-green { background: var(--gg-green-soft) !important; color: #137333 !important; border-color: #CBEAD4 !important; }
+html[data-color-theme="googleGray"] .badge-orange { background: var(--gg-yellow-soft) !important; color: #B06000 !important; border-color: #FCE8B2 !important; }
+html[data-color-theme="googleGray"] .badge-red { background: var(--gg-red-soft) !important; color: #B3261E !important; border-color: #F5C2BF !important; }
+html[data-color-theme="googleGray"] .badge-purple { background: #F3E8FD !important; color: #681DA8 !important; border-color: #E9D2FD !important; }
+
+html[data-color-theme="googleGray"] .bg-sidebar,
+html[data-color-theme="googleGray"] .bg-sidebar :where(.glass, [class*="bg-[#"], [class*="bg-black/"], [class*="bg-white/"]) {
+  background: linear-gradient(180deg, var(--gg-graphite) 0%, var(--gg-graphite-medium) 100%) !important;
+  color: var(--gg-text-inverse) !important;
+  border-color: rgba(249, 250, 251, 0.13) !important;
+}
+html[data-color-theme="googleGray"] .bg-sidebar :where(.text-white, [class*="text-white/"], .text-foreground, .text-card-foreground, h1, h2, h3, h4, p, span, a, button) {
+  color: var(--gg-text-inverse) !important;
+  -webkit-text-fill-color: var(--gg-text-inverse) !important;
+}
+html[data-color-theme="googleGray"] .bg-sidebar :where(.text-muted-foreground, [class*="text-slate-"], [class*="text-zinc-"]) {
+  color: var(--gg-text-inverse-muted) !important;
+  -webkit-text-fill-color: var(--gg-text-inverse-muted) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-floating-toggle {
+  left: 1rem !important;
+  right: auto !important;
+  bottom: 1rem !important;
+  top: auto !important;
+  z-index: 2147483646 !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: var(--gg-text) !important;
+  border: 1px solid rgba(66, 133, 244, 0.28) !important;
+  box-shadow: var(--gg-shadow) !important;
+  opacity: 0.88 !important;
+}
+html[data-color-theme="googleGray"] .theme-floating-toggle:hover,
+html[data-color-theme="googleGray"] .theme-floating-toggle:focus-visible { opacity: 1 !important; }
+
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) {
+  --bobar-flow-edge: rgba(75, 85, 99, 0.58);
+  --bobar-flow-edge-selected: rgba(66, 133, 244, 0.95);
+  --bobar-flow-edge-pending: rgba(52, 168, 83, 0.90);
+}
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) :where(.bobar-flow-shell, .bobar-flow-inspector) {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  box-shadow: var(--gg-shadow) !important;
+}
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-header {
+  background: var(--gg-surface-secondary) !important;
+  border-color: var(--gg-border) !important;
+}
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-canvas {
+  background-color: var(--gg-bg-alt) !important;
+  background-image:
+    radial-gradient(circle at 20% 0%, rgba(66, 133, 244, 0.11), transparent 34%),
+    linear-gradient(rgba(75, 85, 99, 0.085) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(75, 85, 99, 0.085) 1px, transparent 1px) !important;
+  background-size: auto, 32px 32px, 32px 32px !important;
+  color: var(--gg-text) !important;
+}
+html[data-color-theme="googleGray"] .bobar-flow-edge { stroke: var(--bobar-flow-edge) !important; }
+html[data-color-theme="googleGray"] .bobar-flow-edge-selected { stroke: var(--bobar-flow-edge-selected) !important; }
+html[data-color-theme="googleGray"] .bobar-flow-edge-pending { stroke: var(--bobar-flow-edge-pending) !important; }
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) .bobar-flow-node {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  box-shadow: 0 18px 36px rgba(31, 41, 55, 0.14) !important;
+}
+html[data-color-theme="googleGray"] .bobar-select-menu,
+html[data-color-theme="googleGray"] .theme-dialog-content,
+html[data-color-theme="googleGray"] [data-radix-popper-content-wrapper] :where([role="menu"], [role="listbox"], [data-radix-select-content]) {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  box-shadow: var(--gg-shadow) !important;
+}
+html[data-color-theme="googleGray"] .bobar-select-menu :where(button),
+html[data-color-theme="googleGray"] [data-radix-popper-content-wrapper] :where(button, [role="option"], [role="menuitem"]) {
+  color: var(--gg-text) !important;
+}
+html[data-color-theme="googleGray"] .bobar-select-menu :where(button:hover),
+html[data-color-theme="googleGray"] [data-radix-popper-content-wrapper] :where(button:hover, [role="option"]:hover, [role="menuitem"]:hover) {
+  background: var(--gg-blue-soft) !important;
+}
+html[data-color-theme="googleGray"] .theme-dialog-overlay {
+  background: rgba(31, 41, 55, 0.38) !important;
+  backdrop-filter: blur(10px);
+}
+html[data-color-theme="googleGray"] .theme-dialog-close {
+  background: var(--gg-surface-secondary) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text-muted) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-google-dark-surface,
+html[data-color-theme="googleGray"] .theme-google-dark-surface :where([class*="bg-black"], [class*="bg-[#0a0f1b]"], [class*="bg-[#111114]"], [class*="bg-zinc-900"], [class*="bg-white/"]) {
+  background: var(--gg-graphite-detail) !important;
+  border-color: rgba(249, 250, 251, 0.16) !important;
+  color: var(--gg-text-inverse) !important;
+  box-shadow: 0 22px 54px rgba(31, 41, 55, 0.22) !important;
+}
+html[data-color-theme="googleGray"] .theme-google-dark-surface :where(
+  .text-white, [class*="text-white/"], [class*="text-zinc-100"], [class*="text-zinc-200"], [class*="text-zinc-300"], [class*="text-zinc-400"], [class*="text-zinc-500"], [class*="text-slate-"], p, span, label, h1, h2, h3, h4, h5, h6
+) {
+  color: var(--gg-text-inverse) !important;
+  -webkit-text-fill-color: var(--gg-text-inverse) !important;
+}
+html[data-color-theme="googleGray"] .theme-google-dark-surface :where([class*="text-white/4"], [class*="text-white/5"], [class*="text-zinc-400"], [class*="text-zinc-500"]) {
+  color: var(--gg-text-inverse-muted) !important;
+  -webkit-text-fill-color: var(--gg-text-inverse-muted) !important;
+}
+html[data-color-theme="googleGray"] [data-sonner-toast] {
+  background: var(--gg-surface) !important;
+  color: var(--gg-text) !important;
+  border: 1px solid var(--gg-border) !important;
+  box-shadow: var(--gg-shadow) !important;
+}
+html[data-color-theme="googleGray"] [data-sonner-toast] :where([data-title]) { color: var(--gg-text) !important; }
+html[data-color-theme="googleGray"] [data-sonner-toast] :where([data-description]) { color: var(--gg-text-support) !important; }
+
+/* Google Gray portal/fullscreen hardening. Keeps intentional dark previews isolated. */
+html[data-color-theme="googleGray"] :where(
+  .theme-page-bobar,
+  .theme-page-bobar-flow,
+  .theme-page-skybob,
+  .theme-page-social-publisher,
+  .theme-page-account,
+  .theme-page-image-engine,
+  .theme-page-image-reference,
+  .theme-page-standard,
+  .theme-dialog-content,
+  [data-radix-popper-content-wrapper]
+) {
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] :where(
+  .theme-page-bobar,
+  .theme-page-bobar-flow,
+  .theme-page-skybob,
+  .theme-page-social-publisher,
+  .theme-page-account,
+  .theme-page-image-engine,
+  .theme-page-image-reference,
+  .theme-page-standard,
+  .theme-dialog-content,
+  [data-radix-popper-content-wrapper]
+) :where(
+  [class*="bg-[#020"], [class*="bg-[#030"], [class*="bg-[#040"], [class*="bg-[#050"],
+  [class*="bg-[#060"], [class*="bg-[#070"], [class*="bg-[#071"], [class*="bg-[#080"],
+  [class*="bg-[#090"], [class*="bg-[#0a"], [class*="bg-[#0A"], [class*="bg-[#0b"],
+  [class*="bg-[#0f"], [class*="bg-[#102"], [class*="bg-[#111"], [class*="bg-[#162"],
+  [class*="bg-[#170"], [class*="bg-[#1b"], [class*="bg-[#211"], [class*="bg-[#230"],
+  [class*="bg-[#2a1"], [class*="bg-[#2a2"],
+  [class*="bg-slate-950"], [class*="bg-slate-900"], [class*="bg-gray-950"], [class*="bg-zinc-950"], [class*="bg-neutral-950"],
+  [class*="bg-[radial-gradient"]
+):not(.bg-sidebar):not(.bg-sidebar *):not(.theme-google-dark-surface):not(.theme-google-dark-surface *):not(.bobar-flow-canvas):not(button):not(a):not([role="button"]) {
+  background: var(--gg-surface-secondary) !important;
+  background-color: var(--gg-surface-secondary) !important;
+  background-image: none !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 16px 36px rgba(31, 41, 55, 0.10) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-bobar-flow > .flex {
+  background: var(--gg-bg) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar-flow .shrink-0 {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+}
+
+html[data-color-theme="googleGray"] :where(
+  .theme-page-bobar,
+  .theme-page-bobar-flow,
+  .theme-page-skybob,
+  .theme-page-social-publisher,
+  .theme-page-account,
+  .theme-page-image-engine,
+  .theme-page-image-reference,
+  .theme-page-standard,
+  .theme-dialog-content,
+  [data-radix-popper-content-wrapper]
+) :where(
+  .text-white, [class*="text-white/"],
+  [class*="text-slate-50"], [class*="text-slate-100"], [class*="text-slate-200"],
+  [class*="text-gray-50"], [class*="text-gray-100"], [class*="text-gray-200"],
+  [class*="text-zinc-50"], [class*="text-zinc-100"], [class*="text-zinc-200"],
+  [class*="text-neutral-50"], [class*="text-neutral-100"]
+):not(.bg-sidebar *):not(.theme-google-dark-surface):not(.theme-google-dark-surface *) {
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] :where(
+  .theme-page-bobar,
+  .theme-page-bobar-flow,
+  .theme-page-skybob,
+  .theme-page-social-publisher,
+  .theme-page-account,
+  .theme-page-image-engine,
+  .theme-page-image-reference,
+  .theme-page-standard,
+  .theme-dialog-content,
+  [data-radix-popper-content-wrapper]
+) :where(
+  [class*="text-white/4"], [class*="text-white/5"], [class*="text-white/6"], [class*="text-white/7"],
+  [class*="text-slate-300"], [class*="text-slate-400"], [class*="text-slate-500"],
+  [class*="text-gray-300"], [class*="text-gray-400"], [class*="text-gray-500"],
+  [class*="text-zinc-300"], [class*="text-zinc-400"], [class*="text-zinc-500"]
+):not(.bg-sidebar *):not(.theme-google-dark-surface):not(.theme-google-dark-surface *) {
+  color: var(--gg-text-support) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-bobar-flow :where(button[class*="bg-gradient"], button[class*="from-"], button[class*="bg-blue"], button[class*="bg-cyan"], button[class*="bg-emerald"]) {
+  background: var(--gg-grad-google) !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  border-color: transparent !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar-flow :where(button[class*="bg-white"], button[class*="bg-slate"], button[class*="bg-gray"], button[class*="border-white"], button[class*="border-cyan"]) {
+  background: var(--gg-surface) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  border-color: var(--gg-border) !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar-flow :where(button:disabled, button[disabled]) {
+  background: var(--gg-border-soft) !important;
+  color: var(--gg-text-muted) !important;
+  -webkit-text-fill-color: var(--gg-text-muted) !important;
+}
+
+/* Google Gray Bobar arbitrary-gradient cleanup: Tailwind arbitrary gradients do not expose a bg color token. */
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) :where(
+  [class*="bg-[linear-gradient"],
+  [class*="bg-[radial-gradient"]
+):not(.bobar-flow-canvas):not(.theme-google-dark-surface):not(.theme-google-dark-surface *) {
+  background: var(--gg-surface-secondary) !important;
+  background-color: var(--gg-surface-secondary) !important;
+  background-image: none !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 16px 36px rgba(31, 41, 55, 0.10) !important;
+}
+
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) :where(
+  [class*="bg-cyan-"], [class*="bg-sky-"], [class*="bg-blue-"]
+):not(button):not(a):not(.theme-google-dark-surface):not(.theme-google-dark-surface *) {
+  background: var(--gg-blue-soft) !important;
+  border-color: #CFE0FF !important;
+  color: var(--gg-blue-strong) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) :where(
+  [class*="bg-emerald-"], [class*="bg-green-"]
+):not(button):not(a):not(.theme-google-dark-surface):not(.theme-google-dark-surface *) {
+  background: var(--gg-green-soft) !important;
+  border-color: #CBEAD4 !important;
+  color: #137333 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-bobar-flow) :where(
+  [class*="bg-amber-"], [class*="bg-yellow-"]
+):not(button):not(a):not(.theme-google-dark-surface):not(.theme-google-dark-surface *) {
+  background: var(--gg-yellow-soft) !important;
+  border-color: #FCE8B2 !important;
+  color: #B06000 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+/* -------------------------------------------------------------
+   Patch complementar validado
+   1. Calendário de data limite do Bobar no Google Gray
+   2. Botões do fluxograma com contraste forte
+   3. SkyBob plenamente compatível com o tema Google Gray
+   ------------------------------------------------------------- */
+html[data-color-theme="googleGray"] .bobar-calendar-panel {
+  background: var(--gg-grad-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  box-shadow: 0 24px 60px rgba(31, 41, 55, 0.18) !important;
+}
+html[data-color-theme="googleGray"] .bobar-calendar-panel :where(div, span, p, button, svg) {
+  color: inherit;
+  -webkit-text-fill-color: currentColor;
+}
+html[data-color-theme="googleGray"] .bobar-calendar-panel .bobar-calendar-surface {
+  background: var(--gg-surface-secondary) !important;
+  border-color: var(--gg-border) !important;
+  box-shadow: none !important;
+}
+html[data-color-theme="googleGray"] .bobar-calendar-panel :where(.text-white, [class*="text-white/"], [class*="text-slate-"]) {
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] .bobar-calendar-panel :where([class*="text-white/4"], [class*="text-white/5"], [class*="text-white/6"], [class*="text-slate-4"], [class*="text-slate-5"]) {
+  color: var(--gg-text-support) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] .bobar-calendar-panel :where(button[class*="bg-white"], button[class*="border-white"], button[class*="bg-cyan"], button[class*="border-cyan"]) {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] .bobar-calendar-panel :where(button:hover:not(:disabled)) {
+  background: var(--gg-blue-soft) !important;
+  border-color: rgba(66, 133, 244, 0.34) !important;
+  color: var(--gg-blue-strong) !important;
+}
+html[data-color-theme="googleGray"] .bobar-calendar-panel :where(button:disabled) {
+  background: var(--gg-border-soft) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text-disabled) !important;
+  -webkit-text-fill-color: var(--gg-text-disabled) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-bobar-flow .bobar-flow-toolbar :where(button, a) {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 10px 26px rgba(31, 41, 55, 0.08) !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar-flow .bobar-flow-toolbar :where(button:hover:not(:disabled), a:hover) {
+  background: var(--gg-blue-soft) !important;
+  border-color: rgba(66, 133, 244, 0.34) !important;
+  color: var(--gg-blue-strong) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar-flow .bobar-flow-toolbar :where(button:disabled) {
+  background: var(--gg-border-soft) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text-muted) !important;
+  -webkit-text-fill-color: var(--gg-text-muted) !important;
+  opacity: 1 !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar-flow .bobar-flow-toolbar button:last-child {
+  background: var(--gg-grad-google) !important;
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar-flow .bobar-flow-toolbar button:last-child :where(svg, span) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(66, 133, 244, 0.10), transparent 28%),
+    radial-gradient(circle at 90% 8%, rgba(52, 168, 83, 0.08), transparent 26%),
+    linear-gradient(180deg, #F7F9FC 0%, #EEF3F9 100%) !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell > .absolute:first-child,
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell > .absolute:nth-child(2) {
+  opacity: 0.28 !important;
+  filter: none !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-stage {
+  color: var(--gg-text) !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-status-panel,
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-intro-card,
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-intro-visual,
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-study-view > .grid > :where(div, article, section),
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-study-view :where(.glass, .bg-card) {
+  background: var(--gg-grad-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  box-shadow: var(--gg-shadow) !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-viewport {
+  background: linear-gradient(180deg, #FFFFFF 0%, #EEF3F9 100%) !important;
+  border-color: var(--gg-border) !important;
+  box-shadow: var(--gg-shadow) !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob :where(.skybob-shell, .skybob-stage, .skybob-status-panel, .skybob-intro-card, .skybob-study-view) :where(.text-white, [class*="text-white/"], [class*="text-slate-1"], [class*="text-slate-2"], [class*="text-slate-3"]) {
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob :where(.skybob-shell, .skybob-stage, .skybob-status-panel, .skybob-intro-card, .skybob-study-view) :where([class*="text-slate-4"], [class*="text-slate-5"], [class*="text-white/4"], [class*="text-white/5"], [class*="text-white/6"]) {
+  color: var(--gg-text-support) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob :where(.skybob-shell, .skybob-stage, .skybob-status-panel, .skybob-intro-card, .skybob-study-view) :where(button, a) {
+  border-color: var(--gg-border) !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell :where(button[class*="bg-white"], button[class*="border-white"], button[class*="bg-slate"], a[class*="bg-white"]) {
+  background: var(--gg-surface) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell :where(button[class*="bg-gradient"], button[class*="from-"], button[class*="bg-cyan"], button[class*="bg-blue"], button[class*="bg-emerald"]) {
+  background: var(--gg-grad-google) !important;
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+/* Bobar column scroll sync support */
+.theme-page-bobar .bobar-column-lane {
+  height: min(72vh, 760px);
+  min-height: 520px;
+}
+@media (max-width: 768px) {
+  .theme-page-bobar .bobar-column-lane {
+    height: min(68vh, 680px);
+    min-height: 460px;
+  }
+}
+
+/* SkyBob Google Gray final background override: remove remaining space/navy backdrop. */
+html[data-color-theme="googleGray"] main.theme-page-skybob,
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell {
+  background-color: var(--gg-bg-app) !important;
+  background-image:
+    radial-gradient(circle at 12% 0%, rgba(66, 133, 244, 0.10), transparent 30%),
+    radial-gradient(circle at 90% 8%, rgba(52, 168, 83, 0.08), transparent 28%),
+    linear-gradient(180deg, #F6F8FB 0%, #EEF2F7 100%) !important;
+  color: var(--gg-text) !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell > .absolute {
+  opacity: 0.18 !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .theme-back-button {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: var(--gg-text) !important;
+  box-shadow: var(--gg-shadow-soft) !important;
+}
+
+/* SkyBob base backgrounds after removing hardcoded Tailwind dark gradients from root wrappers. */
+.skybob-shell,
+.skybob-page-root {
+  background: linear-gradient(180deg,#03060F 0%,#050914 45%,#07101D 100%);
+}
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell,
+html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-page-root {
+  background: linear-gradient(180deg, #F6F8FB 0%, #EEF2F7 100%) !important;
+  background-color: #F6F8FB !important;
+  color: var(--gg-text) !important;
+}
+
+/* -------------------------------------------------------------
+   Patch complementar: Conta, integrações e créditos no Google Gray
+   Corrige os blocos que ainda herdavam visual navy/preto e textos claros.
+   ------------------------------------------------------------- */
+html[data-color-theme="googleGray"] main.theme-page-account {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(66, 133, 244, 0.10), transparent 30%),
+    radial-gradient(circle at 94% 5%, rgba(52, 168, 83, 0.08), transparent 28%),
+    var(--gg-bg-app) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(
+  section,
+  .group,
+  [class*="bg-white/"],
+  [class*="bg-black/"],
+  [class*="bg-[#07111f]"],
+  [class*="bg-[#07111F]"],
+  [class*="bg-[#081224]"],
+  [class*="bg-[#0a1225]"],
+  [class*="bg-[#050d1c]"],
+  [class*="bg-slate-900"],
+  [class*="bg-slate-950"]
+):not(.bg-sidebar):not(.bg-sidebar *) {
+  background: var(--gg-grad-surface) !important;
+  background-color: var(--gg-surface) !important;
+  background-image: none !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08) !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(
+  h1, h2, h3, h4, h5, h6,
+  .text-white,
+  [class*="text-white/"],
+  [class*="text-slate-50"],
+  [class*="text-slate-100"],
+  [class*="text-slate-200"],
+  [class*="text-slate-300"],
+  [class*="text-gray-50"],
+  [class*="text-gray-100"],
+  [class*="text-gray-200"],
+  [class*="text-zinc-50"],
+  [class*="text-zinc-100"],
+  [class*="text-zinc-200"]
+):not(.bg-sidebar *):not(button[class*="bg-[#0A66C2]"] *):not(button[class*="bg-[#1877F2]"] *):not(button[class*="bg-[#FF0000]"] *):not(button[class*="bg-gradient-to-"] *) {
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(
+  p, li, label,
+  [class*="text-white/3"],
+  [class*="text-white/4"],
+  [class*="text-white/5"],
+  [class*="text-white/6"],
+  [class*="text-white/7"],
+  [class*="text-slate-400"],
+  [class*="text-slate-500"],
+  [class*="text-gray-300"],
+  [class*="text-gray-400"],
+  [class*="text-gray-500"],
+  [class*="text-zinc-300"],
+  [class*="text-zinc-400"],
+  [class*="text-zinc-500"]
+):not(.bg-sidebar *) {
+  color: var(--gg-text-support) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(input, textarea, select) {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  color-scheme: light !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-account :where(input::placeholder, textarea::placeholder) {
+  color: var(--gg-text-muted) !important;
+  opacity: 1 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(
+  button[class*="bg-white"],
+  button[class*="border-white"],
+  a[class*="bg-white"],
+  [role="button"][class*="bg-white"]
+) {
+  background: var(--gg-surface) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 8px 20px rgba(31, 41, 55, 0.07) !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(
+  button[class*="bg-[#0A66C2]"],
+  button[class*="bg-[#1877F2]"],
+  button[class*="bg-[#FF0000]"],
+  button[class*="bg-gradient-to-"],
+  button[class*="from-pink"],
+  button[class*="from-blue"],
+  button[class*="from-cyan"]
+):not(:disabled) {
+  background: var(--gg-grad-google) !important;
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  box-shadow: 0 12px 26px rgba(66, 133, 244, 0.20) !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-account :where(
+  button[class*="bg-[#0A66C2]"],
+  button[class*="bg-[#1877F2]"],
+  button[class*="bg-[#FF0000]"],
+  button[class*="bg-gradient-to-"],
+  button[class*="from-pink"],
+  button[class*="from-blue"],
+  button[class*="from-cyan"]
+):not(:disabled) :where(svg, span) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(button:disabled, [aria-disabled="true"]) {
+  opacity: 1 !important;
+  background: var(--gg-border-soft) !important;
+  border-color: var(--gg-border) !important;
+  color: var(--gg-text-muted) !important;
+  -webkit-text-fill-color: var(--gg-text-muted) !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where([class*="bg-emerald"], [class*="border-emerald"]) {
+  background: var(--gg-green-soft) !important;
+  border-color: #BFE8CB !important;
+  color: #137333 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-account :where([class*="bg-amber"], [class*="border-amber"]) {
+  background: var(--gg-yellow-soft) !important;
+  border-color: #FCE8B2 !important;
+  color: #B06000 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-account :where([class*="bg-cyan"], [class*="border-cyan"], [class*="bg-[#0A66C2]"], [class*="bg-[#1877F2]"]) {
+  border-color: #CFE0FF !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-account :where([class*="text-emerald-"]) {
+  color: #137333 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-account :where([class*="text-cyan-"], [class*="text-blue-"], [class*="text-[#78B7FF]"], [class*="text-[#8DC0FF]"]) {
+  color: var(--gg-blue-strong) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-account :where([class*="text-red-"], [class*="text-pink-"]) {
+  color: #B3261E !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+/* Caixas pequenas de valores, saldo e preço dentro de créditos. */
+html[data-color-theme="googleGray"] main.theme-page-account :where(
+  [class*="rounded-2xl"][class*="bg-[#07111f]"],
+  [class*="rounded-2xl"][class*="bg-black/20"],
+  [class*="rounded-2xl"][class*="bg-white/[0.03]"]
+) {
+  background: var(--gg-surface-secondary) !important;
+  border-color: var(--gg-border-soft) !important;
+  color: var(--gg-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: none !important;
+}
+
+/* AccountPage Google Gray final override: high-specificity fix for remaining Tailwind dark utilities. */
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-black/20"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-[#07111f]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-[#07111F]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-[#081224]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-[#0a1225]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-[#050d1c]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-white/[0.02]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-white/[0.03]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-white/[0.04]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="bg-white/[0.05]"],
+html[data-color-theme="googleGray"] main.theme-page-account section[class*="bg-white/"] {
+  background: #FFFFFF !important;
+  background-color: #FFFFFF !important;
+  background-image: none !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08) !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="rounded-2xl"][class*="bg-black/20"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="rounded-2xl"][class*="bg-[#07111f]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="rounded-2xl"][class*="bg-white/[0.03]"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="rounded-2xl"][class*="bg-white/[0.04]"] {
+  background: #F2F5F9 !important;
+  background-color: #F2F5F9 !important;
+  border-color: #E5EAF2 !important;
+  box-shadow: none !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="rounded-[24px]"][class*="bg-black/20"],
+html[data-color-theme="googleGray"] main.theme-page-account div[class*="rounded-[28px]"][class*="bg-white/"] {
+  background: #FFFFFF !important;
+  background-color: #FFFFFF !important;
+  border-color: #D8DEE8 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account .text-white,
+html[data-color-theme="googleGray"] main.theme-page-account h1.text-white,
+html[data-color-theme="googleGray"] main.theme-page-account h2.text-white,
+html[data-color-theme="googleGray"] main.theme-page-account h3.text-white,
+html[data-color-theme="googleGray"] main.theme-page-account h4.text-white,
+html[data-color-theme="googleGray"] main.theme-page-account p.text-white,
+html[data-color-theme="googleGray"] main.theme-page-account span.text-white,
+html[data-color-theme="googleGray"] main.theme-page-account div.text-white {
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+}
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/35"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/38"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/40"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/45"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/50"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/55"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/60"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/62"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/65"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/70"],
+html[data-color-theme="googleGray"] main.theme-page-account [class*="text-white/75"] {
+  color: #4B5563 !important;
+  -webkit-text-fill-color: #4B5563 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account button[class*="bg-white"],
+html[data-color-theme="googleGray"] main.theme-page-account button[class*="bg-white/"] {
+  background: #FFFFFF !important;
+  background-color: #FFFFFF !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account button:disabled,
+html[data-color-theme="googleGray"] main.theme-page-account button[disabled] {
+  background: #E5EAF2 !important;
+  border-color: #D8DEE8 !important;
+  color: #6B7280 !important;
+  -webkit-text-fill-color: #6B7280 !important;
+  opacity: 1 !important;
+}
+
+/* -------------------------------------------------------------
+   Account/Credits Google Gray v2
+   Fix final dos cards de planos/recargas que ainda ficavam navy.
+   Usa classes semânticas no JSX para não depender de seletor frágil do Tailwind.
+   ------------------------------------------------------------- */
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-credits-section) {
+  background: #FFFFFF !important;
+  background-color: #FFFFFF !important;
+  background-image: none !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08) !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFD 100%) !important;
+  background-color: #FFFFFF !important;
+  background-image: linear-gradient(180deg, #FFFFFF 0%, #F8FAFD 100%) !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.10) !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account .account-plan-card.account-plan-card--recommended {
+  background: linear-gradient(180deg, #E6F7FF 0%, #F7FBFF 100%) !important;
+  background-color: #E6F7FF !important;
+  background-image: linear-gradient(180deg, #E6F7FF 0%, #F7FBFF 100%) !important;
+  border-color: #B9E7F8 !important;
+  box-shadow: 0 14px 34px rgba(66, 133, 244, 0.12) !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where(h1, h2, h3, h4, h5, h6, .text-white, .font-semibold, .font-bold, .font-black) {
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where(p, li, span, div, [class*="text-white/"]) {
+  color: #4B5563 !important;
+  -webkit-text-fill-color: #4B5563 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where(.account-metric-box, .account-plan-note) {
+  background: #F2F5F9 !important;
+  background-color: #F2F5F9 !important;
+  background-image: none !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where(.account-metric-box p:first-child, .account-plan-note p:first-child) {
+  color: #374151 !important;
+  -webkit-text-fill-color: #374151 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where(.account-metric-box p:last-child, .account-plan-note .font-semibold) {
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where([class*="text-emerald"], [class*="bg-emerald"], [class*="border-emerald"]) {
+  color: #137333 !important;
+  -webkit-text-fill-color: #137333 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) span[class*="bg-emerald"] {
+  background: #EAF8EF !important;
+  border-color: #BFE8CB !important;
+  color: #137333 !important;
+  -webkit-text-fill-color: #137333 !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where(button) {
+  background: #FFFFFF !important;
+  background-color: #FFFFFF !important;
+  border: 1px solid #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+  box-shadow: 0 8px 18px rgba(31, 41, 55, 0.08) !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where(button:hover:not(:disabled)) {
+  background: #EAF2FF !important;
+  background-color: #EAF2FF !important;
+  color: #2563EB !important;
+  -webkit-text-fill-color: #2563EB !important;
+}
+
+html[data-color-theme="googleGray"] main.theme-page-account :where(.account-plan-card, .account-credit-card) :where(button:disabled) {
+  background: #E5EAF2 !important;
+  border-color: #D8DEE8 !important;
+  color: #6B7280 !important;
+  -webkit-text-fill-color: #6B7280 !important;
+  opacity: 1 !important;
+}
+
+
+/* -------------------------------------------------------------
+   Account/Credits Google Gray v3
+   Correção direta dos cards de Planos Mensais.
+   O v2 estava preso ao seletor main.theme-page-account, mas a AccountPage usa div.
+   Estes seletores não dependem de main e vencem as classes bg-black/bg-[#07111f].
+   ------------------------------------------------------------- */
+html[data-color-theme="googleGray"] .theme-page-account .account-credits-section,
+html[data-color-theme="googleGray"] .account-credits-section {
+  background: #FFFFFF !important;
+  background-color: #FFFFFF !important;
+  background-image: none !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account .account-plan-card,
+html[data-color-theme="googleGray"] .theme-page-account .account-credit-card,
+html[data-color-theme="googleGray"] .account-plan-card,
+html[data-color-theme="googleGray"] .account-credit-card {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFD 100%) !important;
+  background-color: #FFFFFF !important;
+  background-image: linear-gradient(180deg, #FFFFFF 0%, #F8FAFD 100%) !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.10) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account .account-plan-card.account-plan-card--recommended,
+html[data-color-theme="googleGray"] .account-plan-card.account-plan-card--recommended {
+  background: linear-gradient(180deg, #E6F7FF 0%, #F7FBFF 100%) !important;
+  background-color: #E6F7FF !important;
+  background-image: linear-gradient(180deg, #E6F7FF 0%, #F7FBFF 100%) !important;
+  border-color: #B9E7F8 !important;
+  box-shadow: 0 14px 34px rgba(66, 133, 244, 0.12) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) :where(h1, h2, h3, h4, h5, h6, p, li, span, div),
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) :where(h1, h2, h3, h4, h5, h6, p, li, span, div) {
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) :where([class*="text-white/"], .text-muted-foreground),
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) :where([class*="text-white/"], .text-muted-foreground) {
+  color: #4B5563 !important;
+  -webkit-text-fill-color: #4B5563 !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) :where(.account-metric-box, .account-plan-note),
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) :where(.account-metric-box, .account-plan-note) {
+  background: #F2F5F9 !important;
+  background-color: #F2F5F9 !important;
+  background-image: none !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) :where(.account-metric-box p:first-child, .account-plan-note p:first-child),
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) :where(.account-metric-box p:first-child, .account-plan-note p:first-child) {
+  color: #374151 !important;
+  -webkit-text-fill-color: #374151 !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) :where(.account-metric-box p:last-child, .account-plan-note .font-semibold),
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) :where(.account-metric-box p:last-child, .account-plan-note .font-semibold) {
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) span[class*="bg-emerald"],
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) span[class*="bg-emerald"] {
+  background: #EAF8EF !important;
+  background-color: #EAF8EF !important;
+  border-color: #BFE8CB !important;
+  color: #137333 !important;
+  -webkit-text-fill-color: #137333 !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) :where([class*="text-emerald"]),
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) :where([class*="text-emerald"]) {
+  color: #137333 !important;
+  -webkit-text-fill-color: #137333 !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) :where(button),
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) :where(button) {
+  background: #FFFFFF !important;
+  background-color: #FFFFFF !important;
+  border: 1px solid #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+  box-shadow: 0 8px 18px rgba(31, 41, 55, 0.08) !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account :where(.account-plan-card, .account-credit-card) :where(button:hover:not(:disabled)),
+html[data-color-theme="googleGray"] :where(.account-plan-card, .account-credit-card) :where(button:hover:not(:disabled)) {
+  background: #EAF2FF !important;
+  background-color: #EAF2FF !important;
+  color: #2563EB !important;
+  -webkit-text-fill-color: #2563EB !important;
+}

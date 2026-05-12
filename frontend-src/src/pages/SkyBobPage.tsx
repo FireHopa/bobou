@@ -419,7 +419,7 @@ function SpaceRunCard({
   ];
 
   return (
-    <div className="relative isolate min-h-dvh overflow-hidden bg-[linear-gradient(180deg,#03060F_0%,#050914_45%,#07101D_100%)]">
+    <div className="skybob-shell relative isolate min-h-dvh overflow-hidden">
       
       {/* 1. NEBULOSAS VIVAS NO FUNDO GLOBAL */}
       <motion.div 
@@ -450,7 +450,7 @@ function SpaceRunCard({
       ))}
 
       {/* CONTEÚDO PRINCIPAL (PAINEL + FOGUETE) */}
-      <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-[1600px] flex-col px-5 pb-8 pt-24 sm:px-8 lg:px-12">
+      <div className="skybob-stage relative z-10 mx-auto flex min-h-dvh w-full max-w-[1600px] flex-col px-5 pb-8 pt-24 sm:px-8 lg:px-12">
         <div className="grid flex-1 gap-10 xl:grid-cols-[0.94fr_1.06fr] xl:items-center">
           
           <div className="space-y-8">
@@ -464,7 +464,7 @@ function SpaceRunCard({
               </div>
             </div>
 
-            <div className="rounded-[32px] border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.35)] backdrop-blur">
+            <div className="skybob-status-panel rounded-[32px] border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.35)] backdrop-blur">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-300">
                 <span>{label}</span>
                 <span className="font-semibold text-cyan-100">{Math.round(normalizedProgress)}%</span>
@@ -498,7 +498,7 @@ function SpaceRunCard({
           </div>
 
           {/* VIEWPORT DO FOGUETE */}
-          <div className="relative flex min-h-[620px] items-end justify-center overflow-hidden rounded-[40px] border border-white/10 bg-[linear-gradient(180deg,rgba(4,8,16,0.98),rgba(5,9,18,1))] shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-md">
+          <div className="skybob-viewport relative flex min-h-[620px] items-end justify-center overflow-hidden rounded-[40px] border border-white/10 bg-[linear-gradient(180deg,rgba(4,8,16,0.98),rgba(5,9,18,1))] shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-md">
             
             {blackHoles.map((hole) => (
               <div key={hole.id} className="absolute" style={{ left: hole.left, top: hole.top, width: hole.size, height: hole.size }}>
@@ -605,11 +605,11 @@ function IntroScreen({
   onStart: () => void;
 }) {
   return (
-    <Card className="overflow-hidden border-cyan-400/20 bg-[radial-gradient(circle_at_top,rgba(0,200,232,0.18),transparent_36%),linear-gradient(180deg,rgba(8,11,20,0.96),rgba(8,11,20,1))] relative z-10 backdrop-blur-sm">
+    <Card className="skybob-intro-card relative z-10 overflow-hidden border-cyan-400/20 bg-[radial-gradient(circle_at_top,rgba(0,200,232,0.18),transparent_36%),linear-gradient(180deg,rgba(8,11,20,0.96),rgba(8,11,20,1))] backdrop-blur-sm">
       <CardContent className="flex min-h-[calc(100dvh-13rem)] items-center justify-center p-6 md:p-10">
         <div className="grid w-full max-w-5xl gap-10 xl:grid-cols-[0.9fr_1.1fr] xl:items-center">
           <div className="flex justify-center xl:justify-start">
-            <div className="relative flex h-[340px] w-[340px] items-center justify-center overflow-hidden rounded-[40px] border border-white/10 bg-[radial-gradient(circle_at_50%_40%,rgba(77,232,255,0.16),transparent_40%),linear-gradient(180deg,rgba(7,12,22,0.92),rgba(6,9,18,1))]">
+            <div className="skybob-intro-visual relative flex h-[340px] w-[340px] items-center justify-center overflow-hidden rounded-[40px] border border-white/10 bg-[radial-gradient(circle_at_50%_40%,rgba(77,232,255,0.16),transparent_40%),linear-gradient(180deg,rgba(7,12,22,0.92),rgba(6,9,18,1))]">
               <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:32px_32px]" />
               <motion.div
                 className="absolute h-56 w-56 rounded-full border border-cyan-300/10"
@@ -709,7 +709,7 @@ function StudyView({
   const insightCards = study.cards || [];
 
   return (
-    <div className="space-y-6 relative z-10">
+    <div className="skybob-study-view relative z-10 space-y-6">
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <Card className="border-cyan-400/16 bg-[linear-gradient(180deg,rgba(11,18,30,0.94),rgba(8,11,20,0.98))] backdrop-blur-md">
           <CardHeader className="space-y-4">
@@ -1191,7 +1191,7 @@ export default function SkyBobPage() {
     : null;
 
   return (
-    <div className="relative min-h-dvh bg-[linear-gradient(180deg,#050914_0%,#070C16_100%)] overflow-hidden">
+    <div className="skybob-page-root relative min-h-dvh overflow-hidden">
       
       {/* FUNDO GLOBAL ANIMADO PARA A PÁGINA INTEIRA (Resultados/Intro) */}
       {!isRunningStudy && !isGeneratingHooks && (

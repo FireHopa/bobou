@@ -102,7 +102,7 @@ function IntegrationCard({
       </div>
 
       <div className="relative mt-auto pt-5">
-        <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div className="account-summary-box min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-center justify-between gap-3 text-[11px] font-medium uppercase tracking-[0.24em] text-white/38">
             <span>Conta</span>
             <span
@@ -824,7 +824,7 @@ export default function AccountPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-8">
+    <div className="theme-page-account mx-auto w-full max-w-7xl px-4 py-8">
       <div className="animate-in fade-in space-y-8 duration-500">
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight text-white">Minha conta</h1>
@@ -1092,24 +1092,24 @@ export default function AccountPage() {
                     Escolha um plano, faça recargas avulsas quando precisar e acompanhe o consumo médio de cada operação em uma tela mais organizada.
                   </p>
                   {pricingNote ? (
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/55">
+                    <div className="account-billing-note mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/55">
                       {pricingNote}
                     </div>
                   ) : null}
                 </div>
 
                 <div className="grid min-w-0 gap-3 sm:grid-cols-3 lg:w-full lg:grid-cols-3 xl:w-[620px]">
-                  <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="account-summary-box min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Saldo atual</p>
                     <p className="mt-2 break-words text-2xl font-semibold text-white sm:text-3xl">{formatCredits(user.credits)}</p>
                     <p className="mt-1 text-sm text-white/50">Disponível agora na conta.</p>
                   </div>
-                  <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="account-summary-box min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Recarga diária</p>
                     <p className="mt-2 break-words text-2xl font-semibold text-emerald-300 sm:text-3xl">+{formatCredits(dailyFreeCredits)}</p>
                     <p className="mt-1 text-sm text-white/50">Créditos grátis por dia.</p>
                   </div>
-                  <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="account-summary-box min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Plano indicado</p>
                     <p className="mt-2 break-words text-xl font-semibold text-white sm:text-2xl">{recommendedPlanTitle}</p>
                     <p className="mt-1 text-sm text-white/50">Melhor equilíbrio de uso.</p>
@@ -1119,7 +1119,7 @@ export default function AccountPage() {
 
               <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
                 <div className="space-y-6">
-                  <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
+                  <div className="account-credits-section rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
                     <div className="mb-5">
                       <h3 className="text-2xl font-semibold text-white">Planos mensais</h3>
                       <p className="text-sm leading-6 text-white/55">
@@ -1136,9 +1136,9 @@ export default function AccountPage() {
                           <div
                             key={plan.id}
                             className={cn(
-                              "flex h-full flex-col rounded-[28px] border p-5",
+                              "account-plan-card flex h-full flex-col rounded-[28px] border p-5",
                               isRecommended
-                                ? "border-cyan-400/35 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.08)]"
+                                ? "account-plan-card--recommended border-cyan-400/35 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.08)]"
                                 : "border-white/10 bg-black/20",
                             )}
                           >
@@ -1155,28 +1155,28 @@ export default function AccountPage() {
                                 <p className="mt-2 max-w-md text-sm leading-6 text-white/62">{plan.description}</p>
                               </div>
 
-                              <div className="shrink-0 rounded-2xl border border-white/10 bg-[#07111f] px-4 py-3 text-right">
+                              <div className="account-metric-box shrink-0 rounded-2xl border border-white/10 bg-[#07111f] px-4 py-3 text-right">
                                 <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Valor teste</p>
                                 <p className="mt-1 text-2xl font-semibold text-white">{plan.display_price}</p>
                               </div>
                             </div>
 
                             <div className="mt-5 grid grid-cols-3 gap-3">
-                              <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                              <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                 <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Base</p>
                                 <p className="mt-2 text-lg font-semibold text-white">{formatCredits(plan.base_credits)}</p>
                               </div>
-                              <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                              <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                 <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Bônus</p>
                                 <p className="mt-2 text-lg font-semibold text-emerald-300">+{formatCredits(plan.bonus_credits)}</p>
                               </div>
-                              <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                              <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                 <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Total</p>
                                 <p className="mt-2 text-lg font-semibold text-white">{formatCredits(plan.total_credits)}</p>
                               </div>
                             </div>
 
-                            <div className="mt-5 rounded-2xl border border-white/10 bg-[#07111f] p-4">
+                            <div className="account-plan-note mt-5 rounded-2xl border border-white/10 bg-[#07111f] p-4">
                               <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Ideal para</p>
                               <ul className="mt-3 space-y-2 text-sm leading-6 text-white/65">
                                 {highlights.map((item) => (
@@ -1214,7 +1214,7 @@ export default function AccountPage() {
                   </div>
 
                   {creditPacks.length ? (
-                    <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
+                    <div className="account-credits-section rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
                       <div className="mb-5">
                         <h3 className="text-2xl font-semibold text-white">Créditos avulsos</h3>
                         <p className="text-sm leading-6 text-white/55">
@@ -1227,7 +1227,7 @@ export default function AccountPage() {
                           const isActivating = activatingPlanId === pack.id;
                           const highlights = getPackHighlights(pack.id, pack.title);
                           return (
-                            <div key={pack.id} className="flex h-full flex-col rounded-[24px] border border-white/10 bg-black/20 p-5">
+                            <div key={pack.id} className="account-credit-card flex h-full flex-col rounded-[24px] border border-white/10 bg-black/20 p-5">
                               <div className="flex items-start justify-between gap-4">
                                 <div className="min-w-0">
                                   <div className="flex flex-wrap items-center gap-2">
@@ -1241,22 +1241,22 @@ export default function AccountPage() {
                                   <p className="mt-2 text-sm leading-6 text-white/62">{pack.description}</p>
                                 </div>
 
-                                <div className="shrink-0 rounded-2xl border border-white/10 bg-[#07111f] px-4 py-3 text-right">
+                                <div className="account-metric-box shrink-0 rounded-2xl border border-white/10 bg-[#07111f] px-4 py-3 text-right">
                                   <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Valor teste</p>
                                   <p className="mt-1 text-2xl font-semibold text-white">{pack.display_price}</p>
                                 </div>
                               </div>
 
                               <div className="mt-5 grid grid-cols-3 gap-3">
-                                <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                                <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                   <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Base</p>
                                   <p className="mt-2 text-lg font-semibold text-white">{formatCredits(pack.base_credits)}</p>
                                 </div>
-                                <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                                <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                   <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Bônus</p>
                                   <p className="mt-2 text-lg font-semibold text-emerald-300">+{formatCredits(pack.bonus_credits)}</p>
                                 </div>
-                                <div className="rounded-2xl border border-white/10 bg-[#07111f] p-3">
+                                <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
                                   <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Total</p>
                                   <p className="mt-2 text-lg font-semibold text-white">{formatCredits(pack.total_credits)}</p>
                                 </div>

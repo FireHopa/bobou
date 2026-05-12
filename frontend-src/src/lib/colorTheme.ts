@@ -39,6 +39,11 @@ export function applyColorTheme(themeId: ColorThemeId) {
 
   document.documentElement.dataset.colorTheme = themeId;
   document.documentElement.style.colorScheme = themeId === "googleGray" ? "light" : "dark";
+
+  if (document.body) {
+    document.body.dataset.colorTheme = themeId;
+    document.body.style.colorScheme = themeId === "googleGray" ? "light" : "dark";
+  }
 }
 
 export function setStoredColorTheme(themeId: ColorThemeId) {

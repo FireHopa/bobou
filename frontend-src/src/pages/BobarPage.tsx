@@ -1653,7 +1653,7 @@ function DueDatePickerField({
               <div
                 ref={panelRef}
                 style={panelStyle}
-                className="z-[2147483000] overflow-hidden rounded-[1.8rem] border border-cyan-400/20 bg-[#050d1c]/98 p-4 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur"
+                className="bobar-calendar-panel z-[2147483000] overflow-hidden rounded-[1.8rem] border border-cyan-400/20 bg-[#050d1c]/98 p-4 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur"
               >
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -1711,7 +1711,7 @@ function DueDatePickerField({
                   className="custom-scrollbar grid gap-4 overflow-y-auto pr-1 xl:grid-cols-[minmax(0,1fr)_320px]"
                   style={{ maxHeight: panelStyle.maxHeight ? `calc(${panelStyle.maxHeight}px - 110px)` : undefined }}
                 >
-                  <div className="rounded-[1.35rem] border border-cyan-400/15 bg-[#081224] p-3">
+                  <div className="bobar-calendar-surface rounded-[1.35rem] border border-cyan-400/15 bg-[#081224] p-3">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
                         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
@@ -1807,7 +1807,7 @@ function DueDatePickerField({
                     </div>
                   </div>
 
-                  <div className="rounded-[1.35rem] border border-cyan-400/15 bg-[#081224] p-3">
+                  <div className="bobar-calendar-surface rounded-[1.35rem] border border-cyan-400/15 bg-[#081224] p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
@@ -2283,7 +2283,7 @@ function ColumnLane({
     <Card
       variant="glass"
       className={cn(
-        "flex w-[min(320px,calc(100vw-1.5rem))] min-w-[280px] max-w-[320px] snap-start flex-col overflow-hidden rounded-[2rem] border bg-[#07101f]/80 backdrop-blur xl:min-w-[300px] 2xl:w-[340px] 2xl:max-w-[340px]",
+        "bobar-column-lane flex w-[min(320px,calc(100vw-1.5rem))] min-w-[280px] max-w-[320px] snap-start flex-col overflow-hidden rounded-[2rem] border bg-[#07101f]/80 backdrop-blur xl:min-w-[300px] 2xl:w-[340px] 2xl:max-w-[340px]",
         isCardDropActive &&
           "border-cyan-300/60 shadow-[0_0_0_1px_rgba(34,211,238,0.28),0_24px_48px_rgba(8,145,178,0.18)]",
         isColumnDropActive && "border-fuchsia-300/60 shadow-[0_0_0_1px_rgba(232,121,249,0.22)]",
@@ -2395,7 +2395,7 @@ function ColumnLane({
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-1 flex-col gap-3 pt-5">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-5">
         <Button
           className="h-10 w-full rounded-2xl"
           variant="outline"
@@ -2412,7 +2412,7 @@ function ColumnLane({
           </div>
         ) : null}
 
-        <div className="custom-scrollbar flex-1 space-y-3 overflow-y-auto pr-1">
+        <div className="bobar-column-scroll custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           {column.cards.length ? (
             column.cards.map((card) => {
               const active = selectedCardId === card.id;
@@ -2848,10 +2848,10 @@ function FlowchartCanvas({
                   key={edge.id}
                   d={buildEdgePath(source, target)}
                   fill="none"
-                  stroke={selected ? "rgba(34,211,238,0.95)" : "rgba(148,163,184,0.45)"}
+                  stroke={selected ? "var(--bobar-flow-edge-selected, rgba(34,211,238,0.95))" : "var(--bobar-flow-edge, rgba(148,163,184,0.45))"}
                   strokeWidth={selected ? 3 : 2}
                   strokeLinecap="round"
-                  className="pointer-events-auto cursor-pointer transition"
+                  className={cn("bobar-flow-edge pointer-events-auto cursor-pointer transition", selected && "bobar-flow-edge-selected")}
                   onClick={(event) => {
                     event.stopPropagation();
                     onSelectEdge(edge.id);
@@ -2869,10 +2869,11 @@ function FlowchartCanvas({
                   connectionPointer.y,
                 )}
                 fill="none"
-                stroke="rgba(34,211,238,0.85)"
+                stroke="var(--bobar-flow-edge-pending, rgba(34,211,238,0.85))"
                 strokeWidth={2}
                 strokeDasharray="10 8"
                 strokeLinecap="round"
+                className="bobar-flow-edge-pending"
               />
             ) : null}
           </svg>
@@ -4493,6 +4494,55 @@ export default function BobarPage() {
     setBoardDialog({ mode: "rename", board: boardItem });
   }, []);
 
+  const handleDuplicateBoard = React.useCallback(async () => {
+    if (!board || busy || !canEditBoard) return;
+
+    try {
+      setBusy(true);
+      const duplicateTitle = `${board.title} · cópia`;
+      const boardList = await bobarService.createBoard({ title: duplicateTitle });
+      setBoards(boardList.boards);
+
+      const createdBoard =
+        boardList.boards.find((boardItem) => !boards.some((existingBoard) => existingBoard.id === boardItem.id)) ||
+        boardList.boards.find((boardItem) => boardItem.title === duplicateTitle) ||
+        boardList.boards[boardList.boards.length - 1] ||
+        null;
+
+      if (!createdBoard) {
+        throw new Error('Novo quadro não encontrado após a duplicação.');
+      }
+
+      const createdBoardDetails = await bobarService.board(createdBoard.id);
+      const existingColumns = createdBoardDetails.columns || [];
+      const sourceColumns = board.columns || [];
+
+      for (let index = 0; index < sourceColumns.length; index += 1) {
+        const sourceColumn = sourceColumns[index];
+        const existingColumn = existingColumns[index];
+        if (existingColumn) {
+          if (existingColumn.name !== sourceColumn.name) {
+            await bobarService.renameColumn(existingColumn.id, { name: sourceColumn.name });
+          }
+        } else {
+          await bobarService.createColumn({ name: sourceColumn.name }, createdBoard.id);
+        }
+      }
+
+      const columnsToRemove = existingColumns.slice(sourceColumns.length).reverse();
+      for (const columnToRemove of columnsToRemove) {
+        await bobarService.deleteColumn(columnToRemove.id);
+      }
+
+      await loadBoardsAndBoard(createdBoard.id);
+      toastSuccess('Quadro duplicado com a mesma estrutura de colunas.');
+    } catch (error) {
+      toastApiError(error, 'Não foi possível duplicar o quadro.');
+    } finally {
+      setBusy(false);
+    }
+  }, [board, boards, busy, canEditBoard, loadBoardsAndBoard]);
+
   const handleSubmitBoardDialog = React.useCallback(
     async (event?: React.FormEvent) => {
       event?.preventDefault();
@@ -5666,7 +5716,7 @@ export default function BobarPage() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3">
+                  <div className="bobar-flow-toolbar flex flex-wrap items-center gap-3">
                     <Button
                       className="h-11 rounded-2xl"
                       variant="outline"
@@ -5912,6 +5962,15 @@ export default function BobarPage() {
                   <Button className="h-11 rounded-2xl px-4" onClick={openCreateBoardDialog}>
                     <Plus className="h-4 w-4" />
                     Novo quadro
+                  </Button>
+                  <Button
+                    className="h-11 rounded-2xl px-4"
+                    variant="outline"
+                    onClick={() => void handleDuplicateBoard()}
+                    disabled={busy || !board || !canEditBoard}
+                  >
+                    <Copy className="h-4 w-4" />
+                    Duplicar quadro
                   </Button>
                   <Button
                     className="h-11 rounded-2xl px-4"
