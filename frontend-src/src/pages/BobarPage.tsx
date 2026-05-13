@@ -189,6 +189,8 @@ const BOARD_ACTIVITY_LABELS: Record<string, string> = {
   card_moved: "Card movido",
   card_archived: "Card arquivado",
   card_restored: "Card restaurado",
+  card_completed: "Card concluído",
+  card_reopened: "Card reaberto",
   card_hidden: "Card ocultado",
   card_unhidden: "Card reexibido",
   card_assigned: "Pessoa marcada",
@@ -1018,11 +1020,12 @@ function toIsoDatetime(value: string) {
     return null;
   }
 
-  return date.toISOString();
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:00`;
 }
 
-function isCardOverdue(card?: Pick<BobarCard, "due_at"> | null) {
-  if (!card?.due_at) return false;
+function isCardOverdue(card?: Pick<BobarCard, "due_at" | "is_completed"> | null) {
+  if (!card?.due_at || card.is_completed) return false;
   const dueAt = new Date(card.due_at);
   if (Number.isNaN(dueAt.getTime())) return false;
   return dueAt.getTime() < Date.now();
@@ -1563,7 +1566,7 @@ function DueDatePickerField({
 
       <div
         className={cn(
-          "rounded-[1.6rem] border bg-[#081224] p-3 transition",
+          "bobar-due-picker rounded-[1.6rem] border bg-[#081224] p-3 transition",
           invalid
             ? "border-amber-400/25 bg-amber-500/8"
             : overdue
@@ -1580,7 +1583,7 @@ function DueDatePickerField({
             }}
             disabled={disabled}
             className={cn(
-              "group flex min-w-0 flex-1 items-center gap-3 rounded-[1.3rem] border px-4 py-3 text-left transition",
+              "bobar-due-trigger group flex min-w-0 flex-1 select-none items-center gap-3 rounded-[1.3rem] border px-4 py-3 text-left transition",
               invalid
                 ? "border-amber-400/35 bg-amber-500/10 text-amber-50"
                 : overdue
@@ -1763,13 +1766,13 @@ function DueDatePickerField({
                             type="button"
                             onClick={() => applyDate(cell.date)}
                             className={cn(
-                              "flex h-11 items-center justify-center rounded-2xl border text-sm font-semibold transition",
+                              "bobar-calendar-day flex h-11 select-none items-center justify-center rounded-2xl border text-sm font-semibold transition",
                               isSelected
-                                ? "border-cyan-300/50 bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.18)]"
+                                ? "bobar-calendar-day--selected border-cyan-300/50 bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.18)]"
                                 : cell.currentMonth
-                                  ? "border-white/8 bg-white/[0.03] text-white/80 hover:border-cyan-300/25 hover:bg-cyan-400/8"
-                                  : "border-white/5 bg-white/[0.02] text-white/25 hover:text-white/55",
-                              isToday && !isSelected && "border-cyan-400/18 text-cyan-100",
+                                  ? "bobar-calendar-day--current border-white/8 bg-white/[0.03] text-white/80 hover:border-cyan-300/25 hover:bg-cyan-400/8"
+                                  : "bobar-calendar-day--muted border-white/5 bg-white/[0.02] text-white/25 hover:text-white/55",
+                              isToday && !isSelected && "bobar-calendar-day--today border-cyan-400/18 text-cyan-100",
                             )}
                           >
                             {cell.date.getDate()}
@@ -1810,14 +1813,14 @@ function DueDatePickerField({
                   <div className="bobar-calendar-surface rounded-[1.35rem] border border-cyan-400/15 bg-[#081224] p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                        <div className="bobar-clock-title text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
                           Relógio
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-2xl font-black text-white">
+                        <div className="bobar-clock-display mt-1 flex items-center gap-2 text-2xl font-black text-white">
                           <Clock3 className="h-5 w-5 text-cyan-200/70" />
                           <span>{selectedDate ? `${selectedHour}:${selectedMinute}` : "--:--"}</span>
                         </div>
-                        <div className="mt-1 text-xs leading-5 text-white/45">
+                        <div className="bobar-clock-help mt-1 text-xs leading-5 text-white/45">
                           {selectedDate
                             ? selectedTime
                               ? "Hora fixa definida para este prazo."
@@ -1828,8 +1831,8 @@ function DueDatePickerField({
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-[1.15rem] border border-white/8 bg-white/[0.03] p-2">
-                        <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                      <div className="bobar-time-column rounded-[1.15rem] border border-white/8 bg-white/[0.03] p-2">
+                        <div className="bobar-time-column-label mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
                           Hora
                         </div>
                         <div className="custom-scrollbar max-h-56 overflow-y-auto pr-1">
@@ -1843,11 +1846,11 @@ function DueDatePickerField({
                                   disabled={!selectedDate}
                                   onClick={() => applyTime(`${hour}:${selectedMinute}`)}
                                   className={cn(
-                                    "rounded-xl px-3 py-2 text-sm font-semibold transition",
+                                    "bobar-time-option rounded-xl border px-3 py-2 text-sm font-semibold transition",
                                     !selectedDate
-                                      ? "cursor-not-allowed bg-white/[0.02] text-white/20"
+                                      ? "bobar-time-option--disabled cursor-not-allowed bg-white/[0.02] text-white/20"
                                       : active
-                                        ? "bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.14)]"
+                                        ? "bobar-time-option--active bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.14)]"
                                         : "bg-white/[0.04] text-white/70 hover:bg-cyan-400/10 hover:text-white",
                                   )}
                                 >
@@ -1859,8 +1862,8 @@ function DueDatePickerField({
                         </div>
                       </div>
 
-                      <div className="rounded-[1.15rem] border border-white/8 bg-white/[0.03] p-2">
-                        <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                      <div className="bobar-time-column rounded-[1.15rem] border border-white/8 bg-white/[0.03] p-2">
+                        <div className="bobar-time-column-label mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
                           Minuto
                         </div>
                         <div className="custom-scrollbar max-h-56 overflow-y-auto pr-1">
@@ -1874,11 +1877,11 @@ function DueDatePickerField({
                                   disabled={!selectedDate}
                                   onClick={() => applyTime(`${selectedHour}:${minute}`)}
                                   className={cn(
-                                    "rounded-xl px-3 py-2 text-sm font-semibold transition",
+                                    "bobar-time-option rounded-xl border px-3 py-2 text-sm font-semibold transition",
                                     !selectedDate
-                                      ? "cursor-not-allowed bg-white/[0.02] text-white/20"
+                                      ? "bobar-time-option--disabled cursor-not-allowed bg-white/[0.02] text-white/20"
                                       : active
-                                        ? "bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.14)]"
+                                        ? "bobar-time-option--active bg-cyan-400/18 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.14)]"
                                         : "bg-white/[0.04] text-white/70 hover:bg-cyan-400/10 hover:text-white",
                                   )}
                                 >
@@ -1897,11 +1900,11 @@ function DueDatePickerField({
                         disabled={!selectedDate}
                         onClick={clearTime}
                         className={cn(
-                          "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                          "bobar-time-chip rounded-full border px-3 py-1.5 text-xs font-medium transition",
                           !selectedDate
-                            ? "cursor-not-allowed border-white/8 bg-white/[0.03] text-white/25"
+                            ? "bobar-time-chip--disabled cursor-not-allowed border-white/8 bg-white/[0.03] text-white/25"
                             : !selectedTime
-                              ? "border-cyan-400/20 bg-cyan-400/12 text-cyan-100"
+                              ? "bobar-time-chip--active border-cyan-400/20 bg-cyan-400/12 text-cyan-100"
                               : "border-white/10 bg-white/[0.04] text-white/70 hover:border-cyan-300/30 hover:text-white",
                         )}
                       >
@@ -1914,11 +1917,11 @@ function DueDatePickerField({
                           disabled={!selectedDate}
                           onClick={() => applyTime(time)}
                           className={cn(
-                            "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                            "bobar-time-chip rounded-full border px-3 py-1.5 text-xs font-medium transition",
                             !selectedDate
-                              ? "cursor-not-allowed border-white/8 bg-white/[0.03] text-white/25"
+                              ? "bobar-time-chip--disabled cursor-not-allowed border-white/8 bg-white/[0.03] text-white/25"
                               : selectedTime === time
-                                ? "border-cyan-400/20 bg-cyan-400/12 text-cyan-100"
+                                ? "bobar-time-chip--active border-cyan-400/20 bg-cyan-400/12 text-cyan-100"
                                 : "border-white/10 bg-white/[0.04] text-white/70 hover:border-cyan-300/30 hover:text-white",
                           )}
                         >
@@ -2023,7 +2026,7 @@ function SelectField({
   const active = options.find((option) => option.value === value);
 
   return (
-    <div className="space-y-2" ref={wrapperRef}>
+    <div className="bobar-select-field space-y-2" ref={wrapperRef}>
       {label ? (
         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
           {label}
@@ -2065,6 +2068,7 @@ function SelectField({
                 ref={menuRef}
                 style={menuStyle}
                 className="bobar-select-menu overflow-hidden rounded-[1.4rem] border border-cyan-400/20 bg-[#07101f] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
+                data-bobar-select-menu="true"
               >
                 <div className="custom-scrollbar scrollbar-gutter-stable overflow-y-auto pr-1" style={{ maxHeight: menuStyle.maxHeight }}>
                   {options.map((option) => {
@@ -2078,9 +2082,9 @@ function SelectField({
                           setOpen(false);
                         }}
                         className={cn(
-                          "flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-3 text-left transition",
+                          "bobar-select-option flex w-full select-none items-start justify-between gap-3 rounded-2xl px-3 py-3 text-left transition",
                           activeOption
-                            ? "bg-cyan-400/12 text-cyan-100"
+                            ? "bobar-select-option--active bg-cyan-400/12 text-cyan-100"
                             : "text-white/80 hover:bg-white/5",
                         )}
                       >
@@ -2417,6 +2421,7 @@ function ColumnLane({
             column.cards.map((card) => {
               const active = selectedCardId === card.id;
               const dragging = dragState?.cardId === card.id;
+              const completed = Boolean(card.is_completed);
               const overdue = isCardOverdue(card);
               const expanded = expandedCardIds.includes(card.id);
               const assignedMember = card.assigned_user_id ? membersByUserId[card.assigned_user_id] : undefined;
@@ -2446,20 +2451,24 @@ function ColumnLane({
                     }
                   }}
                   className={cn(
-                    "w-full overflow-hidden rounded-[1.7rem] border p-4 text-left shadow-[0_16px_34px_rgba(0,0,0,0.22)] transition",
+                    "bobar-board-card w-full select-none overflow-hidden rounded-[1.7rem] border p-4 text-left shadow-[0_16px_34px_rgba(0,0,0,0.22)] transition",
                     active
-                      ? overdue
-                        ? "border-red-300/50 bg-red-500/10 ring-2 ring-red-400/20"
-                        : "border-cyan-400/50 bg-cyan-400/10 ring-2 ring-cyan-400/25"
-                      : overdue
-                        ? "border-red-400/25 bg-red-500/10 hover:bg-red-500/14"
-                        : "border-white/10 bg-white/[0.045] hover:bg-white/[0.07]",
-                    isAssignedToCurrentUser && "border-emerald-300/45 bg-emerald-500/10 ring-2 ring-emerald-300/20",
+                      ? completed
+                        ? "bobar-board-card--active bobar-board-card--completed border-emerald-300/50 bg-emerald-500/10 ring-2 ring-emerald-400/20"
+                        : overdue
+                          ? "bobar-board-card--active bobar-board-card--overdue border-red-300/50 bg-red-500/10 ring-2 ring-red-400/20"
+                          : "bobar-board-card--active border-cyan-400/50 bg-cyan-400/10 ring-2 ring-cyan-400/25"
+                      : completed
+                        ? "bobar-board-card--completed border-emerald-400/25 bg-emerald-500/10 hover:bg-emerald-500/14"
+                        : overdue
+                          ? "bobar-board-card--overdue border-red-400/25 bg-red-500/10 hover:bg-red-500/14"
+                          : "border-white/10 bg-white/[0.045] hover:bg-white/[0.07]",
+                    isAssignedToCurrentUser && "bobar-board-card--assigned border-emerald-300/45 bg-emerald-500/10 ring-2 ring-emerald-300/20",
                     dragging && "opacity-45",
                   )}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                  <div className="bobar-card-header flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 pr-1">
                       <div className="mb-2 flex flex-wrap items-center gap-2">
                         <Badge
                           className={cn(
@@ -2474,7 +2483,12 @@ function ColumnLane({
                             {card.source_label}
                           </Badge>
                         ) : null}
-                        {overdue ? (
+                        {completed ? (
+                          <Badge className="rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
+                            <Check className="mr-1 h-3.5 w-3.5" />
+                            Concluído
+                          </Badge>
+                        ) : overdue ? (
                           <Badge className="rounded-full border border-red-400/30 bg-red-500/15 px-2.5 py-1 text-[11px] font-semibold text-red-100">
                             <AlertTriangle className="mr-1 h-3.5 w-3.5" />
                             Atrasado
@@ -2501,11 +2515,11 @@ function ColumnLane({
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="bobar-card-actions flex shrink-0 items-center gap-2">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="rounded-2xl px-3"
+                        className="bobar-card-expand-button rounded-2xl px-3"
                         onClick={(event) => {
                           event.stopPropagation();
                           onToggleCardPreview(card.id);
@@ -2532,9 +2546,11 @@ function ColumnLane({
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px]",
-                          overdue
-                            ? "border-red-400/30 bg-red-500/15 text-red-100"
-                            : "border-white/10 bg-white/5 text-white/60",
+                          completed
+                            ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-100"
+                            : overdue
+                              ? "border-red-400/30 bg-red-500/15 text-red-100"
+                              : "border-white/10 bg-white/5 text-white/60",
                         )}
                       >
                         <CalendarClock className="h-3.5 w-3.5" />
@@ -3792,9 +3808,14 @@ export default function BobarPage() {
   const clearDueDate = React.useCallback(() => {
     setCardDraft((current) => (current ? { ...current, due_at: "" } : current));
   }, []);
+  const selectedCardIsCompleted = Boolean(selectedCard?.is_completed);
   const selectedCardIsOverdue = React.useMemo(
-    () => isCardOverdue({ due_at: dueDateIso ?? selectedCard?.due_at ?? null }),
-    [dueDateIso, selectedCard?.due_at],
+    () =>
+      isCardOverdue({
+        due_at: dueDateIso ?? selectedCard?.due_at ?? null,
+        is_completed: selectedCardIsCompleted,
+      }),
+    [dueDateIso, selectedCard?.due_at, selectedCardIsCompleted],
   );
 
   const templateOptions = React.useMemo<DropdownOption[]>(
@@ -4513,7 +4534,7 @@ export default function BobarPage() {
         throw new Error('Novo quadro não encontrado após a duplicação.');
       }
 
-      const createdBoardDetails = await bobarService.board(createdBoard.id);
+      let createdBoardDetails = await bobarService.board(createdBoard.id);
       const existingColumns = createdBoardDetails.columns || [];
       const sourceColumns = board.columns || [];
 
@@ -4522,20 +4543,53 @@ export default function BobarPage() {
         const existingColumn = existingColumns[index];
         if (existingColumn) {
           if (existingColumn.name !== sourceColumn.name) {
-            await bobarService.renameColumn(existingColumn.id, { name: sourceColumn.name });
+            createdBoardDetails = await bobarService.renameColumn(existingColumn.id, { name: sourceColumn.name });
           }
         } else {
-          await bobarService.createColumn({ name: sourceColumn.name }, createdBoard.id);
+          createdBoardDetails = await bobarService.createColumn({ name: sourceColumn.name }, createdBoard.id);
         }
       }
 
       const columnsToRemove = existingColumns.slice(sourceColumns.length).reverse();
       for (const columnToRemove of columnsToRemove) {
-        await bobarService.deleteColumn(columnToRemove.id);
+        createdBoardDetails = await bobarService.deleteColumn(columnToRemove.id);
+      }
+
+      const sourceLabels = [...(board.labels || [])].sort((a, b) => a.position - b.position);
+      const labelKey = (label: Pick<BobarLabel, "name" | "color">) =>
+        `${label.name.trim().toLowerCase()}::${String(label.color || "").trim().toLowerCase()}`;
+
+      for (const sourceLabel of sourceLabels) {
+        const existingLabel = (createdBoardDetails.labels || []).find(
+          (label) => label.name.trim().toLowerCase() === sourceLabel.name.trim().toLowerCase(),
+        );
+
+        if (existingLabel) {
+          if (existingLabel.name !== sourceLabel.name || existingLabel.color !== sourceLabel.color) {
+            createdBoardDetails = await bobarService.updateLabel(existingLabel.id, {
+              name: sourceLabel.name,
+              color: sourceLabel.color,
+            });
+          }
+        } else {
+          createdBoardDetails = await bobarService.createLabel(
+            { name: sourceLabel.name, color: sourceLabel.color },
+            createdBoard.id,
+          );
+        }
+      }
+
+      const sourceLabelKeys = new Set(sourceLabels.map(labelKey));
+      const labelsToRemove = (createdBoardDetails.labels || [])
+        .filter((label) => !sourceLabelKeys.has(labelKey(label)))
+        .sort((a, b) => b.position - a.position);
+
+      for (const labelToRemove of labelsToRemove) {
+        createdBoardDetails = await bobarService.deleteLabel(labelToRemove.id);
       }
 
       await loadBoardsAndBoard(createdBoard.id);
-      toastSuccess('Quadro duplicado com a mesma estrutura de colunas.');
+      toastSuccess('Quadro duplicado com colunas e etiquetas.');
     } catch (error) {
       toastApiError(error, 'Não foi possível duplicar o quadro.');
     } finally {
@@ -5216,6 +5270,17 @@ export default function BobarPage() {
     );
   }, [runBoardMutation, selectedCard]);
 
+  const handleToggleSelectedCardCompleted = React.useCallback(async () => {
+    if (!selectedCard) return;
+
+    const nextCompleted = !selectedCard.is_completed;
+    await runBoardMutation(
+      () => bobarService.updateCard(selectedCard.id, { is_completed: nextCompleted }),
+      nextCompleted ? "Card marcado como concluído." : "Card reaberto.",
+      selectedCard.id,
+    );
+  }, [runBoardMutation, selectedCard]);
+
   const openDeleteSelectedCardDialog = React.useCallback(() => {
     if (!selectedCard) return;
     setDeleteDialog({ type: "card", card: selectedCard });
@@ -5697,20 +5762,20 @@ export default function BobarPage() {
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                     <Button
                       variant="outline"
-                      className="h-11 w-full rounded-2xl sm:w-auto"
+                      className="bobar-flow-back-button h-11 w-full rounded-2xl sm:w-auto"
                       onClick={closeFlowEditor}
                     >
                       Voltar
                     </Button>
 
                     <div className="min-w-0">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                      <div className="bobar-flow-kicker text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
                         Fluxograma · tela cheia
                       </div>
-                      <div className="truncate text-xl font-black text-white sm:text-2xl">
+                      <div className="bobar-flow-title truncate text-xl font-black text-white sm:text-2xl">
                         {cardDraft?.title?.trim() || selectedCard?.title || "Fluxograma"}
                       </div>
-                      <div className="text-sm text-white/55">
+                      <div className="bobar-flow-subtitle text-sm text-white/55">
                         Edite blocos e conexões no canvas.
                       </div>
                     </div>
@@ -5897,13 +5962,13 @@ export default function BobarPage() {
                   </div>
                 </div>
 
-                <div className="inline-flex w-full rounded-full border border-white/10 bg-white/[0.03] p-1 sm:w-auto">
+                <div className="bobar-view-tabs inline-flex w-full rounded-full border border-white/10 bg-white/[0.03] p-1 sm:w-auto">
                   <Button
                     className={cn(
                       "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
                       activeView === "board"
-                        ? "bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
-                        : "border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
+                        ? "bobar-view-tab bobar-view-tab--active bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        : "bobar-view-tab border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
                     )}
                     variant="ghost"
                     onClick={() => setActiveView("board")}
@@ -5915,8 +5980,8 @@ export default function BobarPage() {
                     className={cn(
                       "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
                       activeView === "imports"
-                        ? "bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
-                        : "border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
+                        ? "bobar-view-tab bobar-view-tab--active bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        : "bobar-view-tab border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
                     )}
                     variant="ghost"
                     onClick={() => setActiveView("imports")}
@@ -5928,8 +5993,8 @@ export default function BobarPage() {
                     className={cn(
                       "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
                       activeView === "shared"
-                        ? "bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
-                        : "border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
+                        ? "bobar-view-tab bobar-view-tab--active bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        : "bobar-view-tab border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
                     )}
                     variant="ghost"
                     onClick={() => setActiveView("shared")}
@@ -7251,7 +7316,16 @@ export default function BobarPage() {
                           label="Prazo"
                           value={
                             selectedCard.due_at ? (
-                              <span className={cn("font-medium", selectedCardIsOverdue && "text-red-100")}>
+                              <span
+                                className={cn(
+                                  "font-medium",
+                                  selectedCardIsCompleted
+                                    ? "text-emerald-100"
+                                    : selectedCardIsOverdue
+                                      ? "text-red-100"
+                                      : "",
+                                )}
+                              >
                                 {formatDate(selectedCard.due_at)}
                               </span>
                             ) : (
@@ -7294,6 +7368,8 @@ export default function BobarPage() {
                               <span className="font-semibold text-amber-100">
                                 Alterações pendentes
                               </span>
+                            ) : selectedCardIsCompleted ? (
+                              <span className="font-semibold text-emerald-100">Concluído</span>
                             ) : selectedCardIsOverdue ? (
                               <span className="font-semibold text-red-100">Atrasado</span>
                             ) : (
@@ -7335,6 +7411,20 @@ export default function BobarPage() {
                           <Save className="h-4 w-4" />
                         )}
                         Salvar card
+                      </Button>
+                      <Button
+                        className={cn(
+                          "h-11 rounded-2xl",
+                          selectedCardIsCompleted &&
+                            "border-emerald-300/30 bg-emerald-500/12 text-emerald-100 hover:bg-emerald-500/18",
+                        )}
+                        variant="outline"
+                        onClick={() => void handleToggleSelectedCardCompleted()}
+                        disabled={!canEditBoard || selectedCard.is_archived || (!selectedCard.due_at && !selectedCard.is_completed)}
+                        title={!selectedCard.due_at && !selectedCard.is_completed ? "Defina um prazo antes de concluir." : undefined}
+                      >
+                        <Check className="h-4 w-4" />
+                        {selectedCardIsCompleted ? "Reabrir tarefa" : "Concluir tarefa"}
                       </Button>
                       <Button
                         className="h-11 rounded-2xl"
@@ -7741,7 +7831,7 @@ export default function BobarPage() {
                           : "Somente editores podem enviar mensagens no chat."
                       }
                       readOnly={!canEditBoard}
-                      className="custom-scrollbar min-h-[110px] rounded-[1.6rem] border-cyan-400/20 bg-[#0a1225]"
+                      className="bobar-project-chat-input custom-scrollbar min-h-[110px] rounded-[1.6rem] border-cyan-400/20 bg-[#0a1225]"
                       onKeyDown={(event) => {
                         if (!canEditBoard) return;
                         if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -7752,7 +7842,7 @@ export default function BobarPage() {
                     />
                     <Button
                       type="button"
-                      className="h-auto min-h-[110px] rounded-[1.6rem] px-5"
+                      className="bobar-project-chat-send h-auto min-h-[110px] rounded-[1.6rem] px-5"
                       onClick={() => void handleSendProjectMessage()}
                       disabled={shareBusy || !chatMessageDraft.trim() || !canEditBoard}
                     >
@@ -7915,10 +8005,10 @@ export default function BobarPage() {
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="bobar-board-dialog">
           <form className="space-y-5" onSubmit={handleSubmitBoardDialog}>
             <DialogHeader>
-              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+              <div className="bobar-dialog-eyebrow bobar-dialog-eyebrow--info inline-flex w-fit items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
                 <FolderKanban className="h-3.5 w-3.5" />
                 {boardDialog?.mode === "rename" ? "Estrutura do quadro" : "Novo quadro"}
               </div>
@@ -7933,7 +8023,7 @@ export default function BobarPage() {
             </DialogHeader>
 
             <div className="space-y-2">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+              <div className="bobar-dialog-field-label text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
                 Nome do quadro
               </div>
               <Input
@@ -7941,7 +8031,7 @@ export default function BobarPage() {
                 onChange={(event) => setBoardNameDraft(event.target.value)}
                 placeholder="Ex.: Operação comercial"
                 autoFocus
-                className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                className="bobar-dialog-input h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
               />
             </div>
 
@@ -8081,9 +8171,9 @@ export default function BobarPage() {
       </Dialog>
 
       <Dialog open={Boolean(deleteDialog)} onOpenChange={(open) => !open && setDeleteDialog(null)}>
-        <DialogContent>
+        <DialogContent className="bobar-delete-dialog">
           <DialogHeader>
-            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-red-100">
+            <div className="bobar-dialog-eyebrow bobar-dialog-eyebrow--danger inline-flex w-fit items-center gap-2 rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-red-100">
               <CircleAlert className="h-3.5 w-3.5" />
               Ação destrutiva
             </div>
@@ -8103,7 +8193,7 @@ export default function BobarPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-white/60">
+          <div className="bobar-delete-warning rounded-[1.6rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-white/60">
             {deleteDialog?.type === "board"
               ? "Essa ação remove todo o conteúdo do quadro atual. Use apenas quando tiver certeza."
               : "Confirme apenas se tiver certeza. A interface foi ajustada para evitar pop-ups nativos e deixar essa decisão mais clara."}

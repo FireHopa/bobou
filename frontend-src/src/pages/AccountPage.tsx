@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -336,6 +337,25 @@ export default function AccountPage() {
   useEffect(() => {
     setProfileName(user?.name ?? "");
   }, [user?.name]);
+
+  useEffect(() => {
+    if (accountView !== "credits") return undefined;
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".account-credits-fullscreen")?.scrollTo({ top: 0, left: 0 });
+    });
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [accountView]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1068,311 +1088,365 @@ export default function AccountPage() {
           </>
         ) : null}
 
-        {accountView === "credits" ? (
-          <section className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[#07111f] p-5 sm:p-6 xl:p-8 backdrop-blur-sm">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_34%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_28%)]" />
+        {accountView === "credits" && typeof document !== "undefined"
+          ? createPortal(
+              <section
+                role="dialog"
+                aria-modal="true"
+                aria-label="Planos e créditos"
+                className="account-credits-fullscreen fixed inset-0 z-[9999] overflow-y-auto bg-[#f4f7fb] px-4 py-5 text-slate-900 sm:px-6 lg:px-8"
+              >
+            <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(66,133,244,0.12),transparent_34%),radial-gradient(circle_at_top_right,rgba(52,168,83,0.12),transparent_30%),linear-gradient(180deg,#f8fbff_0%,#eef3f9_100%)]" />
 
-            <div className="relative space-y-6">
-              <div className="flex flex-col gap-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="max-w-3xl">
+            <div className="relative mx-auto flex min-h-full w-full max-w-[1680px] flex-col gap-6">
+              <div className="sticky top-0 z-20 -mx-4 border-b border-slate-200/70 bg-[#f4f7fb]/88 px-4 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+                <div className="mx-auto flex max-w-[1680px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <button
                     type="button"
                     onClick={() => setAccountView("account")}
-                    className="mb-4 inline-flex h-11 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-white/78 transition hover:bg-white/[0.08]"
+                    className="inline-flex h-11 w-fit items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-[0_10px_24px_rgba(15,23,42,0.06)] transition hover:border-blue-200 hover:text-blue-700"
                   >
                     <ArrowLeft className="h-4 w-4" />
                     Voltar para minha conta
                   </button>
 
-                  <div className="inline-flex rounded-2xl border border-cyan-500/15 bg-cyan-500/10 p-3 text-cyan-300">
-                    <Coins className="h-6 w-6" />
-                  </div>
-                  <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white">Planos e créditos</h2>
-                  <p className="mt-3 max-w-2xl text-sm leading-7 text-white/65">
-                    Escolha um plano, faça recargas avulsas quando precisar e acompanhe o consumo médio de cada operação em uma tela mais organizada.
-                  </p>
-                  {pricingNote ? (
-                    <div className="account-billing-note mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/55">
-                      {pricingNote}
+                  <div className="grid min-w-0 gap-2 sm:grid-cols-3 lg:w-[620px]">
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Saldo atual</p>
+                      <p className="mt-1 text-xl font-bold text-slate-900">{formatCredits(user.credits)}</p>
                     </div>
-                  ) : null}
-                </div>
-
-                <div className="grid min-w-0 gap-3 sm:grid-cols-3 lg:w-full lg:grid-cols-3 xl:w-[620px]">
-                  <div className="account-summary-box min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Saldo atual</p>
-                    <p className="mt-2 break-words text-2xl font-semibold text-white sm:text-3xl">{formatCredits(user.credits)}</p>
-                    <p className="mt-1 text-sm text-white/50">Disponível agora na conta.</p>
-                  </div>
-                  <div className="account-summary-box min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Recarga diária</p>
-                    <p className="mt-2 break-words text-2xl font-semibold text-emerald-300 sm:text-3xl">+{formatCredits(dailyFreeCredits)}</p>
-                    <p className="mt-1 text-sm text-white/50">Créditos grátis por dia.</p>
-                  </div>
-                  <div className="account-summary-box min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Plano indicado</p>
-                    <p className="mt-2 break-words text-xl font-semibold text-white sm:text-2xl">{recommendedPlanTitle}</p>
-                    <p className="mt-1 text-sm text-white/50">Melhor equilíbrio de uso.</p>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Recarga diária</p>
+                      <p className="mt-1 text-xl font-bold text-emerald-700">+{formatCredits(dailyFreeCredits)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Indicado</p>
+                      <p className="mt-1 truncate text-xl font-bold text-slate-900">{recommendedPlanTitle}</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
-                <div className="space-y-6">
-                  <div className="account-credits-section rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-                    <div className="mb-5">
-                      <h3 className="text-2xl font-semibold text-white">Planos mensais</h3>
-                      <p className="text-sm leading-6 text-white/55">
-                        Planos para uso contínuo. Escolha pelo volume de pedidos que você pretende rodar no mês.
-                      </p>
+              <header className="overflow-hidden rounded-[34px] border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-8 lg:p-10">
+                <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_420px] xl:items-end">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
+                      <Coins className="h-4 w-4" />
+                      Planos e créditos
                     </div>
-
-                    <div className="grid gap-4 lg:grid-cols-2">
-                      {monthlyPlans.map((plan) => {
-                        const isActivating = activatingPlanId === plan.id;
-                        const isRecommended = Boolean((plan as { recommended?: boolean }).recommended);
-                        const highlights = getPlanHighlights(plan.id, plan.title);
-                        return (
-                          <div
-                            key={plan.id}
-                            className={cn(
-                              "account-plan-card flex h-full flex-col rounded-[28px] border p-5",
-                              isRecommended
-                                ? "account-plan-card--recommended border-cyan-400/35 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.08)]"
-                                : "border-white/10 bg-black/20",
-                            )}
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <h4 className="text-2xl font-semibold text-white">{plan.title}</h4>
-                                  {plan.badge ? (
-                                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-300">
-                                      {plan.badge}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <p className="mt-2 max-w-md text-sm leading-6 text-white/62">{plan.description}</p>
-                              </div>
-
-                              <div className="account-metric-box shrink-0 rounded-2xl border border-white/10 bg-[#07111f] px-4 py-3 text-right">
-                                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Valor teste</p>
-                                <p className="mt-1 text-2xl font-semibold text-white">{plan.display_price}</p>
-                              </div>
-                            </div>
-
-                            <div className="mt-5 grid grid-cols-3 gap-3">
-                              <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
-                                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Base</p>
-                                <p className="mt-2 text-lg font-semibold text-white">{formatCredits(plan.base_credits)}</p>
-                              </div>
-                              <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
-                                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Bônus</p>
-                                <p className="mt-2 text-lg font-semibold text-emerald-300">+{formatCredits(plan.bonus_credits)}</p>
-                              </div>
-                              <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
-                                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Total</p>
-                                <p className="mt-2 text-lg font-semibold text-white">{formatCredits(plan.total_credits)}</p>
-                              </div>
-                            </div>
-
-                            <div className="account-plan-note mt-5 rounded-2xl border border-white/10 bg-[#07111f] p-4">
-                              <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Ideal para</p>
-                              <ul className="mt-3 space-y-2 text-sm leading-6 text-white/65">
-                                {highlights.map((item) => (
-                                  <li key={item} className="flex gap-2">
-                                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
-                                    <span>{item}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-
-                            <div className="mt-auto flex items-end justify-between gap-4 pt-5">
-                              <div>
-                                <p className="text-sm font-medium text-white/75">{plan.monthly_fit}</p>
-                                <p className="text-sm text-white/45">Os créditos entram na hora para teste.</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleActivateCreditPlan(plan.id)}
-                                disabled={Boolean(activatingPlanId)}
-                                className={cn(
-                                  "inline-flex h-11 min-w-[132px] items-center justify-center rounded-2xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
-                                  isRecommended
-                                    ? "bg-cyan-300 text-slate-950 hover:bg-cyan-200"
-                                    : "bg-white text-slate-950 hover:bg-white/90",
-                                )}
-                              >
-                                {isActivating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ativar plano"}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <h2 className="mt-5 max-w-4xl text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
+                      Escolha o plano certo para o volume de IA que você quer rodar.
+                    </h2>
+                    <p className="mt-4 max-w-3xl text-base leading-8 text-slate-600">
+                      Compare créditos, bônus e uso indicado sem ficar preso em cards apertados. Os créditos entram na hora e podem ser complementados com recargas avulsas quando precisar.
+                    </p>
+                    {pricingNote ? (
+                      <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-600">
+                        {pricingNote}
+                      </div>
+                    ) : null}
                   </div>
 
-                  {creditPacks.length ? (
-                    <div className="account-credits-section rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-                      <div className="mb-5">
-                        <h3 className="text-2xl font-semibold text-white">Créditos avulsos</h3>
-                        <p className="text-sm leading-6 text-white/55">
-                          Recargas prontas para complementar o saldo. Sem valor customizado.
-                        </p>
+                  <div className="rounded-[28px] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-5 shadow-inner">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Resumo rápido</p>
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-center justify-between gap-4 rounded-2xl bg-white px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.06)]">
+                        <span className="text-sm text-slate-600">Saldo disponível</span>
+                        <strong className="text-xl text-slate-950">{formatCredits(user.credits)}</strong>
                       </div>
-
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        {creditPacks.map((pack) => {
-                          const isActivating = activatingPlanId === pack.id;
-                          const highlights = getPackHighlights(pack.id, pack.title);
-                          return (
-                            <div key={pack.id} className="account-credit-card flex h-full flex-col rounded-[24px] border border-white/10 bg-black/20 p-5">
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <h4 className="text-2xl font-semibold text-white">{pack.title}</h4>
-                                    {pack.badge ? (
-                                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-300">
-                                        {pack.badge}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  <p className="mt-2 text-sm leading-6 text-white/62">{pack.description}</p>
-                                </div>
-
-                                <div className="account-metric-box shrink-0 rounded-2xl border border-white/10 bg-[#07111f] px-4 py-3 text-right">
-                                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Valor teste</p>
-                                  <p className="mt-1 text-2xl font-semibold text-white">{pack.display_price}</p>
-                                </div>
-                              </div>
-
-                              <div className="mt-5 grid grid-cols-3 gap-3">
-                                <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
-                                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Base</p>
-                                  <p className="mt-2 text-lg font-semibold text-white">{formatCredits(pack.base_credits)}</p>
-                                </div>
-                                <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
-                                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Bônus</p>
-                                  <p className="mt-2 text-lg font-semibold text-emerald-300">+{formatCredits(pack.bonus_credits)}</p>
-                                </div>
-                                <div className="account-metric-box rounded-2xl border border-white/10 bg-[#07111f] p-3">
-                                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Total</p>
-                                  <p className="mt-2 text-lg font-semibold text-white">{formatCredits(pack.total_credits)}</p>
-                                </div>
-                              </div>
-
-                              <ul className="mt-5 space-y-2 text-sm leading-6 text-white/65">
-                                {highlights.map((item) => (
-                                  <li key={item} className="flex gap-2">
-                                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300" />
-                                    <span>{item}</span>
-                                  </li>
-                                ))}
-                              </ul>
-
-                              <div className="mt-auto flex items-end justify-between gap-4 pt-5">
-                                <p className="max-w-[220px] text-sm text-white/45">Créditos adicionados na hora ao saldo da conta.</p>
-                                <button
-                                  type="button"
-                                  onClick={() => handleActivateCreditPlan(pack.id)}
-                                  disabled={Boolean(activatingPlanId)}
-                                  className="inline-flex h-11 min-w-[148px] items-center justify-center rounded-2xl bg-white px-5 text-sm font-semibold text-slate-950 transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  {isActivating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprar créditos"}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div className="flex items-center justify-between gap-4 rounded-2xl bg-white px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.06)]">
+                        <span className="text-sm text-slate-600">Créditos grátis/dia</span>
+                        <strong className="text-xl text-emerald-700">+{formatCredits(dailyFreeCredits)}</strong>
                       </div>
+                      <div className="flex items-center justify-between gap-4 rounded-2xl bg-white px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.06)]">
+                        <span className="text-sm text-slate-600">Plano recomendado</span>
+                        <strong className="max-w-[190px] truncate text-right text-xl text-slate-950">{recommendedPlanTitle}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </header>
+
+              <section className="account-credits-section rounded-[34px] border border-slate-200 bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-6 lg:p-8">
+                <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Planos mensais</p>
+                    <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Comparativo dos planos</h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+                      Quatro opções lado a lado, com foco no volume real de uso. O botão ativa o plano e adiciona os créditos na conta.
+                    </p>
+                  </div>
+                  {isLoadingCreditCatalog ? (
+                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Atualizando catálogo
                     </div>
                   ) : null}
                 </div>
 
-                <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
-                  <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
-                    <h3 className="text-lg font-semibold text-white">Como os créditos funcionam</h3>
-                    <ul className="mt-4 space-y-3 text-sm leading-6 text-white/60">
-                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />Cada pedido desconta créditos com base no uso estimado da operação.</li>
-                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />O cálculo considera IA, busca, imagem, processamento e estrutura da plataforma.</li>
-                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />Os créditos gratuitos diários entram sem apagar o saldo acumulado.</li>
-                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />Se precisar, você pode complementar o saldo com recargas prontas.</li>
+                <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
+                  {monthlyPlans.map((plan) => {
+                    const isActivating = activatingPlanId === plan.id;
+                    const isRecommended = Boolean((plan as { recommended?: boolean }).recommended);
+                    const highlights = getPlanHighlights(plan.id, plan.title);
+                    return (
+                      <article
+                        key={plan.id}
+                        className={cn(
+                          "account-plan-card flex min-h-[520px] min-w-0 flex-col rounded-[30px] border p-5 shadow-[0_18px_45px_rgba(15,23,42,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)]",
+                          isRecommended
+                            ? "account-plan-card--recommended border-blue-200 bg-gradient-to-b from-[#eaf6ff] to-white ring-2 ring-blue-100"
+                            : "border-slate-200 bg-white",
+                        )}
+                      >
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h4 className="break-words text-2xl font-bold text-slate-950">{plan.title}</h4>
+                            <p className="mt-2 min-h-[72px] text-sm leading-6 text-slate-600">{plan.description}</p>
+                          </div>
+                          {plan.badge ? (
+                            <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
+                              {plan.badge}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Valor teste</p>
+                          <p className="mt-2 text-4xl font-bold tracking-tight text-slate-950">{plan.display_price}</p>
+                          <p className="mt-2 text-sm font-medium text-slate-600">{plan.monthly_fit}</p>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+                          <div className="account-metric-box rounded-2xl border border-slate-200 bg-white p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Base</p>
+                            <p className="mt-2 break-words text-lg font-bold text-slate-950">{formatCredits(plan.base_credits)}</p>
+                          </div>
+                          <div className="account-metric-box rounded-2xl border border-slate-200 bg-white p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Bônus</p>
+                            <p className="mt-2 break-words text-lg font-bold text-emerald-700">+{formatCredits(plan.bonus_credits)}</p>
+                          </div>
+                          <div className="account-metric-box rounded-2xl border border-slate-200 bg-white p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total</p>
+                            <p className="mt-2 break-words text-lg font-bold text-slate-950">{formatCredits(plan.total_credits)}</p>
+                          </div>
+                        </div>
+
+                        <div className="account-plan-note mt-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Ideal para</p>
+                          <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                            {highlights.map((item) => (
+                              <li key={item} className="flex gap-2">
+                                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleActivateCreditPlan(plan.id)}
+                          disabled={Boolean(activatingPlanId)}
+                          className={cn(
+                            "mt-auto inline-flex h-12 w-full items-center justify-center rounded-2xl px-5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60",
+                            isRecommended
+                              ? "border border-transparent bg-gradient-to-r from-[#4285F4] via-[#34A853] to-[#FBBC05] text-white shadow-[0_16px_30px_rgba(66,133,244,0.24)]"
+                              : "border border-slate-200 bg-white text-slate-900 shadow-[0_10px_24px_rgba(15,23,42,0.07)] hover:border-blue-200 hover:text-blue-700",
+                          )}
+                        >
+                          {isActivating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ativar plano"}
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_430px]">
+                <div className="rounded-[34px] border border-slate-200 bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-6 lg:p-8">
+                  <div className="mb-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Diferenças</p>
+                    <h3 className="mt-2 text-2xl font-bold text-slate-950">O que muda de um plano para o outro</h3>
+                    <p className="mt-2 text-sm leading-7 text-slate-600">
+                      Use esta comparação para entender rapidamente se você precisa de volume leve, constante, intenso ou operação de equipe.
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-[28px] border border-slate-200">
+                    <div className="grid min-w-[850px] grid-cols-[170px_repeat(4,minmax(170px,1fr))] text-sm">
+                      <div className="bg-slate-50 p-4 font-bold text-slate-700">Critério</div>
+                      {monthlyPlans.map((plan) => (
+                        <div key={plan.id} className="border-l border-slate-200 bg-slate-50 p-4 font-bold text-slate-950">
+                          {plan.title}
+                        </div>
+                      ))}
+
+                      <div className="border-t border-slate-200 p-4 font-semibold text-slate-600">Créditos totais</div>
+                      {monthlyPlans.map((plan) => (
+                        <div key={`${plan.id}-total`} className="border-l border-t border-slate-200 p-4 font-bold text-slate-950">
+                          {formatCredits(plan.total_credits)}
+                        </div>
+                      ))}
+
+                      <div className="border-t border-slate-200 p-4 font-semibold text-slate-600">Bônus</div>
+                      {monthlyPlans.map((plan) => (
+                        <div key={`${plan.id}-bonus`} className="border-l border-t border-slate-200 p-4 font-bold text-emerald-700">
+                          {plan.bonus_credits > 0 ? `+${formatCredits(plan.bonus_credits)}` : "Sem bônus"}
+                        </div>
+                      ))}
+
+                      <div className="border-t border-slate-200 p-4 font-semibold text-slate-600">Perfil de uso</div>
+                      {monthlyPlans.map((plan) => (
+                        <div key={`${plan.id}-fit`} className="border-l border-t border-slate-200 p-4 text-slate-700">
+                          {plan.monthly_fit}
+                        </div>
+                      ))}
+
+                      <div className="border-t border-slate-200 p-4 font-semibold text-slate-600">Melhor para</div>
+                      {monthlyPlans.map((plan) => (
+                        <div key={`${plan.id}-best`} className="border-l border-t border-slate-200 p-4 text-slate-700">
+                          {getPlanHighlights(plan.id, plan.title)[0]}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <aside className="space-y-6">
+                  <div className="rounded-[34px] border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
+                    <h3 className="text-xl font-bold text-slate-950">Como os créditos funcionam</h3>
+                    <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />Cada pedido desconta créditos com base no uso estimado da operação.</li>
+                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />O cálculo considera IA, busca, imagem, processamento e estrutura da plataforma.</li>
+                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />Os créditos gratuitos diários entram sem apagar o saldo acumulado.</li>
+                      <li className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />Recargas avulsas complementam saldo sem mudar de plano.</li>
                     </ul>
                   </div>
 
-                  <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Tabela de consumo</h3>
-                        <p className="mt-1 text-sm leading-6 text-white/60">
-                          Visual compacta por categoria para não deixar a página extensa.
-                        </p>
-                      </div>
-                      {isLoadingCreditCatalog ? <Loader2 className="h-5 w-5 animate-spin text-white/50" /> : null}
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {creditCategoryEntries.map(([category, actions]) => {
-                        const isActive = category === activeCreditCategory;
-                        return (
-                          <button
-                            key={category}
-                            type="button"
-                            onClick={() => setSelectedCreditCategory(category)}
-                            className={cn(
-                              "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] transition",
-                              isActive
-                                ? "border-cyan-400/35 bg-cyan-500/10 text-cyan-300"
-                                : "border-white/10 bg-white/[0.03] text-white/55 hover:bg-white/[0.06]",
-                            )}
-                          >
-                            <span>{category}</span>
-                            <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] normal-case tracking-normal">{actions.length}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-white">{activeCreditCategory || "Categoria"}</p>
-                          <p className="text-xs text-white/45">Valores médios por operação.</p>
-                        </div>
-                        <span className="text-xs text-white/35">{selectedCreditActions.length} itens</span>
-                      </div>
-
-                      <div className="space-y-3">
-                        {selectedCreditActions.map((action) => {
-                          const estimatedCost = formatEstimatedCost((action as { estimated_cost_brl?: number }).estimated_cost_brl);
-                          const billingBasis = (action as { billing_basis?: string }).billing_basis;
-                          return (
-                            <div key={action.key} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-white">{action.title}</p>
-                                  <p className="mt-1 text-xs leading-5 text-white/45">{action.description}</p>
-                                </div>
-                                <div className="shrink-0 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-right">
-                                  <div className="text-sm font-semibold text-cyan-300">{formatCredits(action.credits)}</div>
-                                  {estimatedCost ? <div className="text-[11px] text-cyan-200/80">{estimatedCost}</div> : null}
-                                </div>
-                              </div>
-                              {billingBasis ? (
-                                <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-white/35">Base de cálculo: {billingBasis}</p>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                  <div className="rounded-[34px] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
+                    <Sparkles className="h-6 w-6 text-blue-600" />
+                    <h3 className="mt-3 text-xl font-bold text-slate-950">Sugestão prática</h3>
+                    <p className="mt-2 text-sm leading-7 text-slate-600">
+                      Para uso recorrente com agentes, autoridade e SkyBob, comece pelo plano indicado. Para testes pontuais, use o básico ou uma recarga avulsa.
+                    </p>
                   </div>
                 </aside>
-              </div>
+              </section>
+
+              {creditPacks.length ? (
+                <section className="rounded-[34px] border border-slate-200 bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-6 lg:p-8">
+                  <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Recargas avulsas</p>
+                      <h3 className="mt-2 text-2xl font-bold text-slate-950">Comprar créditos sem trocar de plano</h3>
+                      <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+                        Use quando o saldo acabar antes do fim do mês ou quando precisar rodar uma demanda maior.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {creditPacks.map((pack) => {
+                      const isActivating = activatingPlanId === pack.id;
+                      return (
+                        <article key={pack.id} className="account-credit-card flex min-h-[260px] flex-col rounded-[28px] border border-slate-200 bg-slate-50 p-5 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <h4 className="break-words text-xl font-bold text-slate-950">{pack.title}</h4>
+                              <p className="mt-2 text-sm leading-6 text-slate-600">{pack.description}</p>
+                            </div>
+                            {pack.badge ? (
+                              <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
+                                {pack.badge}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Valor teste</p>
+                            <p className="mt-1 text-3xl font-bold text-slate-950">{pack.display_price}</p>
+                            <p className="mt-2 text-sm font-semibold text-blue-700">{formatCredits(pack.total_credits)} créditos</p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleActivateCreditPlan(pack.id)}
+                            disabled={Boolean(activatingPlanId)}
+                            className="mt-auto inline-flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-900 shadow-[0_10px_24px_rgba(15,23,42,0.07)] transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isActivating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprar créditos"}
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="mb-8 rounded-[34px] border border-slate-200 bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-6 lg:p-8">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Consumo médio</p>
+                    <h3 className="mt-2 text-2xl font-bold text-slate-950">Tabela de consumo</h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+                      Veja quantos créditos as principais operações costumam consumir.
+                    </p>
+                  </div>
+                  {isLoadingCreditCatalog ? <Loader2 className="h-5 w-5 animate-spin text-slate-500" /> : null}
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {creditCategoryEntries.map(([category, actions]) => {
+                    const isActive = category === activeCreditCategory;
+                    return (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => setSelectedCreditCategory(category)}
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] transition",
+                          isActive
+                            ? "border-transparent bg-gradient-to-r from-[#4285F4] via-[#34A853] to-[#FBBC05] text-white shadow-[0_12px_28px_rgba(66,133,244,0.22)]"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:text-blue-700",
+                        )}
+                      >
+                        <span>{category}</span>
+                        <span className={cn("rounded-full px-2 py-0.5 text-[10px] normal-case tracking-normal", isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700")}>{actions.length}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {selectedCreditActions.map((action) => {
+                    const estimatedCost = formatEstimatedCost((action as { estimated_cost_brl?: number }).estimated_cost_brl);
+                    const billingBasis = (action as { billing_basis?: string }).billing_basis;
+                    return (
+                      <div key={action.key} className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-950">{action.title}</p>
+                            <p className="mt-1 text-sm leading-6 text-slate-600">{action.description}</p>
+                          </div>
+                          <div className="shrink-0 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-right">
+                            <div className="text-sm font-bold text-blue-700">{formatCredits(action.credits)}</div>
+                            {estimatedCost ? <div className="text-[11px] text-blue-600">{estimatedCost}</div> : null}
+                          </div>
+                        </div>
+                        {billingBasis ? (
+                          <p className="mt-3 text-xs leading-5 text-slate-500">Base de cálculo: {billingBasis}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
-          </section>
-        ) : null}
+              </section>,
+              document.body,
+            )
+          : null}
       </div>
     </div>
   );

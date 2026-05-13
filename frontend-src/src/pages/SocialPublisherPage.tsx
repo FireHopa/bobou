@@ -718,8 +718,8 @@ export default function SocialPublisherPage() {
   const instagramName = user?.instagram_username ? `@${user.instagram_username}` : "@seuinstagram";
 
   return (
-    <div className="relative min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(0,200,232,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.10),transparent_30%),linear-gradient(180deg,#040812_0%,#070B14_48%,#05070D_100%)] text-white">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:44px_44px] opacity-40" />
+    <div className="social-publisher-shell relative min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(0,200,232,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.10),transparent_30%),linear-gradient(180deg,#040812_0%,#070B14_48%,#05070D_100%)] text-white">
+      <div className="social-publisher-grid-overlay pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:44px_44px] opacity-40" />
 
       <div className="fixed left-4 top-4 z-50 sm:left-6 sm:top-6">
         <Button variant="outline" onClick={handleBack} className="border-white/15 bg-black/30 text-white backdrop-blur hover:bg-white/10">
@@ -728,8 +728,8 @@ export default function SocialPublisherPage() {
         </Button>
       </div>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-[1780px] flex-col gap-6 px-4 pb-24 pt-24 sm:px-6 lg:px-8">
-        <section className="overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.025))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.30)] md:p-8">
+      <div className="social-publisher-content relative z-10 mx-auto flex w-full max-w-[1780px] flex-col gap-6 px-4 pb-24 pt-24 sm:px-6 lg:px-8">
+        <section className="social-publisher-panel social-publisher-hero overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.025))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.30)] md:p-8">
           <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
             <div className="max-w-4xl">
               <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200"><Share2 className="h-3.5 w-3.5" /> Publicador Social</div>
@@ -745,7 +745,7 @@ export default function SocialPublisherPage() {
         </section>
 
         {importNotice ? (
-          <section className="rounded-[30px] border border-cyan-300/20 bg-cyan-400/[0.075] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.20)]">
+          <section className="social-publisher-panel rounded-[30px] border border-cyan-300/20 bg-cyan-400/[0.075] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.20)]">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Importado do agente de autoridade</div>
@@ -766,7 +766,7 @@ export default function SocialPublisherPage() {
 
         <section className="grid gap-6 2xl:grid-cols-[430px_minmax(0,1fr)_500px]">
           <aside className="space-y-6 2xl:sticky 2xl:top-6 2xl:self-start">
-            <div className="rounded-[32px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
+            <div className="social-publisher-panel rounded-[32px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-semibold text-white">Escolha as redes</h2>
@@ -789,7 +789,7 @@ export default function SocialPublisherPage() {
               </div>
             </div>
 
-            <div className="rounded-[30px] border border-white/10 bg-[#08111c]/92 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.32)] backdrop-blur-xl">
+            <div className="social-publisher-panel rounded-[30px] border border-white/10 bg-[#08111c]/92 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.32)] backdrop-blur-xl">
               <div className="mb-4 grid gap-2 text-sm text-white/58">
                 <div className="flex items-center gap-2"><Save className="h-4 w-4 text-cyan-300" /> Rascunho salvo automaticamente</div>
                 <div className="flex items-center gap-2"><Globe2 className="h-4 w-4 text-cyan-300" /> {selectedPlatforms.map((key) => platformLabels[key]).join(", ") || "Nenhuma rede selecionada"}</div>
@@ -802,7 +802,7 @@ export default function SocialPublisherPage() {
           </aside>
 
           <main className="space-y-6">
-            <div className="rounded-[32px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.18)] md:p-6">
+            <div className="social-publisher-panel rounded-[32px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.18)] md:p-6">
               <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-xl font-semibold text-white">Conteúdo base</h2>
@@ -872,7 +872,7 @@ export default function SocialPublisherPage() {
           </main>
 
           <aside className={cn("space-y-6 2xl:sticky 2xl:top-6 2xl:max-h-[calc(100dvh-48px)] 2xl:overflow-y-auto 2xl:pr-2", darkScrollbarClass)}>
-            <div className="rounded-[32px] border border-white/10 bg-white/[0.035] p-5">
+            <div className="social-publisher-panel rounded-[32px] border border-white/10 bg-white/[0.035] p-5">
               <div className="mb-5 flex items-center justify-between gap-4">
                 <div><h2 className="text-xl font-semibold text-white">Prévia por rede</h2><p className="mt-1 text-sm text-white/50">Visual aproximado antes de publicar.</p></div>
               </div>
@@ -885,7 +885,7 @@ export default function SocialPublisherPage() {
               </div>
             </div>
 
-            <div className="rounded-[32px] border border-white/10 bg-white/[0.035] p-5">
+            <div className="social-publisher-panel rounded-[32px] border border-white/10 bg-white/[0.035] p-5">
               <h2 className="text-xl font-semibold text-white">Status e links</h2>
               <div className="mt-4 space-y-3">
                 {(Object.keys(results) as PlatformKey[]).map((platform) => (
@@ -904,7 +904,7 @@ export default function SocialPublisherPage() {
             </div>
 
             {successfulLinks.length > 0 ? (
-              <div className="rounded-[32px] border border-emerald-400/18 bg-emerald-400/[0.055] p-5">
+              <div className="social-publisher-panel rounded-[32px] border border-emerald-400/18 bg-emerald-400/[0.055] p-5">
                 <div className="mb-3 flex items-center gap-2 font-semibold text-emerald-100"><CheckCircle2 className="h-5 w-5" /> Publicações geradas</div>
                 <div className="space-y-2">
                   {successfulLinks.map((platform) => (
@@ -917,7 +917,7 @@ export default function SocialPublisherPage() {
               </div>
             ) : null}
 
-            <div className="rounded-[30px] border border-amber-400/15 bg-amber-400/[0.055] p-5 text-sm leading-6 text-amber-100/78"><div className="mb-2 flex items-center gap-2 font-semibold text-amber-100"><AlertCircle className="h-4 w-4" /> Observação técnica</div>TikTok e Perfil de Empresa Google não entram no envio em massa porque aparecem como manutenção ou sem publicação ativa nesta versão do sistema. O menu já foi pensado para receber essas redes depois.</div>
+            <div className="social-publisher-panel rounded-[30px] border border-amber-400/15 bg-amber-400/[0.055] p-5 text-sm leading-6 text-amber-100/78"><div className="mb-2 flex items-center gap-2 font-semibold text-amber-100"><AlertCircle className="h-4 w-4" /> Observação técnica</div>TikTok e Perfil de Empresa Google não entram no envio em massa porque aparecem como manutenção ou sem publicação ativa nesta versão do sistema. O menu já foi pensado para receber essas redes depois.</div>
           </aside>
         </section>
       </div>

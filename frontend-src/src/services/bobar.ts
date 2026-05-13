@@ -73,6 +73,8 @@ export type BobarCard = {
   hidden_at?: string | null;
   is_archived: boolean;
   archived_at?: string | null;
+  is_completed: boolean;
+  completed_at?: string | null;
   assigned_user_id?: number | null;
   created_at: string;
   updated_at: string;
@@ -226,6 +228,7 @@ export type CreateBobarCardIn = {
   label_ids?: number[];
   is_hidden?: boolean;
   is_archived?: boolean;
+  is_completed?: boolean;
   assigned_user_id?: number | null;
 };
 
@@ -240,6 +243,7 @@ export type UpdateBobarCardIn = {
   label_ids?: number[];
   is_hidden?: boolean;
   is_archived?: boolean;
+  is_completed?: boolean;
   assigned_user_id?: number | null;
 };
 
