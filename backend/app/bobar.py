@@ -103,6 +103,8 @@ class BobarCardOut(BaseModel):
     hidden_at: Optional[str] = None
     is_archived: bool = False
     archived_at: Optional[str] = None
+    is_completed: bool = False
+    completed_at: Optional[str] = None
     assigned_user_id: Optional[int] = None
     created_at: str
     updated_at: str
@@ -184,6 +186,7 @@ class BobarCardCreateIn(BaseModel):
     label_ids: list[int] = Field(default_factory=list)
     is_hidden: bool = False
     is_archived: bool = False
+    is_completed: bool = False
     assigned_user_id: Optional[int] = None
 
 
@@ -198,6 +201,7 @@ class BobarCardUpdateIn(BaseModel):
     label_ids: Optional[list[int]] = None
     is_hidden: Optional[bool] = None
     is_archived: Optional[bool] = None
+    is_completed: Optional[bool] = None
     assigned_user_id: Optional[int] = None
 
 
@@ -1570,6 +1574,8 @@ def _card_out(
         hidden_at=card.hidden_at.isoformat() if getattr(card, "hidden_at", None) else None,
         is_archived=bool(getattr(card, "is_archived", False)),
         archived_at=card.archived_at.isoformat() if getattr(card, "archived_at", None) else None,
+        is_completed=bool(getattr(card, "is_completed", False)),
+        completed_at=card.completed_at.isoformat() if getattr(card, "completed_at", None) else None,
         assigned_user_id=getattr(card, "assigned_user_id", None),
         created_at=card.created_at.isoformat(),
         updated_at=card.updated_at.isoformat(),
@@ -2355,6 +2361,7 @@ def bobar_create_card(
     label_ids = _normalize_card_label_ids(session, owner_user, board.id or 0, payload.label_ids)
     assigned_user_id = _resolve_assigned_user_id(session, board, payload.assigned_user_id)
     is_archived = bool(payload.is_archived)
+    is_completed = bool(getattr(payload, "is_completed", False))
     is_hidden = False if is_archived else bool(payload.is_hidden)
     now = utcnow()
 
@@ -2376,6 +2383,8 @@ def bobar_create_card(
         hidden_at=now if is_hidden else None,
         is_archived=is_archived,
         archived_at=now if is_archived else None,
+        is_completed=is_completed,
+        completed_at=now if is_completed else None,
         assigned_user_id=assigned_user_id,
         created_at=now,
         updated_at=now,
@@ -2422,6 +2431,7 @@ def bobar_update_card(
     previous_title = card.title
     previous_hidden = bool(getattr(card, "is_hidden", False))
     previous_archived = bool(getattr(card, "is_archived", False))
+    previous_completed = bool(getattr(card, "is_completed", False))
     previous_assigned_user_id = getattr(card, "assigned_user_id", None)
 
     if payload.column_id is not None and payload.column_id != card.column_id:
@@ -2488,6 +2498,11 @@ def bobar_update_card(
             card.is_hidden = False
             card.hidden_at = None
 
+    if "is_completed" in payload.model_fields_set:
+        next_completed = bool(payload.is_completed)
+        card.is_completed = next_completed
+        card.completed_at = now if next_completed else None
+
     if "is_hidden" in payload.model_fields_set:
         next_hidden = bool(payload.is_hidden)
         card.is_hidden = False if bool(getattr(card, "is_archived", False)) and next_hidden else next_hidden
@@ -2511,6 +2526,13 @@ def bobar_update_card(
         else:
             event_type = "card_restored"
             message = f"{_display_user_name(current_user)} restaurou o card {card.title or previous_title}."
+    elif previous_completed != bool(getattr(card, "is_completed", False)):
+        if bool(getattr(card, "is_completed", False)):
+            event_type = "card_completed"
+            message = f"{_display_user_name(current_user)} marcou o card {card.title or previous_title} como concluído."
+        else:
+            event_type = "card_reopened"
+            message = f"{_display_user_name(current_user)} reabriu o card {card.title or previous_title}."
     elif previous_hidden != bool(getattr(card, "is_hidden", False)):
         if card.is_hidden:
             event_type = "card_hidden"

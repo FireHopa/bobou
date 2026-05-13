@@ -95,6 +95,8 @@ def _ensure_sqlite_columns() -> None:
             "hidden_at": "TIMESTAMP",
             "is_archived": "BOOLEAN DEFAULT 0",
             "archived_at": "TIMESTAMP",
+            "is_completed": "BOOLEAN DEFAULT 0",
+            "completed_at": "TIMESTAMP",
             "assigned_user_id": "INTEGER",
         },
     )

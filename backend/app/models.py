@@ -338,6 +338,8 @@ class BobarCard(SQLModel, table=True):
     hidden_at: Optional[datetime] = Field(default=None, index=True)
     is_archived: bool = Field(default=False, index=True)
     archived_at: Optional[datetime] = Field(default=None, index=True)
+    is_completed: bool = Field(default=False, index=True)
+    completed_at: Optional[datetime] = Field(default=None, index=True)
     assigned_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
 
     created_at: datetime = Field(default_factory=utcnow, index=True)
