@@ -13,10 +13,6 @@ export type SocialPublisherDraft = {
   instagramCollaborators: string;
   facebookPlace: string;
   facebookTags: string;
-  linkedinMode: "feed" | "article";
-  linkedinArticleTitle: string;
-  linkedinArticleUrl: string;
-  linkedinArticleDescription: string;
   youtubeTitle: string;
   youtubeDescription: string;
   youtubeTags: string;
@@ -660,19 +656,6 @@ function inferTitle(raw: string, formattedText: string, agentName: string) {
   return firstUsefulLine || agentName || "Conteúdo importado";
 }
 
-function inferLinkedInArticle(raw: string, formattedText: string, title: string, postableText: string) {
-  const parsed = tryParseJson(raw);
-  const articleUrl = parsed ? safeText(parsed.url || parsed.link || parsed.article_url || parsed.linkedinArticleUrl) : "";
-  const articleTitle = parsed ? safeText(parsed.article_title || parsed.titulo_artigo || parsed.titulo || parsed.title) : "";
-  const articleDescription = parsed ? safeText(parsed.description || parsed.descricao || parsed.resumo) : "";
-
-  return {
-    title: articleTitle || title,
-    url: articleUrl,
-    description: articleDescription || postableText || formattedText.split("\n").find((line) => line.trim().length > 40) || "",
-  };
-}
-
 function extractUrls(text: string) {
   const allUrls = Array.from(new Set(text.match(URL_PATTERN) || [])).map((url) => url.replace(/[.,;:!?]+$/, ""));
   const imageUrls = Array.from(new Set(text.match(IMAGE_URL_PATTERN) || [])).map((url) => url.replace(/[.,;:!?]+$/, ""));
@@ -699,7 +682,6 @@ export function buildSocialPublisherDraftFromAuthorityResult(
   const postableText = extractPostableText(raw, agentKey);
   const title = inferTitle(raw, formattedText, agentName);
   const { imageUrls, firstNonImageUrl } = extractUrls(raw || formattedText);
-  const linkedInArticle = inferLinkedInArticle(raw, formattedText, title, postableText);
   const baseCaption = postableText;
   const youtubeDescription = agentKey === "youtube" ? postableText || "" : baseCaption;
 
@@ -719,10 +701,6 @@ export function buildSocialPublisherDraftFromAuthorityResult(
     instagramCollaborators: "",
     facebookPlace: "",
     facebookTags: "",
-    linkedinMode: firstNonImageUrl && agentKey === "linkedin" ? "article" : "feed",
-    linkedinArticleTitle: linkedInArticle.title,
-    linkedinArticleUrl: firstNonImageUrl || linkedInArticle.url,
-    linkedinArticleDescription: linkedInArticle.description,
     youtubeTitle: title.slice(0, 100),
     youtubeDescription,
     youtubeTags: "",

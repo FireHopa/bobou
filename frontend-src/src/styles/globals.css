@@ -324,7 +324,7 @@
 
     --grad-surface: linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(241,243,244,0.92) 58%, rgba(232,234,237,0.88) 100%);
     --grad-hero: radial-gradient(ellipse at 18% 14%, rgba(66,133,244,0.20) 0%, transparent 34%), radial-gradient(ellipse at 88% 18%, rgba(52,168,83,0.14) 0%, transparent 32%), radial-gradient(ellipse at 74% 86%, rgba(251,188,5,0.16) 0%, transparent 34%);
-    --grad-cta: linear-gradient(135deg, #4285F4 0%, #34A853 45%, #FBBC05 72%, #EA4335 100%);
+    --grad-cta: linear-gradient(135deg, #1A73E8 0%, #2563EB 55%, #174EA6 100%);
     --grad-sidebar: linear-gradient(180deg, #3C4043 0%, #2B2F33 42%, #202124 100%);
 
     --sidebar-bg: #2B2F33;
@@ -2197,9 +2197,10 @@
     --gg-shadow: 0 14px 34px rgba(31, 41, 55, 0.10), 0 2px 8px rgba(31, 41, 55, 0.06);
     --gg-shadow-soft: 0 8px 22px rgba(31, 41, 55, 0.08);
     --gg-grad-google: linear-gradient(135deg, #4285F4 0%, #34A853 48%, #FBBC05 74%, #EA4335 100%);
+    --gg-grad-action-blue: linear-gradient(135deg, #1A73E8 0%, #2563EB 55%, #174EA6 100%);
     --gg-grad-surface: linear-gradient(135deg, #FFFFFF 0%, #FAFBFD 56%, #F2F5F9 100%);
 
-    --grad-cta: var(--gg-grad-google);
+    --grad-cta: var(--gg-grad-action-blue);
     --grad-surface: var(--gg-grad-surface);
     --glass-bg: 0 0% 100% / 0.92;
     --glass-border: 218 26% 88% / 0.92;
@@ -2411,7 +2412,7 @@
     a[class*="bg-blue-600"],
     a[class*="bg-cyan-300"]
   ) {
-    background: var(--gg-grad-google) !important;
+    background: var(--gg-grad-action-blue) !important;
     border-color: transparent !important;
     color: #FFFFFF !important;
     -webkit-text-fill-color: #FFFFFF !important;
@@ -2607,6 +2608,7 @@ html[data-color-theme="googleGray"] {
   --gg-shadow: 0 14px 34px rgba(31, 41, 55, 0.10), 0 2px 8px rgba(31, 41, 55, 0.06);
   --gg-shadow-soft: 0 8px 22px rgba(31, 41, 55, 0.08);
   --gg-grad-google: linear-gradient(135deg, #4285F4 0%, #34A853 48%, #FBBC05 74%, #EA4335 100%);
+  --gg-grad-action-blue: linear-gradient(135deg, #1A73E8 0%, #2563EB 55%, #174EA6 100%);
   --gg-grad-surface: linear-gradient(135deg, #FFFFFF 0%, #FAFBFD 58%, #F2F5F9 100%);
   color-scheme: light;
 }
@@ -2801,7 +2803,7 @@ html[data-color-theme="googleGray"] main :where(
   button[class*="bg-blue-"], button[class*="bg-cyan-"], button[class*="bg-emerald-"], button[class*="bg-red-"],
   a[class*="bg-blue-"], a[class*="bg-cyan-"]
 ) {
-  background: var(--gg-grad-google) !important;
+  background: var(--gg-grad-action-blue) !important;
   border-color: transparent !important;
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
@@ -3047,7 +3049,7 @@ html[data-color-theme="googleGray"] :where(
 }
 
 html[data-color-theme="googleGray"] .theme-page-bobar-flow :where(button[class*="bg-gradient"], button[class*="from-"], button[class*="bg-blue"], button[class*="bg-cyan"], button[class*="bg-emerald"]) {
-  background: var(--gg-grad-google) !important;
+  background: var(--gg-grad-action-blue) !important;
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
   border-color: transparent !important;
@@ -3173,7 +3175,7 @@ html[data-color-theme="googleGray"] .theme-page-bobar-flow .bobar-flow-toolbar :
   opacity: 1 !important;
 }
 html[data-color-theme="googleGray"] .theme-page-bobar-flow .bobar-flow-toolbar button:last-child {
-  background: var(--gg-grad-google) !important;
+  background: var(--gg-grad-action-blue) !important;
   border-color: transparent !important;
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
@@ -3229,7 +3231,7 @@ html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell :where(
   -webkit-text-fill-color: currentColor !important;
 }
 html[data-color-theme="googleGray"] main.theme-page-skybob .skybob-shell :where(button[class*="bg-gradient"], button[class*="from-"], button[class*="bg-cyan"], button[class*="bg-blue"], button[class*="bg-emerald"]) {
-  background: var(--gg-grad-google) !important;
+  background: var(--gg-grad-action-blue) !important;
   border-color: transparent !important;
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
@@ -3388,7 +3390,7 @@ html[data-color-theme="googleGray"] main.theme-page-account :where(
   button[class*="from-blue"],
   button[class*="from-cyan"]
 ):not(:disabled) {
-  background: var(--gg-grad-google) !important;
+  background: var(--gg-grad-action-blue) !important;
   border-color: transparent !important;
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
@@ -3819,7 +3821,7 @@ html[data-color-theme="googleGray"] body .theme-page-account .account-credits-se
 }
 
 html[data-color-theme="googleGray"] body .theme-page-account .account-credits-section .account-plan-card.account-plan-card.account-plan-card--recommended button {
-  background: linear-gradient(135deg, #4285F4 0%, #34A853 48%, #FBBC05 74%, #EA4335 100%) !important;
+  background: var(--gg-grad-action-blue) !important;
   background-color: #4285F4 !important;
   border-color: transparent !important;
   color: #FFFFFF !important;
@@ -4026,7 +4028,7 @@ html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-view-tab :wher
 }
 
 html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-view-tab--active {
-  background: var(--gg-grad-google) !important;
+  background: var(--gg-grad-action-blue) !important;
   border-color: transparent !important;
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
@@ -4123,7 +4125,7 @@ html[data-color-theme="googleGray"] .bobar-calendar-panel .bobar-calendar-day--t
 }
 
 html[data-color-theme="googleGray"] .bobar-calendar-panel .bobar-calendar-day--selected {
-  background: var(--gg-grad-google) !important;
+  background: var(--gg-grad-action-blue) !important;
   border-color: transparent !important;
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
@@ -4200,7 +4202,7 @@ html[data-color-theme="googleGray"] .bobar-calendar-panel .bobar-time-option:hov
 
 html[data-color-theme="googleGray"] .bobar-calendar-panel .bobar-time-option--active,
 html[data-color-theme="googleGray"] .bobar-calendar-panel .bobar-time-option--active:hover:not(:disabled) {
-  background: var(--gg-grad-google) !important;
+  background: var(--gg-grad-action-blue) !important;
   border-color: transparent !important;
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;

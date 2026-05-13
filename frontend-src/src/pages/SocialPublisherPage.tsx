@@ -3,11 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   ArrowLeft,
-  CalendarClock,
   CheckCircle2,
   ExternalLink,
   Facebook,
-  FileText,
   Globe2,
   Image as ImageIcon,
   Instagram,
@@ -31,8 +29,9 @@ import { toastApiError, toastInfo, toastSuccess } from "@/lib/toast";
 import { useAuthStore } from "@/state/authStore";
 import { facebookService, type FacebookPage } from "@/services/facebook";
 import { instagramService } from "@/services/instagram";
-import { linkedinService, type LinkedInPublishMode } from "@/services/linkedin";
+import { linkedinService } from "@/services/linkedin";
 import { youtubeService } from "@/services/youtube";
+import { socialPublisherService } from "@/services/socialPublisher";
 import {
   SOCIAL_PUBLISHER_DRAFT_STORAGE_KEY,
   clearSocialPublisherImportNotice,
@@ -54,10 +53,6 @@ type ComposerState = {
   instagramCollaborators: string;
   facebookPlace: string;
   facebookTags: string;
-  linkedinMode: LinkedInPublishMode;
-  linkedinArticleTitle: string;
-  linkedinArticleUrl: string;
-  linkedinArticleDescription: string;
   youtubeTitle: string;
   youtubeDescription: string;
   youtubeTags: string;
@@ -102,10 +97,6 @@ const defaultState: ComposerState = {
   instagramCollaborators: "",
   facebookPlace: "",
   facebookTags: "",
-  linkedinMode: "feed",
-  linkedinArticleTitle: "",
-  linkedinArticleUrl: "",
-  linkedinArticleDescription: "",
   youtubeTitle: "",
   youtubeDescription: "",
   youtubeTags: "",
@@ -284,7 +275,7 @@ function ImagePlaceholder() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center text-zinc-500">
       <ImageIcon className="h-10 w-10" />
-      <p className="text-sm">Cole uma URL pública de imagem para visualizar.</p>
+      <p className="text-sm">Selecione uma imagem no site para visualizar.</p>
     </div>
   );
 }
@@ -449,7 +440,6 @@ function LinkedInPreview({ state }: { state: ComposerState }) {
       </div>
       <div className="space-y-4 p-4">
         <div className="min-h-[120px] whitespace-pre-wrap text-sm leading-6 text-white/86">{caption || "Seu post aparecerá aqui."}</div>
-        {state.linkedinMode === "article" ? <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"><div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-white/40"><FileText className="h-4 w-4" /> Artigo</div><div className="text-base font-semibold">{state.linkedinArticleTitle || "Título do artigo"}</div><div className="mt-2 line-clamp-2 text-sm leading-6 text-white/58">{state.linkedinArticleDescription || "Resumo do artigo."}</div><div className="mt-3 truncate text-xs text-[#78B7FF]">{state.linkedinArticleUrl || "https://seusite.com/artigo"}</div></div> : null}
       </div>
       <div className="flex items-center gap-5 border-t border-white/10 px-4 py-3 text-sm text-white/45"><span>Gostei</span><span>Comentar</span><span>Compartilhar</span></div>
     </div>
@@ -482,6 +472,9 @@ export default function SocialPublisherPage() {
   const [isLoadingFacebookPages, setIsLoadingFacebookPages] = React.useState(false);
   const [isPublishingAll, setIsPublishingAll] = React.useState(false);
   const [importNotice, setImportNotice] = React.useState<SocialPublisherImportNotice | null>(() => readSocialPublisherImportNotice());
+  const [mediaFiles, setMediaFiles] = React.useState<File[]>([]);
+  const [mediaFilePreviewUrls, setMediaFilePreviewUrls] = React.useState<string[]>([]);
+  const mediaUploadCacheRef = React.useRef<{ signature: string; urls: string[] } | null>(null);
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
   const [thumbnailFile, setThumbnailFile] = React.useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = React.useState<string>();
@@ -494,6 +487,17 @@ export default function SocialPublisherPage() {
     clearSocialPublisherImportNotice();
     toastSuccess(`Rascunho importado de ${importNotice.agentName}.`);
   }, [importNotice]);
+
+  React.useEffect(() => {
+    if (!mediaFiles.length) { setMediaFilePreviewUrls([]); return; }
+    const urls = mediaFiles.map((file) => URL.createObjectURL(file));
+    setMediaFilePreviewUrls(urls);
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [mediaFiles]);
+
+  React.useEffect(() => {
+    mediaUploadCacheRef.current = null;
+  }, [mediaFiles]);
 
   React.useEffect(() => {
     if (!videoFile) { setVideoPreviewUrl(undefined); return; }
@@ -509,7 +513,8 @@ export default function SocialPublisherPage() {
     return () => URL.revokeObjectURL(url);
   }, [thumbnailFile]);
 
-  const mediaUrls = React.useMemo(() => parseItems(state.mediaUrlsText), [state.mediaUrlsText]);
+  const externalMediaUrls = React.useMemo(() => parseItems(state.mediaUrlsText), [state.mediaUrlsText]);
+  const mediaPreviewUrls = React.useMemo(() => [...mediaFilePreviewUrls, ...externalMediaUrls], [mediaFilePreviewUrls, externalMediaUrls]);
   const connected = React.useMemo(() => ({
     instagram: Boolean(user?.has_instagram),
     facebook: Boolean(user?.has_facebook),
@@ -534,6 +539,28 @@ export default function SocialPublisherPage() {
   function patch(patchState: Partial<ComposerState>) { setState((current) => ({ ...current, ...patchState })); }
   function patchCaption(platform: PlatformKey, value: string) { setState((current) => ({ ...current, perNetworkCaption: { ...current.perNetworkCaption, [platform]: value } })); }
   function togglePlatform(platform: PlatformKey) { setState((current) => ({ ...current, selected: { ...current.selected, [platform]: !current.selected[platform] } })); }
+  function removeMediaFile(indexToRemove: number) { setMediaFiles((current) => current.filter((_, index) => index !== indexToRemove)); }
+  function appendMediaFiles(files: FileList | null) {
+    if (!files?.length) return;
+    setMediaFiles((current) => [...current, ...Array.from(files).filter((file) => file.type.startsWith("image/"))].slice(0, 10));
+  }
+  function mediaFileSignature() {
+    return mediaFiles.map((file) => `${file.name}:${file.size}:${file.lastModified}`).join("|");
+  }
+  async function getPublishMediaUrls() {
+    const signature = mediaFileSignature();
+    let uploadedUrls: string[] = [];
+    if (mediaFiles.length) {
+      if (mediaUploadCacheRef.current?.signature === signature) {
+        uploadedUrls = mediaUploadCacheRef.current.urls;
+      } else {
+        const response = await socialPublisherService.uploadMedia(mediaFiles);
+        uploadedUrls = response.urls || response.items.map((item) => item.url);
+        mediaUploadCacheRef.current = { signature, urls: uploadedUrls };
+      }
+    }
+    return [...uploadedUrls, ...externalMediaUrls];
+  }
   function setPlatformResult(platform: PlatformKey, result: PlatformResult) { setResults((current) => ({ ...current, [platform]: result })); }
   function resetResults() { setResults({ ...defaultResults }); }
 
@@ -578,18 +605,17 @@ export default function SocialPublisherPage() {
     if (!connected[platform]) return `${platformLabels[platform]} não está conectado.`;
     if (platform === "instagram") {
       if (!text) return "Informe uma legenda para o Instagram.";
-      if (!mediaUrls.length) return "O Instagram precisa de pelo menos uma URL pública de imagem.";
-      if (mediaUrls.some((url) => !isHttpUrl(url))) return "As imagens do Instagram precisam começar com http:// ou https://.";
+      if (!mediaFiles.length && !externalMediaUrls.length) return "Selecione pelo menos uma imagem para publicar no Instagram.";
+      if (externalMediaUrls.some((url) => !isHttpUrl(url))) return "As imagens importadas do Instagram precisam começar com http:// ou https://.";
     }
     if (platform === "facebook") {
-      if (!text && !state.linkUrl.trim() && !mediaUrls.length) return "Informe texto, link ou imagem para o Facebook.";
+      if (!text && !state.linkUrl.trim() && !mediaFiles.length && !externalMediaUrls.length) return "Informe texto, link ou imagem para o Facebook.";
       if (state.linkUrl.trim() && !isHttpUrl(state.linkUrl)) return "O link do Facebook precisa começar com http:// ou https://.";
-      if (mediaUrls.some((url) => !isHttpUrl(url))) return "As imagens do Facebook precisam começar com http:// ou https://.";
+      if (externalMediaUrls.some((url) => !isHttpUrl(url))) return "As imagens importadas do Facebook precisam começar com http:// ou https://.";
       if (state.scheduledAt && new Date(state.scheduledAt).getTime() <= Date.now() + 10 * 60 * 1000) return "O agendamento do Facebook precisa estar no futuro.";
     }
     if (platform === "linkedin") {
-      if (!text && state.linkedinMode === "feed") return "Informe o texto do post para o LinkedIn.";
-      if (state.linkedinMode === "article" && (!state.linkedinArticleTitle.trim() || !isHttpUrl(state.linkedinArticleUrl))) return "Informe título e URL válida para o artigo do LinkedIn.";
+      if (!text) return "Informe o texto do post para o LinkedIn.";
     }
     if (platform === "youtube") {
       if (!videoFile) return "Selecione o arquivo de vídeo para o YouTube.";
@@ -604,10 +630,11 @@ export default function SocialPublisherPage() {
     setPlatformResult(platform, { status: "publishing" });
     try {
       if (platform === "instagram") {
+        const publishMediaUrls = await getPublishMediaUrls();
         const response = await instagramService.publish({
           caption: captionFor(state, "instagram"),
-          image_url: mediaUrls.length <= 1 ? mediaUrls[0] : undefined,
-          carousel_images: mediaUrls.length > 1 ? mediaUrls : [],
+          image_url: publishMediaUrls.length <= 1 ? publishMediaUrls[0] : undefined,
+          carousel_images: publishMediaUrls.length > 1 ? publishMediaUrls : [],
           collaborators: parseItems(state.instagramCollaborators).map((item) => item.replace(/^@/, "")),
           first_comment: state.instagramFirstComment.trim() || undefined,
           share_to_feed: true,
@@ -622,12 +649,13 @@ export default function SocialPublisherPage() {
       }
       if (platform === "facebook") {
         if (facebookSelectedPageId) await facebookService.selectPage(facebookSelectedPageId);
+        const publishMediaUrls = await getPublishMediaUrls();
         const scheduled_publish_time = state.scheduledAt ? Math.floor(new Date(state.scheduledAt).getTime() / 1000) : undefined;
         const response = await facebookService.publish({
           message: captionFor(state, "facebook"),
           link: state.linkUrl.trim() || undefined,
-          image_url: mediaUrls.length <= 1 ? mediaUrls[0] : undefined,
-          carousel_images: mediaUrls.length > 1 ? mediaUrls : [],
+          image_url: publishMediaUrls.length <= 1 ? publishMediaUrls[0] : undefined,
+          carousel_images: publishMediaUrls.length > 1 ? publishMediaUrls : [],
           published: !scheduled_publish_time,
           scheduled_publish_time,
           place: state.facebookPlace.trim() || undefined,
@@ -641,14 +669,10 @@ export default function SocialPublisherPage() {
         });
       }
       if (platform === "linkedin") {
-        const response = await linkedinService.publish(state.linkedinMode === "article" ? {
-          mode: "article",
-          text: captionFor(state, "linkedin"),
-          article: { title: state.linkedinArticleTitle.trim(), url: state.linkedinArticleUrl.trim(), description: state.linkedinArticleDescription.trim() || undefined },
-        } : { mode: "feed", text: captionFor(state, "linkedin") });
+        const response = await linkedinService.publish({ mode: "feed", text: captionFor(state, "linkedin") });
         setPlatformResult(platform, {
           status: "success",
-          message: state.linkedinMode === "article" ? "Artigo publicado no LinkedIn." : "Post publicado no LinkedIn.",
+          message: "Post publicado no LinkedIn.",
           url: linkedinPostUrl(response.post_id),
           linkLabel: "Abrir post",
         });
@@ -700,6 +724,8 @@ export default function SocialPublisherPage() {
 
   function clearDraft() {
     setState(defaultState);
+    setMediaFiles([]);
+    mediaUploadCacheRef.current = null;
     setVideoFile(null);
     setThumbnailFile(null);
     resetResults();
@@ -708,9 +734,9 @@ export default function SocialPublisherPage() {
   }
 
   const platformCards: PlatformCard[] = [
-    { key: "instagram", description: "Feed com imagem ou carrossel por URL pública.", handle: user?.instagram_username ? `@${user.instagram_username}` : "Não conectado", iconClass: "bg-gradient-to-br from-pink-500 via-fuchsia-500 to-orange-400", activeClass: "border-pink-300/35 bg-pink-400/[0.09]", glowClass: "bg-pink-400/25" },
-    { key: "facebook", description: "Página, link, imagem/carrossel e agendamento.", handle: user?.facebook_page_name || user?.facebook_page_username || "Não conectado", iconClass: "bg-[#1877F2]", activeClass: "border-blue-300/35 bg-blue-400/[0.09]", glowClass: "bg-blue-400/25" },
-    { key: "linkedin", description: "Post de feed ou artigo com link estruturado.", handle: connected.linkedin ? "Conta vinculada" : "Não conectado", iconClass: "bg-[#0A66C2]", activeClass: "border-[#78B7FF]/35 bg-[#0A66C2]/[0.12]", glowClass: "bg-[#0A66C2]/30" },
+    { key: "instagram", description: "Upload de imagem ou carrossel direto pelo site.", handle: user?.instagram_username ? `@${user.instagram_username}` : "Não conectado", iconClass: "bg-gradient-to-br from-pink-500 via-fuchsia-500 to-orange-400", activeClass: "border-pink-300/35 bg-pink-400/[0.09]", glowClass: "bg-pink-400/25" },
+    { key: "facebook", description: "Página, imagem/carrossel, link e agendamento.", handle: user?.facebook_page_name || user?.facebook_page_username || "Não conectado", iconClass: "bg-[#1877F2]", activeClass: "border-blue-300/35 bg-blue-400/[0.09]", glowClass: "bg-blue-400/25" },
+    { key: "linkedin", description: "Post no feed do LinkedIn.", handle: connected.linkedin ? "Conta vinculada" : "Não conectado", iconClass: "bg-[#0A66C2]", activeClass: "border-[#78B7FF]/35 bg-[#0A66C2]/[0.12]", glowClass: "bg-[#0A66C2]/30" },
     { key: "youtube", description: "Upload de vídeo, descrição, tags e thumbnail.", handle: user?.youtube_channel_title || user?.youtube_channel_handle || "Não conectado", iconClass: "bg-[#FF0000]", activeClass: "border-red-300/35 bg-red-400/[0.09]", glowClass: "bg-red-400/25" },
   ];
 
@@ -815,14 +841,24 @@ export default function SocialPublisherPage() {
                   <TextArea value={state.baseCaption} onChange={(event) => patch({ baseCaption: event.target.value })} className="min-h-[252px]" placeholder="Escreva o texto principal do post..." />
                 </Field>
                 <div className="space-y-5">
-                  <Field label="URLs de imagem ou carrossel" icon={<ImageIcon className="h-4 w-4 text-cyan-300" />} hint="Instagram e Facebook usam URLs públicas. Com 2 ou mais URLs, o sistema trata como carrossel.">
-                    <TextArea value={state.mediaUrlsText} onChange={(event) => patch({ mediaUrlsText: event.target.value })} className="min-h-[128px]" placeholder={`Uma URL pública por linha\nhttps://site.com/imagem-1.jpg\nhttps://site.com/imagem-2.jpg`} />
-                  </Field>
-                  <Field label="Link opcional" icon={<Link2 className="h-4 w-4 text-cyan-300" />}>
-                    <TextInput value={state.linkUrl} onChange={(event) => patch({ linkUrl: event.target.value })} placeholder="https://seusite.com" />
-                  </Field>
-                  <Field label="Data de agendamento" icon={<CalendarClock className="h-4 w-4 text-cyan-300" />} hint="No backend atual, agendamento automático apenas para Facebook. As demais redes publicam agora.">
-                    <TextInput type="datetime-local" value={state.scheduledAt} onChange={(event) => patch({ scheduledAt: event.target.value })} />
+                  <Field label="Imagem ou carrossel" icon={<ImageIcon className="h-4 w-4 text-cyan-300" />} hint="Selecione o arquivo no site. O sistema prepara automaticamente a URL pública necessária para a API do Instagram e do Facebook.">
+                    <label className="flex min-h-[156px] cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-cyan-300/22 bg-cyan-400/[0.055] px-5 py-6 text-center transition hover:border-cyan-200/42 hover:bg-cyan-400/[0.08]">
+                      <Upload className="h-6 w-6 text-cyan-200" />
+                      <span className="text-sm font-semibold text-white">Selecionar imagem</span>
+                      <span className="max-w-[320px] text-xs leading-5 text-white/42">PNG, JPG, WEBP ou GIF. Com 2 ou mais imagens, o sistema publica como carrossel quando a rede permitir.</span>
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => { appendMediaFiles(event.target.files); event.currentTarget.value = ""; }} />
+                    </label>
+                    {mediaFiles.length || externalMediaUrls.length ? (
+                      <div className="mt-3 space-y-2">
+                        {mediaFiles.map((file, index) => (
+                          <div key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/62">
+                            <span className="min-w-0 truncate">{index + 1}. {file.name}</span>
+                            <button type="button" onClick={() => removeMediaFile(index)} className="shrink-0 rounded-full px-2 py-1 text-white/45 transition hover:bg-white/10 hover:text-white">Remover</button>
+                          </div>
+                        ))}
+                        {externalMediaUrls.length ? <div className="rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.055] px-3 py-2 text-xs leading-5 text-cyan-100/70">{externalMediaUrls.length} imagem(ns) importada(s) automaticamente do rascunho.</div> : null}
+                      </div>
+                    ) : null}
                   </Field>
                 </div>
               </div>
@@ -848,15 +884,16 @@ export default function SocialPublisherPage() {
                   <div className="mb-3 flex items-center justify-between gap-3"><div className="flex items-center gap-2 font-semibold text-white"><Facebook className="h-4 w-4 text-blue-300" /> Facebook</div>{user?.has_facebook ? <button type="button" onClick={() => void loadFacebookPages()} className="inline-flex items-center gap-1 text-xs text-blue-200 hover:text-blue-100"><RefreshCw className={cn("h-3.5 w-3.5", isLoadingFacebookPages ? "animate-spin" : "")} /> Atualizar páginas</button> : null}</div>
                   {facebookPages.length > 0 ? <div className="mb-3"><SelectInput value={facebookSelectedPageId} onChange={(event) => setFacebookSelectedPageId(event.target.value)}>{facebookPages.map((page) => <option key={page.id} value={page.id}>{page.name}{page.username ? ` · @${page.username}` : ""}</option>)}</SelectInput></div> : null}
                   <TextArea value={state.perNetworkCaption.facebook} onChange={(event) => patchCaption("facebook", event.target.value)} className="min-h-[120px]" placeholder="Texto específico para Facebook..." />
+                  <div className="mt-3 grid gap-3 md:grid-cols-2"><TextInput value={state.linkUrl} onChange={(event) => patch({ linkUrl: event.target.value })} placeholder="Link do Facebook, opcional" /><TextInput type="datetime-local" value={state.scheduledAt} onChange={(event) => patch({ scheduledAt: event.target.value })} /></div>
                   <div className="mt-3 grid gap-3 md:grid-cols-2"><TextInput value={state.facebookPlace} onChange={(event) => patch({ facebookPlace: event.target.value })} placeholder="Local opcional" /><TextInput value={state.facebookTags} onChange={(event) => patch({ facebookTags: event.target.value })} placeholder="Tags, separadas por vírgula" /></div>
+                  <p className="mt-2 text-xs leading-5 text-white/42">O link e o agendamento são usados somente no Facebook. Instagram e LinkedIn publicam agora.</p>
                   {state.scheduledAt && user?.has_facebook ? <div className="mt-3 rounded-2xl border border-blue-400/15 bg-blue-400/[0.06] p-3 text-xs leading-5 text-blue-100/75">Este post será agendado no Facebook para {dateLabel(state.scheduledAt)}.</div> : null}
                 </div>
 
                 <div className="rounded-3xl border border-[#0A66C2]/20 bg-[#0A66C2]/[0.055] p-4">
                   <div className="mb-3 flex items-center gap-2 font-semibold text-white"><Linkedin className="h-4 w-4 text-[#78B7FF]" /> LinkedIn</div>
-                  <div className="mb-3 grid gap-3 md:grid-cols-2"><SelectInput value={state.linkedinMode} onChange={(event) => patch({ linkedinMode: event.target.value as LinkedInPublishMode })}><option value="feed">Post no feed</option><option value="article">Artigo com link</option></SelectInput><TextInput value={state.linkedinArticleUrl} onChange={(event) => patch({ linkedinArticleUrl: event.target.value })} placeholder="URL do artigo, se usar artigo" /></div>
-                  <TextArea value={state.perNetworkCaption.linkedin} onChange={(event) => patchCaption("linkedin", event.target.value)} className="min-h-[120px]" placeholder="Texto específico para LinkedIn..." />
-                  {state.linkedinMode === "article" ? <div className="mt-3 grid gap-3 md:grid-cols-2"><TextInput value={state.linkedinArticleTitle} onChange={(event) => patch({ linkedinArticleTitle: event.target.value })} placeholder="Título do artigo" /><TextInput value={state.linkedinArticleDescription} onChange={(event) => patch({ linkedinArticleDescription: event.target.value })} placeholder="Descrição do artigo" /></div> : null}
+                  <TextArea value={state.perNetworkCaption.linkedin} onChange={(event) => patchCaption("linkedin", event.target.value)} className="min-h-[120px]" placeholder="Texto específico para LinkedIn feed..." />
+                  <p className="mt-2 text-xs leading-5 text-white/42">Publicação apenas no feed do LinkedIn.</p>
                 </div>
 
                 <div className="rounded-3xl border border-red-500/15 bg-red-500/[0.045] p-4">
@@ -877,8 +914,8 @@ export default function SocialPublisherPage() {
                 <div><h2 className="text-xl font-semibold text-white">Prévia por rede</h2><p className="mt-1 text-sm text-white/50">Visual aproximado antes de publicar.</p></div>
               </div>
               <div className="space-y-6">
-                {state.selected.instagram ? <InstagramPreview state={state} mediaUrls={mediaUrls} displayName={instagramName} /> : null}
-                {state.selected.facebook ? <FacebookPreview state={state} mediaUrls={mediaUrls} pageName={facebookPageName} /> : null}
+                {state.selected.instagram ? <InstagramPreview state={state} mediaUrls={mediaPreviewUrls} displayName={instagramName} /> : null}
+                {state.selected.facebook ? <FacebookPreview state={state} mediaUrls={mediaPreviewUrls} pageName={facebookPageName} /> : null}
                 {state.selected.linkedin ? <LinkedInPreview state={state} /> : null}
                 {state.selected.youtube ? <YouTubePreview state={state} videoUrl={videoPreviewUrl} thumbUrl={thumbnailPreviewUrl} /> : null}
                 {selectedPlatforms.length === 0 ? <div className="rounded-[28px] border border-dashed border-white/10 bg-white/[0.025] p-10 text-center text-white/45">Selecione uma rede para visualizar o post.</div> : null}
