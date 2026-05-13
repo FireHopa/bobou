@@ -1670,6 +1670,9 @@ app.include_router(instagram_router)
 from .facebook import router as facebook_router
 app.include_router(facebook_router)
 
+from .social_publisher import router as social_publisher_router
+app.include_router(social_publisher_router)
+
 from .youtube import router as youtube_router
 app.include_router(youtube_router)
 
