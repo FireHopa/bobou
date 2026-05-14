@@ -15,19 +15,19 @@ const RESOLUTION_ALIASES: Array<{
   label: string;
 }> = [
   {
-    pattern: /\b(?:16\s*[:/]\s*9|horizontal\s*16\s*[:/]\s*9|horizontal|formato\s+horizontal|vers[aã]o\s+horizontal|imagem\s+horizontal|paisagem|landscape)\b/i,
+    pattern: /\b(?:16\s*[:/]\s*9|horizontal\s*16\s*[:/]\s*9|horizontal|formato\s+horizontal|vers[aã]o\s+horizontal|imagem\s+horizontal|paisagem|landscape|banner|banner\s+horizontal|capa|capa\s+de\s+site|capa\s+do\s+site|thumbnail|thumb|wide)\b/i,
     width: 1536,
     height: 1024,
     label: "16:9 padrão 1536x1024",
   },
   {
-    pattern: /\b(?:9\s*[:/]\s*16|vertical\s*9\s*[:/]\s*16|vertical|formato\s+vertical|vers[aã]o\s+vertical|imagem\s+vertical|story|stories|reel|reels|short|shorts|portrait)\b/i,
+    pattern: /\b(?:9\s*[:/]\s*16|vertical\s*9\s*[:/]\s*16|vertical|formato\s+vertical|vers[aã]o\s+vertical|imagem\s+vertical|story|stories|storie|reel|reels|short|shorts|portrait|status|whatsapp\s+status)\b/i,
     width: 1024,
     height: 1536,
     label: "9:16 padrão 1024x1536",
   },
   {
-    pattern: /\b(?:1\s*[:/]\s*1|quadrado|feed\s+quadrado|square)\b/i,
+    pattern: /\b(?:1\s*[:/]\s*1|quadrado|feed\s+quadrado|post\s+quadrado|post\s+feed|feed|carrossel|carousel|square)\b/i,
     width: 1024,
     height: 1024,
     label: "1:1 padrão 1024x1024",
@@ -93,6 +93,26 @@ function parseImageRequestResolutions(text: string, limit = 4): ParsedImageReque
         index: match.index ?? 0,
       });
     }
+  }
+
+  const allFormatsPattern = /\b(?:todos\s+os\s+(?:3|tr[eê]s)\s+formatos|usar\s+(?:os\s+)?(?:3|tr[eê]s)\s+formatos|(?:3|tr[eê]s)\s+formatos|formatos\s+16\s*[:/]\s*9\s*,?\s*9\s*[:/]\s*16\s*(?:e|,)?\s*1\s*[:/]\s*1)\b/i;
+  const allFormatsMatch = input.match(allFormatsPattern);
+  if (allFormatsMatch) {
+    const startIndex = allFormatsMatch.index ?? 0;
+    [
+      { width: 1536, height: 1024, label: "16:9 padrão 1536x1024" },
+      { width: 1024, height: 1536, label: "9:16 padrão 1024x1536" },
+      { width: 1024, height: 1024, label: "1:1 padrão 1024x1024" },
+    ].forEach((item, offset) => {
+      candidates.push({
+        width: item.width,
+        height: item.height,
+        source: "alias",
+        label: item.label,
+        matchedText: allFormatsMatch[0],
+        index: startIndex + offset / 10,
+      });
+    });
   }
 
   return dedupeCandidates(candidates, limit);

@@ -165,27 +165,68 @@ type FormatOption = {
 
 const FORMAT_OPTIONS: FormatOption[] = [
   {
-    value: "quadrado_1_1",
-    label: "Quadrado 1:1",
-    shortLabel: "1:1",
-    hint: "Post e criativo estático.",
-    icon: <Square className="h-4 w-4" />,
+    value: "horizontal_16_9",
+    label: "Horizontal 16:9",
+    shortLabel: "16:9",
+    hint: "Banner, capa, thumbnail e site.",
+    icon: <Monitor className="h-4 w-4" />,
   },
   {
     value: "vertical_9_16",
     label: "Vertical 9:16",
     shortLabel: "9:16",
-    hint: "Stories, reels e shorts.",
+    hint: "Stories, reels, shorts e status.",
     icon: <Smartphone className="h-4 w-4" />,
   },
   {
-    value: "horizontal_16_9",
-    label: "Horizontal 16:9",
-    shortLabel: "16:9",
-    hint: "Banner, capa e thumbnail.",
-    icon: <Monitor className="h-4 w-4" />,
+    value: "quadrado_1_1",
+    label: "Quadrado 1:1",
+    shortLabel: "1:1",
+    hint: "Feed, post e carrossel.",
+    icon: <Square className="h-4 w-4" />,
   },
 ];
+
+const FORMAT_DIMENSIONS: Record<string, { width: number; height: number; label: string }> = {
+  horizontal_16_9: { width: 1536, height: 1024, label: "16:9" },
+  vertical_9_16: { width: 1024, height: 1536, label: "9:16" },
+  quadrado_1_1: { width: 1024, height: 1024, label: "1:1" },
+};
+
+function normalizeSelectedFormatValues(value: unknown, fallback = "quadrado_1_1") {
+  const validValues = new Set(FORMAT_OPTIONS.map((option) => option.value));
+  const source = Array.isArray(value) ? value : [value || fallback];
+  const selected = source.filter((item): item is string => typeof item === "string" && validValues.has(item));
+  return selected.length > 0 ? Array.from(new Set(selected)) : [fallback];
+}
+
+function getFormatDimensions(formatValue: string) {
+  return FORMAT_DIMENSIONS[formatValue] ?? FORMAT_DIMENSIONS.quadrado_1_1;
+}
+
+function getFormatShortLabel(formatValue: string) {
+  return FORMAT_OPTIONS.find((option) => option.value === formatValue)?.shortLabel ?? getFormatDimensions(formatValue).label;
+}
+
+function dedupeResolutionItems<T extends { width: number; height: number }>(items: T[], limit = 4): T[] {
+  const seen = new Set<string>();
+  return items
+    .filter((item) => {
+      const key = `${item.width}x${item.height}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+function buildTargetInstructionSuffix(targets: Array<{ width: number; height: number; label?: string }>) {
+  if (targets.length <= 0) return "";
+  const formattedTargets = targets.map((target, index) => `${index + 1}) ${target.label || `${target.width}x${target.height}`} — ${target.width}x${target.height}`).join("; ");
+  return `
+
+FORMATOS/RESOLUÇÕES OBRIGATÓRIAS DETECTADAS: ${formattedTargets}. Gere e entregue todas essas versões no mesmo processamento, como peças independentes, sem usar uma resolução para contaminar a outra.`;
+}
 
 const QUALITY_OPTIONS = [
   {
@@ -353,7 +394,14 @@ function sanitizeDebugValue(value: unknown, depth = 0): unknown {
 function getAssistantPanelDefaultSize(viewportWidth: number, viewportHeight: number): FloatingPanelSize {
   return {
     width: clamp(Math.round(viewportWidth * 0.27), 420, 500),
-    height: clamp(Math.round(viewportHeight * 0.84), 560, viewportHeight - 24),
+    height: clamp(Math.round(viewportHeight * 0.74), 520, viewportHeight - 140),
+  };
+}
+
+function getPipelinePanelDefaultSize(viewportWidth: number, viewportHeight: number): FloatingPanelSize {
+  return {
+    width: clamp(Math.round(viewportWidth * 0.22), 320, 380),
+    height: clamp(Math.round(viewportHeight * 0.42), 280, 460),
   };
 }
 
@@ -375,12 +423,19 @@ function getDefaultPanelLayout(viewportWidth: number, viewportHeight: number) {
   const assistantSize = getAssistantPanelDefaultSize(viewportWidth, viewportHeight);
   const settingsSize = getSettingsPanelDefaultSize(viewportWidth, viewportHeight, assistantSize.width);
 
+  const pipelineSize = getPipelinePanelDefaultSize(viewportWidth, viewportHeight);
+
   return {
     assistantSize,
     settingsSize,
+    pipelineSize,
     assistantPosition: {
       x: Math.max(16, viewportWidth - assistantSize.width - 18),
-      y: 84,
+      y: 156,
+    },
+    pipelinePosition: {
+      x: Math.max(16, viewportWidth - pipelineSize.width - 16),
+      y: 72,
     },
     settingsPosition:
       viewportWidth >= 1440
@@ -710,6 +765,7 @@ type Props = {
 
 type ProjectSnapshot = {
   formato: string;
+  selectedFormatValues: string[];
   qualidade: string;
   resolutionMode: "preset" | "custom";
   customWidth: string;
@@ -808,6 +864,7 @@ function normalizeResizeOptions(options: {
 function createDefaultProjectSnapshot(): ProjectSnapshot {
   return {
     formato: "quadrado_1_1",
+    selectedFormatValues: ["quadrado_1_1"],
     qualidade: "media",
     resolutionMode: "preset",
     customWidth: "1024",
@@ -846,6 +903,7 @@ function buildSnapshotSignature(snapshot: ProjectSnapshot) {
 
   return JSON.stringify({
     formato: snapshot.formato,
+    selectedFormatValues: normalizeSelectedFormatValues(snapshot.selectedFormatValues, snapshot.formato),
     qualidade: snapshot.qualidade,
     resolutionMode: snapshot.resolutionMode,
     customWidth: snapshot.customWidth,
@@ -998,6 +1056,7 @@ async function deserializeProjectSnapshot(snapshot?: PersistedProjectSnapshot | 
   return {
     ...fallback,
     ...snapshot,
+    selectedFormatValues: normalizeSelectedFormatValues((snapshot as PersistedProjectSnapshot & { selectedFormatValues?: string[] }).selectedFormatValues, snapshot.formato ?? fallback.formato),
     resolutionMode: "preset",
     customWidth: fallback.customWidth,
     customHeight: fallback.customHeight,
@@ -1025,6 +1084,7 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const [currentProjectId, setCurrentProjectId] = useState(projectSeed.id);
   const [isProjectsOpen, setIsProjectsOpen] = useState(false);
   const [formato, setFormato] = useState<string>(projectSeed.snapshot.formato);
+  const [selectedFormatValues, setSelectedFormatValues] = useState<string[]>(projectSeed.snapshot.selectedFormatValues);
   const [qualidade, setQualidade] = useState<string>(projectSeed.snapshot.qualidade);
   const [resolutionMode, setResolutionMode] = useState<"preset" | "custom">(projectSeed.snapshot.resolutionMode);
   const [customWidth, setCustomWidth] = useState<string>(projectSeed.snapshot.customWidth);
@@ -1047,6 +1107,9 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const [hasManualViewport, setHasManualViewport] = useState(projectSeed.snapshot.hasManualViewport);
   const [assistantPanelPosition, setAssistantPanelPosition] = useState<FloatingPosition>({ x: 0, y: 0 });
   const [assistantPanelSize, setAssistantPanelSize] = useState<FloatingPanelSize>({ width: 0, height: 0 });
+  const [pipelinePanelPosition, setPipelinePanelPosition] = useState<FloatingPosition>({ x: 0, y: 0 });
+  const [pipelinePanelSize, setPipelinePanelSize] = useState<FloatingPanelSize>({ width: 0, height: 0 });
+  const [isPipelinePanelOpen, setIsPipelinePanelOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [viewportSize, setViewportSize] = useState({
     width: typeof window !== "undefined" ? window.innerWidth : 1600,
@@ -1142,7 +1205,12 @@ useEffect(() => {
     () => getAssistantPanelDefaultSize(viewportSize.width, viewportSize.height),
     [viewportSize.height, viewportSize.width]
   );
+  const pipelinePanelDefaultSize = useMemo(
+    () => getPipelinePanelDefaultSize(viewportSize.width, viewportSize.height),
+    [viewportSize.height, viewportSize.width]
+  );
   const effectiveAssistantPanelSize = assistantPanelSize.width > 0 ? assistantPanelSize : assistantPanelDefaultSize;
+  const effectivePipelinePanelSize = pipelinePanelSize.width > 0 ? pipelinePanelSize : pipelinePanelDefaultSize;
   const canvasInsets = useMemo(
     () => ({
       top: 92,
@@ -1297,6 +1365,7 @@ const applyProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
   });
 
   setFormato(snapshot.formato);
+  setSelectedFormatValues(normalizeSelectedFormatValues(snapshot.selectedFormatValues, snapshot.formato));
   setQualidade(snapshot.qualidade);
   setResolutionMode(snapshot.resolutionMode);
   setCustomWidth(snapshot.customWidth);
@@ -1329,6 +1398,7 @@ const buildProjectSnapshot = useCallback(
 
     return {
       formato,
+      selectedFormatValues: normalizeSelectedFormatValues(selectedFormatValues, formato),
       qualidade,
       resolutionMode,
       customWidth,
@@ -1360,6 +1430,7 @@ const buildProjectSnapshot = useCallback(
     promptInput,
     qualidade,
     resolutionMode,
+    selectedFormatValues,
     selectedItemId,
     statusText,
     viewport,
@@ -1494,6 +1565,8 @@ const dockPanels = useCallback(() => {
   setViewportSize({ width, height });
   setAssistantPanelSize(layout.assistantSize);
   setAssistantPanelPosition(layout.assistantPosition);
+  setPipelinePanelSize(layout.pipelineSize);
+  setPipelinePanelPosition(layout.pipelinePosition);
 }, []);
 
 
@@ -1646,24 +1719,49 @@ const handleDeleteProject = useCallback(
     parsedCustomHeight >= 256 &&
     parsedCustomHeight <= 4096;
 
+  const normalizedSelectedFormatValues = useMemo(
+    () => normalizeSelectedFormatValues(selectedFormatValues, formato),
+    [formato, selectedFormatValues]
+  );
+
+  const selectedFormatLabel = useMemo(
+    () => normalizedSelectedFormatValues.map((value) => getFormatShortLabel(value)).join(" + "),
+    [normalizedSelectedFormatValues]
+  );
+
+  const promptDetectedResolutions = useMemo(
+    () => dedupeResolutionItems(extractImageRequestResolutions(promptInput), 4),
+    [promptInput]
+  );
+
+  const promptDetectedFormatLabel = useMemo(
+    () => promptDetectedResolutions.map((item) => item.label || `${item.width}x${item.height}`).join(" + "),
+    [promptDetectedResolutions]
+  );
+
   const effectiveFormato = useMemo(
     () =>
       resolutionMode === "custom" && hasValidCustomDimensions
         ? getFormatoFromDimensions(parsedCustomWidth, parsedCustomHeight)
-        : formato,
-    [formato, hasValidCustomDimensions, parsedCustomHeight, parsedCustomWidth, resolutionMode]
+        : normalizedSelectedFormatValues[0] ?? formato,
+    [formato, hasValidCustomDimensions, normalizedSelectedFormatValues, parsedCustomHeight, parsedCustomWidth, resolutionMode]
   );
   const currentFormat = useMemo(
     () => FORMAT_OPTIONS.find((option) => option.value === effectiveFormato) ?? FORMAT_OPTIONS[0],
     [effectiveFormato]
   );
-  const currentFormatBadgeLabel = useMemo(
-    () =>
-      resolutionMode === "custom" && hasValidCustomDimensions
-        ? formatResolutionLabel(parsedCustomWidth, parsedCustomHeight)
-        : currentFormat.shortLabel,
-    [currentFormat.shortLabel, hasValidCustomDimensions, parsedCustomHeight, parsedCustomWidth, resolutionMode]
-  );
+  const currentFormatBadgeLabel = useMemo(() => {
+    if (resolutionMode === "custom" && hasValidCustomDimensions) {
+      return formatResolutionLabel(parsedCustomWidth, parsedCustomHeight);
+    }
+    if (promptDetectedResolutions.length > 1) {
+      return `${promptDetectedResolutions.length} formatos detectados`;
+    }
+    if (normalizedSelectedFormatValues.length > 1) {
+      return `${normalizedSelectedFormatValues.length} formatos`;
+    }
+    return currentFormat.shortLabel;
+  }, [currentFormat.shortLabel, hasValidCustomDimensions, normalizedSelectedFormatValues.length, parsedCustomHeight, parsedCustomWidth, promptDetectedResolutions.length, resolutionMode]);
   const currentResizeBehaviorLabel = useMemo(() => {
     if (preserveOriginalFrame) return "Expand sem crop";
     if (resolutionMode === "custom" && hasValidCustomDimensions && allowResizeCrop) return "Crop exato";
@@ -1680,7 +1778,7 @@ const handleDeleteProject = useCallback(
 
 
   const previewAspectRatio = getPreviewAspectRatio(
-    formato,
+    effectiveFormato,
     resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomWidth : undefined,
     resolutionMode === "custom" && hasValidCustomDimensions ? parsedCustomHeight : undefined
   );
@@ -1720,12 +1818,31 @@ const handleDeleteProject = useCallback(
     setAssistantPanelPosition((current) =>
       current.x === 0 && current.y === 0 ? layout.assistantPosition : current
     );
+    setPipelinePanelSize((current) => {
+      if (current.width === 0 && current.height === 0) {
+        return layout.pipelineSize;
+      }
+      const nextSize = getClampedPanelSize(current, {
+        minWidth: 300,
+        minHeight: 240,
+        positionX: pipelinePanelPosition.x || layout.pipelinePosition.x,
+        positionY: pipelinePanelPosition.y || layout.pipelinePosition.y,
+        viewportWidth: width,
+        viewportHeight: height,
+        maxWidth: 430,
+        maxHeight: height - 24,
+      });
+      return nextSize.width === current.width && nextSize.height === current.height ? current : nextSize;
+    });
+    setPipelinePanelPosition((current) =>
+      current.x === 0 && current.y === 0 ? layout.pipelinePosition : current
+    );
   };
 
   syncViewportMetrics();
   window.addEventListener("resize", syncViewportMetrics);
   return () => window.removeEventListener("resize", syncViewportMetrics);
-}, [assistantPanelPosition.x, assistantPanelPosition.y]);
+}, [assistantPanelPosition.x, assistantPanelPosition.y, pipelinePanelPosition.x, pipelinePanelPosition.y]);
 
 
 
@@ -2031,6 +2148,26 @@ const handleDeleteProject = useCallback(
     setSelectedItemId((current) => (current === itemId ? BASE_CANVAS_ITEM_ID : current));
   }, [pushAssistantMessage]);
 
+  const handleToggleFormatSelection = useCallback((formatValue: string) => {
+    setSelectedFormatValues((current) => {
+      const normalized = normalizeSelectedFormatValues(current, formato);
+      const alreadySelected = normalized.includes(formatValue);
+      const next = alreadySelected
+        ? normalized.filter((item) => item !== formatValue)
+        : [...normalized, formatValue];
+      const safeNext = normalizeSelectedFormatValues(next.length ? next : [formatValue], formatValue);
+      setFormato(safeNext[0]);
+      return safeNext;
+    });
+  }, [formato]);
+
+  const handleUseAllFormats = useCallback(() => {
+    const allFormats = FORMAT_OPTIONS.map((option) => option.value);
+    setSelectedFormatValues(allFormats);
+    setFormato(allFormats[0]);
+    setResolutionMode("preset");
+  }, []);
+
   const finalizeJobOnCanvas = useCallback(
     async (pendingCanvasItemId: string, result: ImageResult, instruction: string) => {
       const dimensions = await readImageDimensionsFromUrl(result.url).catch(() => ({
@@ -2075,6 +2212,7 @@ const handleDeleteProject = useCallback(
       baseReference?.width,
       formato,
       hasValidCustomDimensions,
+      normalizedSelectedFormatValues,
       parsedCustomHeight,
       parsedCustomWidth,
       qualidade,
@@ -2190,7 +2328,7 @@ const handleDeleteProject = useCallback(
     async (manualInstruction?: string, options?: { fromQueue?: boolean; baseReferenceOverride?: ReferenceAttachment }) => {
       const instruction = (manualInstruction ?? promptInput).trim();
       const referenceForRequest = options?.baseReferenceOverride ?? baseReference;
-      const requestedResolutionsFromChat = extractImageRequestResolutions(instruction);
+      const requestedResolutionsFromChat = dedupeResolutionItems(extractImageRequestResolutions(instruction), 4);
       const requestedResolutionFromChat = requestedResolutionsFromChat[0] ?? extractImageRequestResolution(instruction);
       const requestedResolutionFromPanel =
         resolutionMode === "custom" && hasValidCustomDimensions
@@ -2201,10 +2339,39 @@ const handleDeleteProject = useCallback(
               label: formatResolutionLabel(parsedCustomWidth, parsedCustomHeight).replace("×", "x"),
             }
           : null;
-      const effectiveRequestedResolution = requestedResolutionFromChat ?? requestedResolutionFromPanel;
+      const selectedFormatTargets =
+        resolutionMode === "preset"
+          ? normalizedSelectedFormatValues.map((value) => {
+              const dimensions = getFormatDimensions(value);
+              return {
+                width: dimensions.width,
+                height: dimensions.height,
+                source: "panel" as const,
+                label: dimensions.label,
+              };
+            })
+          : [];
+      const effectiveTargetResolutions = dedupeResolutionItems(
+        requestedResolutionsFromChat.length > 0
+          ? [...requestedResolutionsFromChat, ...(selectedFormatTargets.length > 1 ? selectedFormatTargets : [])]
+          : requestedResolutionFromPanel
+          ? [requestedResolutionFromPanel]
+          : selectedFormatTargets.length > 1
+          ? selectedFormatTargets
+          : [],
+        4
+      );
+      const effectiveRequestedResolution = effectiveTargetResolutions[0] ?? null;
+      const instructionForRequest = `${instruction}${buildTargetInstructionSuffix(effectiveTargetResolutions)}`.trim();
       const effectiveFormatoForRequest = effectiveRequestedResolution
         ? getFormatoFromDimensions(effectiveRequestedResolution.width, effectiveRequestedResolution.height)
         : effectiveFormato;
+      const targetLabelForRequest =
+        effectiveTargetResolutions.length > 1
+          ? `${effectiveTargetResolutions.length} formatos: ${effectiveTargetResolutions.map((target) => target.label || `${target.width}x${target.height}`).join(" + ")}`
+          : effectiveRequestedResolution
+          ? formatResolutionLabel(effectiveRequestedResolution.width, effectiveRequestedResolution.height)
+          : currentFormatBadgeLabel;
 
       if (!referenceForRequest) {
         pushAssistantMessage("Antes de pedir uma edição, você precisa carregar a imagem-base.", "warning");
@@ -2237,11 +2404,14 @@ const handleDeleteProject = useCallback(
         level: "info",
         details: {
           instruction,
+          instructionForRequest,
           formato: effectiveFormatoForRequest,
           qualidade,
           mode: "simple_reference_edit",
           requestedResolutionFromChat,
           requestedResolutionsFromChat,
+          effectiveTargetResolutions,
+          selectedFormatTargets,
           effectiveWidth: effectiveRequestedResolution?.width,
           effectiveHeight: effectiveRequestedResolution?.height,
           preserveOriginalFrame,
@@ -2252,9 +2422,7 @@ const handleDeleteProject = useCallback(
 
       setAiInspection({
         activeInstruction: instruction,
-        targetLabel: effectiveRequestedResolution
-          ? formatResolutionLabel(effectiveRequestedResolution.width, effectiveRequestedResolution.height)
-          : currentFormatBadgeLabel,
+        targetLabel: targetLabelForRequest,
       });
       setPipelineSteps(() => {
         let next = createSmartEditPipelineSteps();
@@ -2312,12 +2480,12 @@ const handleDeleteProject = useCallback(
       formData.append("reference_image", referenceForRequest.file);
       formData.append("formato", effectiveFormatoForRequest);
       formData.append("qualidade", qualidade);
-      formData.append("instrucoes_edicao", instruction);
+      formData.append("instrucoes_edicao", instructionForRequest);
 
       if (effectiveRequestedResolution) {
         formData.append("width", String(effectiveRequestedResolution.width));
         formData.append("height", String(effectiveRequestedResolution.height));
-        formData.append("resolution_source", requestedResolutionFromChat ? "chat_instruction" : "panel");
+        formData.append("resolution_source", requestedResolutionsFromChat.length > 0 ? "chat_instruction" : "panel");
       }
 
       const shouldUseSmartLayoutRecomposition = Boolean(effectiveRequestedResolution) && !allowResizeCrop;
@@ -2413,7 +2581,9 @@ const handleDeleteProject = useCallback(
                   preservationRules: typeof payload.preservation_rules === "string" ? payload.preservation_rules : current.preservationRules,
                 }));
                 setPipelineSteps((current) => {
-                  let next = setPipelineStepStatus(current, "prompt", "done", "Prompt mestre pronto");
+                  let next = setPipelineStepStatus(current, "interpret", "done", "Imagem interpretada");
+                  next = setPipelineStepStatus(next, "plan", "done", "Plano de preservação definido");
+                  next = setPipelineStepStatus(next, "prompt", "done", "Prompt mestre pronto");
                   next = setPipelineStepStatus(next, "generate", "active", "Gerando imagem");
                   return next;
                 });
@@ -2476,7 +2646,10 @@ const handleDeleteProject = useCallback(
                   engineId: payload.partial_result.engine_id,
                 });
                 setPipelineSteps((current) => {
-                  let next = setPipelineStepStatus(current, "generate", "done", payload.partial_result?.motor || "Imagem gerada");
+                  let next = setPipelineStepStatus(current, "interpret", "done", "Imagem interpretada");
+                  next = setPipelineStepStatus(next, "plan", "done", "Plano aplicado");
+                  next = setPipelineStepStatus(next, "prompt", "done", "Prompt mestre pronto");
+                  next = setPipelineStepStatus(next, "generate", "done", payload.partial_result?.motor || "Imagem gerada");
                   next = setPipelineStepStatus(next, "audit", "active", "Validando entrega final");
                   return next;
                 });
@@ -2493,7 +2666,10 @@ const handleDeleteProject = useCallback(
                 });
                 await finalizeResultsOnCanvas(pendingCanvasItemId, finalResults, instruction);
                 setPipelineSteps((current) => {
-                  let next = setPipelineStepStatus(current, "generate", "done", finalResults.length > 1 ? `${finalResults.length} imagens geradas` : finalResults[0]?.motor || "Imagem gerada");
+                  let next = setPipelineStepStatus(current, "interpret", "done", "Imagem interpretada");
+                  next = setPipelineStepStatus(next, "plan", "done", "Plano aplicado");
+                  next = setPipelineStepStatus(next, "prompt", "done", "Prompt mestre pronto");
+                  next = setPipelineStepStatus(next, "generate", "done", finalResults.length > 1 ? `${finalResults.length} imagens geradas` : finalResults[0]?.motor || "Imagem gerada");
                   next = setPipelineStepStatus(next, "audit", "done", finalResults.length > 1 ? "Versões entregues no canvas" : "Resultado entregue no canvas");
                   return next;
                 });
@@ -2573,6 +2749,7 @@ const handleDeleteProject = useCallback(
       effectiveFormato,
       finalizeResultsOnCanvas,
       hasValidCustomDimensions,
+      normalizedSelectedFormatValues,
       parsedCustomHeight,
       parsedCustomWidth,
       preserveOriginalFrame,
@@ -2818,6 +2995,14 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
         className="absolute top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 p-2 shadow-lg"
         style={{ right: 16 }}
       >
+        <Button
+          variant="ghost"
+          className="h-10 rounded-xl bg-white/5 px-4 text-slate-200 hover:bg-white/10"
+          onClick={() => setIsPipelinePanelOpen((current) => !current)}
+        >
+          <ScanSearch className="mr-2 h-4 w-4" />
+          {isPipelinePanelOpen ? "Ocultar fluxo" : "Fluxo"}
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -3140,6 +3325,66 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
       </div>
     </div>
 
+
+      {isPipelinePanelOpen ? (
+        <FloatingPanel
+          title="Fluxo inteligente"
+          subtitle={aiInspection.targetLabel || currentFormatBadgeLabel}
+          position={pipelinePanelPosition}
+          setPosition={setPipelinePanelPosition}
+          size={effectivePipelinePanelSize}
+          setSize={setPipelinePanelSize}
+          minWidth={300}
+          minHeight={240}
+          maxWidth={430}
+          maxHeight={viewportSize.height - 24}
+          bodyClassName="image-engine-scroll overflow-y-auto overflow-x-hidden overscroll-contain"
+          className="z-40"
+        >
+          <div className="space-y-3 p-3">
+            <div className="rounded-[20px] border border-blue-400/15 bg-blue-500/[0.08] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">Acompanhamento</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-white">{aiInspection.targetLabel || currentFormatBadgeLabel}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPipelinePanelOpen(false)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10"
+                  aria-label="Ocultar fluxo inteligente"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-2 text-[11px] leading-relaxed text-slate-300">
+                Etapas sincronizadas por eventos do backend. Se uma etapa chegar fora de ordem, as anteriores são marcadas como concluídas para evitar salto visual.
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              {pipelineSteps.map((step, index) => (
+                <div key={step.id} className={cn("rounded-2xl border px-3 py-2 transition-all", formatPipelineStepClass(step.status))}>
+                  <div className="flex items-start gap-3">
+                    <div className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border text-xs font-semibold", step.status === "done" ? "border-emerald-400/25 bg-emerald-500/15" : step.status === "active" ? "border-blue-400/25 bg-blue-500/15" : step.status === "error" ? "border-red-400/25 bg-red-500/15" : "border-white/10 bg-white/5")}>
+                      {step.status === "done" ? <Check className="h-3.5 w-3.5" /> : step.status === "active" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : index + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-white">{step.title}</div>
+                      <div className="mt-0.5 text-[11px] leading-relaxed text-slate-400">{step.detail || step.description}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-slate-400">
+              {activeJobs.length > 0 ? `${activeJobs.length} processamento ativo` : "Nenhum processamento ativo"} • {queuedJobs.length} na fila
+            </div>
+          </div>
+        </FloatingPanel>
+      ) : null}
+
       <FloatingPanel
         title="IA Assistente"
         subtitle={`${activeJobs.length} processando • ${queuedJobs.length} na fila`}
@@ -3188,33 +3433,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
             </div>
           </div>
 
-          <div className="mt-4 rounded-[24px] border border-white/10 bg-slate-950/45 p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-white">Fluxo inteligente da edição</div>
-                <div className="mt-1 text-[11px] text-slate-400">O usuário vê exatamente em que etapa a IA está trabalhando.</div>
-              </div>
-              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300">
-                {aiInspection.targetLabel || currentFormatBadgeLabel}
-              </div>
-            </div>
 
-            <div className="grid gap-2">
-              {pipelineSteps.map((step, index) => (
-                <div key={step.id} className={cn("rounded-2xl border px-3 py-2 transition-all", formatPipelineStepClass(step.status))}>
-                  <div className="flex items-start gap-3">
-                    <div className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border text-xs font-semibold", step.status === "done" ? "border-emerald-400/25 bg-emerald-500/15" : step.status === "active" ? "border-blue-400/25 bg-blue-500/15" : "border-white/10 bg-white/5")}>
-                      {step.status === "done" ? <Check className="h-3.5 w-3.5" /> : step.status === "active" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : index + 1}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-semibold text-white">{step.title}</div>
-                      <div className="mt-0.5 text-[11px] leading-relaxed text-slate-400">{step.detail || step.description}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
 
           {(aiInspection.imageAnalysis || aiInspection.editPlan || activeJobs.length > 0) ? (
             <div className="mt-4 rounded-[24px] border border-blue-400/15 bg-blue-500/[0.06] p-4">
@@ -3412,19 +3631,29 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
 
             <div className="space-y-6 p-4">
               <div>
-                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-                  <Settings2 className="h-4 w-4 text-indigo-300" />
-                  Formato
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                    <Settings2 className="h-4 w-4 text-indigo-300" />
+                    Formato
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleUseAllFormats}
+                    className="h-9 rounded-xl border border-blue-400/20 bg-blue-500/10 px-3 text-xs font-semibold text-blue-100 hover:bg-blue-500/20"
+                  >
+                    Usar os 3 formatos
+                  </Button>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-3">
                   {FORMAT_OPTIONS.map((option) => {
-                    const active = formato === option.value;
+                    const active = normalizedSelectedFormatValues.includes(option.value);
                     return (
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setFormato(option.value)}
+                        onClick={() => handleToggleFormatSelection(option.value)}
                         className={cn(
                           "rounded-[22px] border px-4 py-4 text-left transition-all",
                           active
@@ -3432,24 +3661,33 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                             : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
                         )}
                       >
-                        <div className="flex min-h-[72px] flex-col justify-between gap-4">
-                          <div
-                            className={cn(
-                              "flex h-10 w-10 items-center justify-center rounded-2xl",
-                              active ? "bg-blue-500/20 text-blue-200" : "bg-white/5 text-slate-300"
-                            )}
-                          >
-                            {option.icon}
+                        <div className="flex min-h-[92px] flex-col justify-between gap-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div
+                              className={cn(
+                                "flex h-10 w-10 items-center justify-center rounded-2xl",
+                                active ? "bg-blue-500/20 text-blue-200" : "bg-white/5 text-slate-300"
+                              )}
+                            >
+                              {option.icon}
+                            </div>
+                            <span className={cn("flex h-7 w-7 items-center justify-center rounded-xl border", active ? "border-blue-300/30 bg-blue-400/15 text-blue-100" : "border-white/10 bg-white/[0.03] text-slate-500")}>
+                              {active ? <Check className="h-3.5 w-3.5" /> : null}
+                            </span>
                           </div>
-                          <div className="text-sm font-semibold leading-snug text-white">{option.label}</div>
+                          <div>
+                            <div className="text-sm font-semibold leading-snug text-white">{option.label}</div>
+                            <div className="mt-1 text-[11px] leading-relaxed text-slate-400">{option.hint}</div>
+                          </div>
                         </div>
                       </button>
                     );
                   })}
                 </div>
 
-                <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-300">
-                  O novo fluxo sempre faz leitura completa da imagem antes da geração. Em resolução customizada, mantém a lógica de recomposição, agora alimentada pelo diagnóstico visual.
+                <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-xs leading-relaxed text-slate-300">
+                  Seleção atual: <span className="font-semibold text-white">{selectedFormatLabel}</span>. Se o prompt citar “banner”, “story”, “reels”, “feed”, “post”, “thumbnail” ou tamanhos como 1376x768, o sistema prioriza o que foi escrito e entrega todos os formatos detectados juntos.
+                  {promptDetectedFormatLabel ? <div className="mt-2 text-blue-100">Detectado no prompt: {promptDetectedFormatLabel}</div> : null}
                 </div>
               </div>
 
@@ -3492,7 +3730,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 <div className="mt-3 space-y-2 text-sm text-slate-300">
                   <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                     <span>Formato</span>
-                    <span className="font-semibold text-white">{currentFormat.shortLabel}</span>
+                    <span className="max-w-[210px] truncate text-right font-semibold text-white">{resolutionMode === "custom" && hasValidCustomDimensions ? currentFormatBadgeLabel : selectedFormatLabel}</span>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
                     <span>Qualidade</span>
