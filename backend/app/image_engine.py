@@ -291,9 +291,9 @@ def _extract_requested_image_target_dimensions(instruction: str, *, max_items: i
             continue
 
     aliases: List[Tuple[str, Tuple[int, int]]] = [
-        (r"\b(?:16\s*[:/]\s*9|horizontal\s*16\s*[:/]\s*9|horizontal|formato\s+horizontal|vers[aã]o\s+horizontal|imagem\s+horizontal|paisagem|landscape)\b", (1536, 1024)),
-        (r"\b(?:9\s*[:/]\s*16|vertical\s*9\s*[:/]\s*16|vertical|formato\s+vertical|vers[aã]o\s+vertical|imagem\s+vertical|story|stories|reel|reels|short|shorts|portrait)\b", (1024, 1536)),
-        (r"\b(?:1\s*[:/]\s*1|quadrado|feed\s+quadrado|square)\b", (1024, 1024)),
+        (r"\b(?:16\s*[:/]\s*9|horizontal\s*16\s*[:/]\s*9|horizontal|formato\s+horizontal|vers[aã]o\s+horizontal|imagem\s+horizontal|paisagem|landscape|banner|banner\s+horizontal|capa|capa\s+de\s+site|capa\s+do\s+site|thumbnail|thumb|wide)\b", (1536, 1024)),
+        (r"\b(?:9\s*[:/]\s*16|vertical\s*9\s*[:/]\s*16|vertical|formato\s+vertical|vers[aã]o\s+vertical|imagem\s+vertical|story|stories|storie|reel|reels|short|shorts|portrait|status|whatsapp\s+status)\b", (1024, 1536)),
+        (r"\b(?:1\s*[:/]\s*1|quadrado|feed\s+quadrado|post\s+quadrado|post\s+feed|feed|carrossel|carousel|square)\b", (1024, 1024)),
         (r"\b(?:full\s*hd|fhd|1080p)\b", (1920, 1080)),
         (r"\b(?:4k|ultra\s*hd|uhd)\b", (3840, 2160)),
         (r"\b(?:2k|qhd)\b", (2560, 1440)),
@@ -303,6 +303,16 @@ def _extract_requested_image_target_dimensions(instruction: str, *, max_items: i
     for pattern, dimensions in aliases:
         for match in re.finditer(pattern, text, flags=re.IGNORECASE):
             add_candidate(match.start(), dimensions[0], dimensions[1])
+
+    all_formats_match = re.search(
+        r"\b(?:todos\s+os\s+(?:3|tr[eê]s)\s+formatos|usar\s+(?:os\s+)?(?:3|tr[eê]s)\s+formatos|(?:3|tr[eê]s)\s+formatos|formatos\s+16\s*[:/]\s*9\s*,?\s*9\s*[:/]\s*16\s*(?:e|,)?\s*1\s*[:/]\s*1)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if all_formats_match:
+        base_index = all_formats_match.start()
+        for offset, dimensions in enumerate(((1536, 1024), (1024, 1536), (1024, 1024))):
+            add_candidate(base_index + offset, dimensions[0], dimensions[1])
 
     found: List[Tuple[int, int]] = []
     seen = set()
@@ -5611,13 +5621,14 @@ async def image_engine_edit_stream(
     openai_size = _openai_size_from_aspect_ratio(aspect_ratio)
     resolution_source_label = (resolution_source or "").strip() or ("manual" if target_dimensions else "default")
 
+    effective_requested_outputs = max(1, requested_version_count, len(requested_target_dimensions) or 1)
     estimated_credits = estimate_action_credits(
         "image_edit",
         input_texts=[body.model_dump(), {"source_width": source_width, "source_height": source_height, "targets": requested_target_dimensions}],
-        image_openai_edits=max(1, requested_version_count),
+        image_openai_edits=effective_requested_outputs,
         image_prompt_refinements=1,
-        image_local_steps=max(1, requested_version_count),
-        requested_versions=max(1, requested_version_count),
+        image_local_steps=effective_requested_outputs,
+        requested_versions=effective_requested_outputs,
     )
     ensure_credits(current_user, "image_edit", estimated_credits=estimated_credits)
     action = charge_credits(session, current_user, "image_edit", estimated_credits=estimated_credits)
