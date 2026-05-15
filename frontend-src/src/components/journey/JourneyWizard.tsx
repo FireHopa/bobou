@@ -355,9 +355,15 @@ export function JourneyWizard() {
               </AnimatePresence>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-2">
-                <Button variant="ghost" onClick={onBack} disabled={state.stepIndex === 0}>Voltar</Button>
+                {state.stepIndex > 0 ? (
+                  <Button variant="ghost" onClick={onBack}>Voltar</Button>
+                ) : (
+                  <div aria-hidden className="hidden sm:block" />
+                )}
                 <div className="flex gap-2 sm:justify-end">
-                  <Button variant="glass" onClick={() => { setValue(""); dispatch({ type: "TOUCH", field: step.id as any }); void onNext(); }}>Pular</Button>
+                  {step.optional ? (
+                    <Button variant="glass" onClick={() => { setValue(""); dispatch({ type: "TOUCH", field: step.id as any }); void onNext(); }}>Pular</Button>
+                  ) : null}
                   <Button variant="accent" onClick={() => void onNext()} isLoading={createRobot.isPending} loadingLabel={isLast ? "Montando…" : "Avançando…"}>{isLast ? "Finalizar" : "Avançar"}</Button>
                 </div>
               </div>

@@ -477,7 +477,7 @@
     z-index: 2147482000;
     height: 4px;
     pointer-events: none;
-    background: linear-gradient(90deg, #4285F4 0%, #4285F4 25%, #EA4335 25%, #EA4335 50%, #FBBC05 50%, #FBBC05 75%, #34A853 75%, #34A853 100%);
+    background: linear-gradient(90deg, #4285F4 0%, #EA4335 33%, #FBBC05 66%, #34A853 100%);
   }
 }
 
@@ -2170,10 +2170,10 @@
     --gg-surface-secondary: #F2F5F9;
     --gg-elevated: #FAFBFD;
     --gg-highlight: #E9EEF5;
-    --gg-graphite: #374151;
-    --gg-graphite-medium: #2F3742;
-    --gg-graphite-dark: #27313D;
-    --gg-graphite-detail: #1F2937;
+    --gg-graphite: #4B5563;
+    --gg-graphite-medium: #465160;
+    --gg-graphite-dark: #3F4856;
+    --gg-graphite-detail: #374151;
     --gg-border: #D8DEE8;
     --gg-border-soft: #E5EAF2;
     --gg-text: #1F2937;
@@ -2581,10 +2581,10 @@ html[data-color-theme="googleGray"] {
   --gg-surface-secondary: #F2F5F9;
   --gg-elevated: #FAFBFD;
   --gg-highlight: #E9EEF5;
-  --gg-graphite: #374151;
-  --gg-graphite-medium: #2F3742;
-  --gg-graphite-dark: #27313D;
-  --gg-graphite-detail: #1F2937;
+  --gg-graphite: #4B5563;
+  --gg-graphite-medium: #465160;
+  --gg-graphite-dark: #3F4856;
+  --gg-graphite-detail: #374151;
   --gg-border: #D8DEE8;
   --gg-border-soft: #E5EAF2;
   --gg-text: #1F2937;
@@ -4925,4 +4925,181 @@ html[data-color-theme="googleGray"] .theme-dialog-content.bobar-delete-dialog .t
   border-color: #D8DEE8 !important;
   color: #374151 !important;
   -webkit-text-fill-color: #374151 !important;
+}
+
+
+/* Google theme: keep dark blue buttons readable */
+html[data-color-theme="googleGray"] main :where(
+  button[class*="bg-blue-700"],
+  button[class*="bg-blue-800"],
+  button[class*="bg-blue-900"],
+  a[class*="bg-blue-700"],
+  a[class*="bg-blue-800"],
+  a[class*="bg-blue-900"],
+  button[class*="from-blue-700"],
+  button[class*="from-blue-800"],
+  button[class*="from-blue-900"],
+  a[class*="from-blue-700"],
+  a[class*="from-blue-800"],
+  a[class*="from-blue-900"]
+),
+html[data-color-theme="googleGray"] main :where(
+  button[class*="bg-blue-700"],
+  button[class*="bg-blue-800"],
+  button[class*="bg-blue-900"],
+  a[class*="bg-blue-700"],
+  a[class*="bg-blue-800"],
+  a[class*="bg-blue-900"],
+  button[class*="from-blue-700"],
+  button[class*="from-blue-800"],
+  button[class*="from-blue-900"],
+  a[class*="from-blue-700"],
+  a[class*="from-blue-800"],
+  a[class*="from-blue-900"]
+) :where(span, svg, div) {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* -------------------------------------------------------------
+   Google Gray blue button text safety v2
+   Escopo: somente controles clicaveis com fundo azul medio/escuro.
+   Garante texto e icones brancos sem afetar botoes claros/outline.
+   ------------------------------------------------------------- */
+html[data-color-theme="googleGray"] :where(
+  button[class*="bg-blue-500"],
+  button[class*="bg-blue-600"],
+  button[class*="bg-blue-700"],
+  button[class*="bg-blue-800"],
+  button[class*="bg-blue-900"],
+  button[class*="bg-blue-950"],
+  button[class*="from-blue-500"],
+  button[class*="from-blue-600"],
+  button[class*="from-blue-700"],
+  button[class*="from-blue-800"],
+  button[class*="from-blue-900"],
+  button[class*="from-blue-950"],
+  button[class*="via-blue-500"],
+  button[class*="via-blue-600"],
+  button[class*="via-blue-700"],
+  button[class*="via-blue-800"],
+  button[class*="via-blue-900"],
+  button[class*="to-blue-500"],
+  button[class*="to-blue-600"],
+  button[class*="to-blue-700"],
+  button[class*="to-blue-800"],
+  button[class*="to-blue-900"],
+  button[class*="bg-[#1A73E8]"],
+  button[class*="bg-[#1a73e8]"],
+  button[class*="bg-[#2563EB]"],
+  button[class*="bg-[#2563eb]"],
+  button[class*="bg-[#174EA6]"],
+  button[class*="bg-[#174ea6]"],
+  button[class*="bg-[#155AB6]"],
+  button[class*="bg-[#155ab6]"],
+  button.bg-theme-accent,
+  button.btn-primary,
+  a[class*="bg-blue-500"],
+  a[class*="bg-blue-600"],
+  a[class*="bg-blue-700"],
+  a[class*="bg-blue-800"],
+  a[class*="bg-blue-900"],
+  a[class*="bg-blue-950"],
+  a[class*="from-blue-500"],
+  a[class*="from-blue-600"],
+  a[class*="from-blue-700"],
+  a[class*="from-blue-800"],
+  a[class*="from-blue-900"],
+  a[class*="from-blue-950"],
+  a[class*="bg-[#1A73E8]"],
+  a[class*="bg-[#1a73e8]"],
+  a[class*="bg-[#2563EB]"],
+  a[class*="bg-[#2563eb]"],
+  a[class*="bg-[#174EA6]"],
+  a[class*="bg-[#174ea6]"],
+  a[class*="bg-[#155AB6]"],
+  a[class*="bg-[#155ab6]"],
+  a.bg-theme-accent,
+  a.btn-primary,
+  [role="button"][class*="bg-blue-500"],
+  [role="button"][class*="bg-blue-600"],
+  [role="button"][class*="bg-blue-700"],
+  [role="button"][class*="bg-blue-800"],
+  [role="button"][class*="bg-blue-900"],
+  [role="button"][class*="bg-blue-950"],
+  [role="button"].bg-theme-accent,
+  [role="button"].btn-primary
+) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  text-shadow: 0 1px 1px rgba(32, 33, 36, 0.22);
+}
+
+html[data-color-theme="googleGray"] :where(
+  button[class*="bg-blue-500"],
+  button[class*="bg-blue-600"],
+  button[class*="bg-blue-700"],
+  button[class*="bg-blue-800"],
+  button[class*="bg-blue-900"],
+  button[class*="bg-blue-950"],
+  button[class*="from-blue-500"],
+  button[class*="from-blue-600"],
+  button[class*="from-blue-700"],
+  button[class*="from-blue-800"],
+  button[class*="from-blue-900"],
+  button[class*="from-blue-950"],
+  button[class*="via-blue-500"],
+  button[class*="via-blue-600"],
+  button[class*="via-blue-700"],
+  button[class*="via-blue-800"],
+  button[class*="via-blue-900"],
+  button[class*="to-blue-500"],
+  button[class*="to-blue-600"],
+  button[class*="to-blue-700"],
+  button[class*="to-blue-800"],
+  button[class*="to-blue-900"],
+  button[class*="bg-[#1A73E8]"],
+  button[class*="bg-[#1a73e8]"],
+  button[class*="bg-[#2563EB]"],
+  button[class*="bg-[#2563eb]"],
+  button[class*="bg-[#174EA6]"],
+  button[class*="bg-[#174ea6]"],
+  button[class*="bg-[#155AB6]"],
+  button[class*="bg-[#155ab6]"],
+  button.bg-theme-accent,
+  button.btn-primary,
+  a[class*="bg-blue-500"],
+  a[class*="bg-blue-600"],
+  a[class*="bg-blue-700"],
+  a[class*="bg-blue-800"],
+  a[class*="bg-blue-900"],
+  a[class*="bg-blue-950"],
+  a[class*="from-blue-500"],
+  a[class*="from-blue-600"],
+  a[class*="from-blue-700"],
+  a[class*="from-blue-800"],
+  a[class*="from-blue-900"],
+  a[class*="from-blue-950"],
+  a[class*="bg-[#1A73E8]"],
+  a[class*="bg-[#1a73e8]"],
+  a[class*="bg-[#2563EB]"],
+  a[class*="bg-[#2563eb]"],
+  a[class*="bg-[#174EA6]"],
+  a[class*="bg-[#174ea6]"],
+  a[class*="bg-[#155AB6]"],
+  a[class*="bg-[#155ab6]"],
+  a.bg-theme-accent,
+  a.btn-primary,
+  [role="button"][class*="bg-blue-500"],
+  [role="button"][class*="bg-blue-600"],
+  [role="button"][class*="bg-blue-700"],
+  [role="button"][class*="bg-blue-800"],
+  [role="button"][class*="bg-blue-900"],
+  [role="button"][class*="bg-blue-950"],
+  [role="button"].bg-theme-accent,
+  [role="button"].btn-primary
+) :where(span, div, p, strong, small, svg, svg *) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
 }

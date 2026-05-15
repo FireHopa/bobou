@@ -25,7 +25,8 @@ import {
   ChevronLeft,
   Wand2,
   FolderKanban,
-  Share2
+  Share2,
+  History
 } from "lucide-react";
 import { api, getClientId } from "@/services/robots";
 import { linkedinService, type LinkedInPublishPayload } from "@/services/linkedin";
@@ -49,7 +50,7 @@ import { FacebookPublishModal, type FacebookPublishValues } from "@/components/f
 import { YouTubePublishModal, type YouTubePublishValues } from "@/components/youtube/YouTubePublishModal";
 import { TikTokPublishModal, type TikTokPublishValues } from "@/components/tiktok/TikTokPublishModal";
 import { GoogleBusinessApplyModal, parseGoogleBusinessPreview } from "@/components/authority/GoogleBusinessApplyModal";
-import { exportAuthorityFormat as exportFormat } from "@/lib/authorityExport";
+import { exportAuthorityFormat as exportFormat, getAuthorityOutputPreview } from "@/lib/authorityExport";
 import { bobarService } from "@/services/bobar";
 import { buildAuthorityImportPayload } from "@/lib/bobarImported";
 import { saveAuthorityResultForSocialPublisher } from "@/lib/socialPublisherDraft";
@@ -451,6 +452,12 @@ export default function AuthorityAgentRunPage() {
   });
   const runtimeNucleus = React.useMemo(() => ({ ...(businessCore || {}) }), [businessCore]);
   const tasks = agentKey ? tasksByAgentKey(agentKey) : [];
+  const clientId = React.useMemo(() => getClientId(), []);
+  const { data: agentHistoryData, isLoading: isLoadingAgentHistory, refetch: refetchAgentHistory } = useQuery({
+    queryKey: ["authority-history", clientId, agentKey],
+    queryFn: () => api.authorityAgents.historyGlobal(clientId, agentKey),
+    enabled: Boolean(agentKey),
+  });
 
   useEffect(() => {
     if (!themeModalTask) return;
@@ -619,7 +626,7 @@ export default function AuthorityAgentRunPage() {
     try {
       const rawNucleus = runtimeNucleus;
       const payload = {
-        client_id: getClientId(),
+        client_id: clientId,
         agent_key: agentKey,
         nucleus: {
           ...rawNucleus,
@@ -645,6 +652,7 @@ export default function AuthorityAgentRunPage() {
 
       const data = await api.authorityAgents.runGlobal(payload);
       setResult(data);
+      void refetchAgentHistory();
       toastSuccess("Tarefa concluída com sucesso!");
     } catch (e: any) {
       toastApiError(e, "Falha ao executar agente");
@@ -974,6 +982,7 @@ export default function AuthorityAgentRunPage() {
     try {
       const updated = await api.authorityAgents.updateRunGlobal(result.id, { output_text: editedText });
       setResult(updated);
+      void refetchAgentHistory();
       setIsEditing(false);
       toastSuccess("Texto atualizado e salvo com sucesso!");
     } catch (err) {
@@ -1166,9 +1175,50 @@ export default function AuthorityAgentRunPage() {
         </div>
       )}
 
+
+
+      {!loading && !themeModalTask && !result && (
+        <section className="mt-10 rounded-[2rem] border border-border bg-card/80 p-6 shadow-sm">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <History className="h-4 w-4 text-google-blue" />
+                Histórico deste agente
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Aqui aparecem apenas os resultados gerados nesta tela de agente.</p>
+            </div>
+          </div>
+
+          {isLoadingAgentHistory ? (
+            <div className="rounded-2xl border border-dashed p-5 text-sm text-muted-foreground">Carregando histórico...</div>
+          ) : (agentHistoryData?.items?.length ?? 0) === 0 ? (
+            <div className="rounded-2xl border border-dashed p-5 text-sm text-muted-foreground">Nenhum resultado salvo para este agente ainda.</div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {agentHistoryData!.items.slice(0, 9).map((item) => {
+                const preview = getAuthorityOutputPreview(item.output_text, agent?.name || "Resultado");
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => { setResult(item); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                    className="rounded-2xl border border-border bg-background/70 p-4 text-left transition hover:border-google-blue/40 hover:bg-google-blue/5"
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-google-blue">{agent?.name || "Resultado"}</div>
+                    <div className="mt-2 line-clamp-2 text-sm font-bold text-foreground">{preview.title}</div>
+                    <div className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">{preview.preview}</div>
+                    <div className="mt-3 text-[11px] text-muted-foreground">{new Date(item.created_at).toLocaleString("pt-BR")}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
       {result && (
-        <div className="animate-in slide-in-from-bottom-4 fade-in duration-500">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-4 bg-[rgba(0,210,120,0.15)] border border-[rgba(0,210,120,0.22)] p-4 rounded-2xl">
+        <div className="animate-in slide-in-from-bottom-4 fade-in duration-500 flex flex-col">
+          <div className="order-2 mt-6 mb-0 flex flex-wrap items-center justify-between gap-4 bg-[rgba(0,210,120,0.15)] border border-[rgba(0,210,120,0.22)] p-4 rounded-2xl">
             <div className="flex items-center gap-2 text-[#00D278] font-medium">
               <CheckCircle2 className="h-5 w-5" /> Resultado gerado com sucesso
             </div>
@@ -1275,9 +1325,9 @@ export default function AuthorityAgentRunPage() {
             <ResultViewer title={agent.name} text={result.output_text} agentKey={agentKey} />
           )}
 
-          <div className="mt-8 flex justify-center">
-            <Button variant="secondary" className="rounded-xl px-8" onClick={() => { setResult(null); setShowDownloadMenu(false); setThemeModalTask(null); }}>
-              Fazer Nova Tarefa
+          <div className="order-3 mt-6 flex justify-center">
+            <Button className="rounded-2xl bg-gradient-to-r from-google-blue to-blue-700 px-10 py-6 text-base font-bold text-white shadow-lg shadow-google-blue/25 transition hover:scale-[1.02] hover:opacity-95" onClick={() => { setResult(null); setShowDownloadMenu(false); setThemeModalTask(null); }}>
+              Fazer nova tarefa
             </Button>
           </div>
         </div>

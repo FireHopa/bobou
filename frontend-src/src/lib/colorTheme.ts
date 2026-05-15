@@ -24,13 +24,13 @@ export function isColorThemeId(value: unknown): value is ColorThemeId {
 }
 
 export function getStoredColorTheme(): ColorThemeId {
-  if (typeof window === "undefined") return "default";
+  if (typeof window === "undefined") return "googleGray";
 
   try {
     const stored = window.localStorage.getItem(COLOR_THEME_STORAGE_KEY);
-    return isColorThemeId(stored) ? stored : "default";
+    return isColorThemeId(stored) ? stored : "googleGray";
   } catch {
-    return "default";
+    return "googleGray";
   }
 }
 

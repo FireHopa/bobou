@@ -430,7 +430,7 @@ function getDefaultPanelLayout(viewportWidth: number, viewportHeight: number) {
     settingsSize,
     pipelineSize,
     assistantPosition: {
-      x: Math.max(16, viewportWidth - assistantSize.width - 18),
+      x: 20,
       y: 156,
     },
     pipelinePosition: {
@@ -1109,7 +1109,7 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const [assistantPanelSize, setAssistantPanelSize] = useState<FloatingPanelSize>({ width: 0, height: 0 });
   const [pipelinePanelPosition, setPipelinePanelPosition] = useState<FloatingPosition>({ x: 0, y: 0 });
   const [pipelinePanelSize, setPipelinePanelSize] = useState<FloatingPanelSize>({ width: 0, height: 0 });
-  const [isPipelinePanelOpen, setIsPipelinePanelOpen] = useState(true);
+  const [isPipelinePanelOpen, setIsPipelinePanelOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [viewportSize, setViewportSize] = useState({
     width: typeof window !== "undefined" ? window.innerWidth : 1600,
@@ -2424,11 +2424,16 @@ const handleDeleteProject = useCallback(
           };
         });
 
+        const firstResultItem = next.find((item) => item.id === pendingCanvasItemId);
+        const rowY = firstResultItem?.y ?? getNextCanvasPosition(next).y;
+        let rowCursorX = (firstResultItem?.x ?? getNextCanvasPosition(next).x) + (dimensions[0]?.width || firstResultItem?.width || 0) + 32;
+
         for (let index = 1; index < validResults.length; index += 1) {
           resultCounter += 1;
           const result = validResults[index];
           const size = dimensions[index];
-          const position = getNextCanvasPosition(next);
+          const position = { x: rowCursorX, y: rowY };
+          rowCursorX += size.width + 32;
           const itemId = `result-${makeId()}`;
           lastSelectedId = itemId;
           const variantLabel = ` • Variação ${result.variant_index ?? index + 1}/${total}`;
@@ -3618,7 +3623,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
 
       <FloatingPanel
         title="IA Assistente"
-        subtitle={`${activeJobs.length} processando • ${queuedJobs.length} na fila`}
+        subtitle="Chat de edição por referência"
         position={assistantPanelPosition}
         setPosition={setAssistantPanelPosition}
         size={effectiveAssistantPanelSize}
@@ -3636,10 +3641,8 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 <Bot className="h-5 w-5 text-white" />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-white">Assistente multimodal</div>
-                <div className="mt-1 text-xs leading-relaxed text-slate-400">
-                  A nova rotina lê a imagem inteira, cria um mapa de preservação, refina o pedido e só depois envia para geração.
-                </div>
+                <div className="text-sm font-semibold text-white">Chat da IA</div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-400">Peça a edição mantendo a imagem de referência.</div>
               </div>
             </div>
 
@@ -3659,14 +3662,14 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 {currentFormatBadgeLabel} • {currentQuality.shortLabel}
               </div>
               <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                Fluxo com leitura visual
+                Configuração ativa
               </div>
             </div>
           </div>
 
 
 
-          {(aiInspection.imageAnalysis || aiInspection.editPlan || activeJobs.length > 0) ? (
+          {false && (aiInspection.imageAnalysis || aiInspection.editPlan || activeJobs.length > 0) ? (
             <div className="mt-4 rounded-[24px] border border-blue-400/15 bg-blue-500/[0.06] p-4">
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
                 <ScanSearch className="h-4 w-4 text-blue-200" />
@@ -3727,7 +3730,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
             </div>
           ) : null}
 
-          {queuedJobs.length > 0 ? (
+          {false && queuedJobs.length > 0 ? (
             <div className="mt-4 rounded-[22px] border border-cyan-400/15 bg-cyan-500/10 p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="text-xs font-semibold text-cyan-100">Fila de pedidos</div>
@@ -3817,7 +3820,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-2">
                 <div className="text-[11px] leading-5 text-slate-400">
-                  Dica: descreva o que muda e o que não pode sumir. Em troca de resolução, a IA pode fazer microajustes de alinhamento sem remover textos, logos ou CTA.
+                  {currentFormatBadgeLabel} • {currentQuality.shortLabel}
                 </div>
                 <div className="flex items-center gap-2">
                   <Button

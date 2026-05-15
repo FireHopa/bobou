@@ -59,14 +59,18 @@ const items: Item[] = [
 const KEY = "arp:sidebar:collapsed:v1";
 
 function loadCollapsed() {
-  try { return localStorage.getItem(KEY) === "1"; } catch { return false; }
+  try {
+    const stored = localStorage.getItem(KEY);
+    if (stored === null) return true;
+    return stored === "1";
+  } catch { return true; }
 }
 function saveCollapsed(v: boolean) {
   try { localStorage.setItem(KEY, v ? "1" : "0"); } catch { /* ignore */ }
 }
 
 export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void; }) {
-  const [collapsed, setCollapsed] = React.useState<boolean>(() => (typeof window === "undefined" ? false : loadCollapsed()));
+  const [collapsed, setCollapsed] = React.useState<boolean>(() => (typeof window === "undefined" ? true : loadCollapsed()));
   const location = useLocation();
   const [expandedMenus, setExpandedMenus] = React.useState<Record<string, boolean>>({
     "Agentes de Autoridade": location.pathname.includes("/authority-agents")
@@ -74,6 +78,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
   
   // AUTENTICAÇÃO E DADOS DA CONTA
   const { user, logout } = useAuthStore();
+  const [showCredits, setShowCredits] = React.useState(false);
   const navigate = useNavigate();
   const avatarLabel = user?.name?.trim() || user?.email || "Usuário";
   const avatarInitial = avatarLabel.charAt(0).toUpperCase();
@@ -117,13 +122,6 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
               <div className="truncate text-xs text-muted-foreground">painel premium</div>
             </div>
           ) : null}
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); setCollapsed((v) => !v); }}
-            className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl border bg-background/40 shadow-soft transition hover:bg-theme-accent-soft")}
-          >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </button>
         </Link>
 
         <div className="mt-4 flex-1 space-y-1">
@@ -203,10 +201,15 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
             {!collapsed ? (
               <>
                 {/* Tag de Créditos */}
-                <div className="flex items-center justify-center gap-2 rounded-xl bg-theme-accent-softer px-3 py-2 text-sm font-medium text-label border border-theme-soft">
+                <button
+                  type="button"
+                  onClick={() => setShowCredits((current) => !current)}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-theme-accent-softer px-3 py-2 text-sm font-medium text-label border border-theme-soft transition hover:bg-theme-accent-soft"
+                  title={showCredits ? "Ocultar créditos" : "Ver créditos"}
+                >
                   <Coins className="h-4 w-4" />
-                  <span>{user.credits ?? 0} Créditos</span>
-                </div>
+                  <span>{showCredits ? `${user.credits ?? 0} Créditos` : "Créditos"}</span>
+                </button>
 
                 {/* Link para Minha Conta */}
                 <Link
@@ -241,9 +244,15 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
             ) : (
               // Versão Colapsada
               <div className="flex flex-col items-center gap-3">
-                <div className="flex items-center justify-center rounded-xl bg-theme-accent-softer h-10 w-10 text-label border border-theme-soft" title={`${user.credits ?? 0} Créditos`}>
+                <button
+                  type="button"
+                  onClick={() => setShowCredits((current) => !current)}
+                  className="flex min-h-10 w-12 flex-col items-center justify-center rounded-xl bg-theme-accent-softer text-label border border-theme-soft transition hover:bg-theme-accent-soft"
+                  title={showCredits ? `${user.credits ?? 0} Créditos` : "Ver créditos"}
+                >
                   <Coins className="h-5 w-5" />
-                </div>
+                  {showCredits ? <span className="mt-0.5 text-[10px] font-semibold leading-none">{user.credits ?? 0}</span> : null}
+                </button>
                 <Link to="/conta" title="Minha Conta">
                   <Avatar className="h-10 w-10 shrink-0 rounded-full shadow-md ring-2 ring-theme-soft transition hover:ring-theme-strong">
                     {user.profile_image_url ? <AvatarImage src={user.profile_image_url} alt={avatarLabel} /> : null}
@@ -264,6 +273,16 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
           </div>
         )}
       </div>
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="fixed z-50 grid h-11 w-11 place-items-center rounded-full border border-theme-soft bg-theme-elevated text-label shadow-lg transition hover:scale-105 hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={{ left: width - 22, top: "50%", transform: "translateY(-50%)" }}
+        aria-label={collapsed ? "Expandir menu lateral" : "Retrair menu lateral"}
+        title={collapsed ? "Expandir menu" : "Retrair menu"}
+      >
+        {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+      </button>
     </aside>
   );
 }

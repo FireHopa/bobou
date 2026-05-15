@@ -73,6 +73,13 @@ export interface ChatMessageOut {
   created_at: ISODateString;
 }
 
+export interface RobotChatSessionOut {
+  id: number;
+  title: string;
+  created_at: ISODateString;
+  updated_at: ISODateString;
+}
+
 export interface MessageUpdateIn {
   content: string;
 }

@@ -7,6 +7,7 @@ import type {
   RobotUpdateIn,
   ChatIn,
   ChatMessageOut,
+  RobotChatSessionOut,
   MessageUpdateIn,
   AuthorityAssistantIn,
   AuthorityAssistantOut,
@@ -63,6 +64,10 @@ export type SkyBobCatalogIn = {
   nucleus: Record<string, any>;
 };
 
+function chatSessionQuery(chatSessionId?: number | null) {
+  return chatSessionId ? `?chat_session_id=${encodeURIComponent(String(chatSessionId))}` : "";
+}
+
 export const api = {
   health: () => http<HealthResponse>("/api/health"),
 
@@ -87,15 +92,25 @@ export const api = {
       http<RobotDetail>(`/api/robots/${publicId}`, { method: "PATCH", json: patch }),
     remove: (publicId: string) => http<{ ok: true }>(`/api/robots/${publicId}`, { method: "DELETE" }),
 
+    chatSessions: {
+      list: (publicId: string) => http<RobotChatSessionOut[]>(`/api/robots/${publicId}/chat-sessions`),
+      create: (publicId: string, title?: string) =>
+        http<RobotChatSessionOut>(`/api/robots/${publicId}/chat-sessions`, { method: "POST", json: { title } }),
+      remove: (publicId: string, chatSessionId: number) =>
+        http<{ ok: true }>(`/api/robots/${publicId}/chat-sessions/${encodeURIComponent(String(chatSessionId))}`, { method: "DELETE" }),
+    },
+
     messages: {
-      list: (publicId: string) => http<ChatMessageOut[]>(`/api/robots/${publicId}/messages`),
-      clear: (publicId: string) => http<{ ok: true }>(`/api/robots/${publicId}/messages`, { method: "DELETE" }),
+      list: (publicId: string, chatSessionId?: number | null) =>
+        http<ChatMessageOut[]>(`/api/robots/${publicId}/messages${chatSessionQuery(chatSessionId)}`),
+      clear: (publicId: string, chatSessionId?: number | null) =>
+        http<{ ok: true }>(`/api/robots/${publicId}/messages${chatSessionQuery(chatSessionId)}`, { method: "DELETE" }),
       update: (publicId: string, messageId: number, body: MessageUpdateIn) =>
         http<ChatMessageOut>(`/api/robots/${publicId}/messages/${messageId}`, { method: "PATCH", json: body }),
     },
 
-    chat: (publicId: string, body: ChatIn) =>
-      http<ChatMessageOut>(`/api/robots/${publicId}/chat`, { method: "POST", json: body }),
+    chat: (publicId: string, body: ChatIn, chatSessionId?: number | null) =>
+      http<ChatMessageOut>(`/api/robots/${publicId}/chat${chatSessionQuery(chatSessionId)}`, { method: "POST", json: body }),
 
     authorityAssistant: (publicId: string, body: AuthorityAssistantIn) =>
       http<AuthorityAssistantOut>(`/api/robots/${publicId}/authority-assistant`, { method: "POST", json: body }),
@@ -121,16 +136,18 @@ export const api = {
         }),
     },
 
-    audio: async (publicId: string, file: File) => {
+    audio: async (publicId: string, file: File, chatSessionId?: number | null) => {
       const form = new FormData();
       form.append("file", file);
-      return http<ChatMessageOut>(`/api/robots/${publicId}/audio`, { method: "POST", body: form });
+      return http<ChatMessageOut>(`/api/robots/${publicId}/audio${chatSessionQuery(chatSessionId)}`, { method: "POST", body: form });
     },
   },
 
   authorityAgents: {
-    historyGlobal: (clientId: string) =>
-      http<AuthorityAgentHistoryOut>(`/api/authority-agents/history?client_id=${encodeURIComponent(clientId)}`),
+    historyGlobal: (clientId: string, agentKey?: string) =>
+      http<AuthorityAgentHistoryOut>(
+        `/api/authority-agents/history?client_id=${encodeURIComponent(clientId)}${agentKey ? `&agent_key=${encodeURIComponent(agentKey)}` : ""}`
+      ),
     runGlobal: (payload: AuthorityAgentRunGlobalIn) =>
       http<AuthorityAgentRunItem>(`/api/authority-agents/run`, { method: "POST", json: payload }),
 

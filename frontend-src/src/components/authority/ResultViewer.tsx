@@ -27,6 +27,13 @@ type Props = {
   agentKey?: string;
 };
 
+function cleanAuthorityText(value: string): string {
+  return String(value || "")
+    .replace(/\*\*(.*?)\*\*/gs, "$1")
+    .replace(/(^|[\s(])\*(?!\s)([^*\n]+?)\*(?=[\s).,!?:;]|$)/g, "$1$2")
+    .replace(/^\s*\*\s+/gm, "- ");
+}
+
 type ScriptJson = {
   titulo_da_tela?: string;
   analise_do_tema?: string;
@@ -205,13 +212,15 @@ export default function ResultViewer({ title = "Resultado", text, agentKey }: Pr
             ? "Prova social e reputação"
             : "Entrega estruturada";
 
+  const displayText = useMemo(() => cleanAuthorityText(text), [text]);
+
   const parsed = useMemo(() => {
     try {
-      return JSON.parse(text || "{}");
+      return JSON.parse(displayText || "{}");
     } catch {
       return null;
     }
-  }, [text]);
+  }, [displayText]);
 
   const parsedScript = useMemo<ScriptJson | null>(() => {
     if (!parsed || typeof parsed !== "object") return null;
@@ -267,8 +276,8 @@ const googleBusinessInsights = useMemo(
 
   const legacyBlocks = useMemo(() => {
     if (parsedScript || parsedBlocks) return [];
-    return parseBlocks(text || "");
-  }, [text, parsedScript, parsedBlocks]);
+    return parseBlocks(displayText || "");
+  }, [displayText, parsedScript, parsedBlocks]);
 
   if (parsedScript) {
     if (isYouTube) {
@@ -1292,19 +1301,19 @@ function GoogleBusinessResult({
 
             <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[28rem]">
               <GoogleBusinessMetric
-                label="Ativos prontos"
+                label="Conteúdos prontos"
                 value={String(insights.readyAssetCount)}
-                helper="cadastros e textos utilizáveis"
+                helper="respostas, serviços e textos já utilizáveis"
               />
               <GoogleBusinessMetric
                 label="Sinais locais"
                 value={String(insights.localSignalCount)}
-                helper="termos e contextos mapeados"
+                helper="cidade, serviço e intenção de busca"
               />
               <GoogleBusinessMetric
-                label="FAQ / respostas"
+                label="Perguntas respondidas"
                 value={String(insights.faqCount)}
-                helper="dúvidas destravadas"
+                helper="FAQs e respostas para clientes"
               />
             </div>
           </div>
@@ -3528,7 +3537,8 @@ function ScriptSection({
 }
 
 function RichText({ text }: { text: string }) {
-  const blocks = useMemo(() => parseBlocks(text || ""), [text]);
+  const cleanedText = useMemo(() => cleanAuthorityText(text), [text]);
+  const blocks = useMemo(() => parseBlocks(cleanedText || ""), [cleanedText]);
 
   if (!blocks.length) {
     return <EmptyState />;
@@ -4002,9 +4012,7 @@ function renderLegacyBlock(block: Block, key: number) {
 }
 
 function inlineFormat(text: string) {
-  return escapeHtml(text || "")
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+  return escapeHtml(cleanAuthorityText(text))
     .replace(/`(.*?)`/g, "<code>$1</code>");
 }
 
