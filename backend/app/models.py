@@ -99,6 +99,16 @@ class Robot(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class RobotChatSession(SQLModel, table=True):
+    __tablename__ = "robot_chat_session"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    robot_id: int = Field(foreign_key="robot.id", index=True)
+    title: str = Field(default="Novo chat")
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class BusinessCore(SQLModel, table=True):
     __tablename__ = "business_core"
 

@@ -37,7 +37,7 @@ from .credits import (
     estimate_action_credits,
 )
 from .db import init_db, get_session, engine
-from .models import Robot, ChatMessage, CompetitionAnalysis, SkyBobJob, AuthorityEdit, AuthorityAgentRun, BusinessCore, User
+from .models import Robot, RobotChatSession, ChatMessage, CompetitionAnalysis, SkyBobJob, AuthorityEdit, AuthorityAgentRun, BusinessCore, User, utcnow
 from .schemas import (
     BriefingIn,
     RobotOut,
@@ -45,6 +45,8 @@ from .schemas import (
     RobotUpdateIn,
     ChatIn,
     ChatMessageOut,
+    RobotChatSessionOut,
+    RobotChatSessionCreateIn,
     MessageUpdateIn,
     AuthorityAssistantIn,
     AuthorityAssistantOut,
@@ -456,12 +458,132 @@ def update_business_core(public_id: str, payload: dict, session: Session = Depen
     return core
 
 
-@app.get("/api/robots/{public_id}/messages", response_model=list[ChatMessageOut])
-def list_messages(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+
+
+def _chat_session_title_from_message(message: str) -> str:
+    cleaned = " ".join((message or "").strip().split())
+    if not cleaned:
+        return "Novo chat"
+    return cleaned[:42] + ("..." if len(cleaned) > 42 else "")
+
+
+def _serialize_robot_chat_session(chat_session: RobotChatSession) -> RobotChatSessionOut:
+    return RobotChatSessionOut(
+        id=int(chat_session.id or 0),
+        title=chat_session.title or "Novo chat",
+        created_at=chat_session.created_at.isoformat(),
+        updated_at=chat_session.updated_at.isoformat(),
+    )
+
+
+def _ensure_default_robot_chat_session(session: Session, robot: Robot) -> RobotChatSession:
+    existing = session.exec(
+        select(RobotChatSession)
+        .where(RobotChatSession.robot_id == robot.id)
+        .order_by(RobotChatSession.updated_at.desc())
+    ).first()
+    if existing:
+        return existing
+
+    legacy_messages = session.exec(
+        select(ChatMessage).where(
+            ChatMessage.robot_id == robot.id,
+            ChatMessage.chat_session_id == None,
+        )
+    ).all()
+
+    chat_session = RobotChatSession(
+        robot_id=int(robot.id or 0),
+        title="Chat antigo" if legacy_messages else "Novo chat",
+    )
+    session.add(chat_session)
+    session.commit()
+    session.refresh(chat_session)
+
+    for message in legacy_messages:
+        message.chat_session_id = chat_session.id
+        session.add(message)
+    if legacy_messages:
+        session.commit()
+        session.refresh(chat_session)
+
+    return chat_session
+
+
+def _get_robot_chat_session_or_404(session: Session, robot: Robot, chat_session_id: int | None) -> RobotChatSession:
+    if chat_session_id is None:
+        return _ensure_default_robot_chat_session(session, robot)
+    chat_session = session.get(RobotChatSession, chat_session_id)
+    if not chat_session or chat_session.robot_id != robot.id:
+        raise HTTPException(status_code=404, detail="Chat não encontrado")
+    return chat_session
+
+
+@app.get("/api/robots/{public_id}/chat-sessions", response_model=list[RobotChatSessionOut])
+def list_robot_chat_sessions(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     robot = _get_robot_or_404(public_id, session, current_user)
+    _ensure_default_robot_chat_session(session, robot)
+    sessions = session.exec(
+        select(RobotChatSession)
+        .where(RobotChatSession.robot_id == robot.id)
+        .order_by(RobotChatSession.updated_at.desc())
+    ).all()
+    return [_serialize_robot_chat_session(item) for item in sessions]
+
+
+@app.post("/api/robots/{public_id}/chat-sessions", response_model=RobotChatSessionOut)
+def create_robot_chat_session(
+    public_id: str,
+    body: RobotChatSessionCreateIn | None = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    chat_session = RobotChatSession(
+        robot_id=int(robot.id or 0),
+        title=(body.title.strip() if body and body.title and body.title.strip() else "Novo chat"),
+    )
+    session.add(chat_session)
+    session.commit()
+    session.refresh(chat_session)
+    return _serialize_robot_chat_session(chat_session)
+
+
+@app.delete("/api/robots/{public_id}/chat-sessions/{chat_session_id}")
+def delete_robot_chat_session(
+    public_id: str,
+    chat_session_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    chat_session = _get_robot_chat_session_or_404(session, robot, chat_session_id)
+    messages = session.exec(
+        select(ChatMessage).where(
+            ChatMessage.robot_id == robot.id,
+            ChatMessage.chat_session_id == chat_session.id,
+        )
+    ).all()
+    for message in messages:
+        session.delete(message)
+    session.delete(chat_session)
+    session.commit()
+    _ensure_default_robot_chat_session(session, robot)
+    return {"ok": True}
+
+
+@app.get("/api/robots/{public_id}/messages", response_model=list[ChatMessageOut])
+def list_messages(
+    public_id: str,
+    chat_session_id: int | None = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    robot = _get_robot_or_404(public_id, session, current_user)
+    active_chat = _get_robot_chat_session_or_404(session, robot, chat_session_id)
     msgs = session.exec(
         select(ChatMessage)
-        .where(ChatMessage.robot_id == robot.id)
+        .where(ChatMessage.robot_id == robot.id, ChatMessage.chat_session_id == active_chat.id)
         .order_by(ChatMessage.created_at.asc())
     ).all()
     return [
@@ -606,11 +728,24 @@ def list_authority_edits(public_id: str, session: Session = Depends(get_session)
 
 
 @app.delete("/api/robots/{public_id}/messages")
-def clear_messages(public_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def clear_messages(
+    public_id: str,
+    chat_session_id: int | None = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     robot = _get_robot_or_404(public_id, session, current_user)
-    msgs = session.exec(select(ChatMessage).where(ChatMessage.robot_id == robot.id)).all()
+    active_chat = _get_robot_chat_session_or_404(session, robot, chat_session_id)
+    msgs = session.exec(
+        select(ChatMessage).where(
+            ChatMessage.robot_id == robot.id,
+            ChatMessage.chat_session_id == active_chat.id,
+        )
+    ).all()
     for m in msgs:
         session.delete(m)
+    active_chat.updated_at = utcnow()
+    session.add(active_chat)
     session.commit()
     return {"ok": True}
 
@@ -642,11 +777,13 @@ def update_message(public_id: str, message_id: int, body: MessageUpdateIn, sessi
 async def chat_audio(
     public_id: str,
     response: Response,
+    chat_session_id: int | None = None,
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     robot = _get_robot_or_404(public_id, session, current_user)
+    active_chat = _get_robot_chat_session_or_404(session, robot, chat_session_id)
     ensure_credits(current_user, "robot_audio_message")
     audio_bytes = await file.read()
     try:
@@ -656,12 +793,12 @@ async def chat_audio(
 
     msgs = session.exec(
         select(ChatMessage)
-        .where(ChatMessage.robot_id == robot.id)
+        .where(ChatMessage.robot_id == robot.id, ChatMessage.chat_session_id == active_chat.id)
         .order_by(ChatMessage.created_at.asc())
     ).all()
     history = [{"role": m.role, "content": m.content} for m in msgs][-20:]
 
-    user_msg = ChatMessage(robot_id=robot.id, role="user", content=text)
+    user_msg = ChatMessage(robot_id=robot.id, chat_session_id=active_chat.id, role="user", content=text)
     session.add(user_msg)
     session.commit()
     session.refresh(user_msg)
@@ -671,7 +808,7 @@ async def chat_audio(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    assistant_msg = ChatMessage(robot_id=robot.id, role="assistant", content=answer)
+    assistant_msg = ChatMessage(robot_id=robot.id, chat_session_id=active_chat.id, role="assistant", content=answer)
     session.add(assistant_msg)
 
     estimated_audio_seconds = max(1.0, len(audio_bytes) / 16_000)
@@ -684,6 +821,10 @@ async def chat_audio(
     action = charge_credits(session, current_user, "robot_audio_message", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
+    active_chat.updated_at = utcnow()
+    if active_chat.title in ("Novo chat", "Chat antigo"):
+        active_chat.title = _chat_session_title_from_message(text)
+    session.add(active_chat)
     session.add(assistant_msg)
     session.commit()
     session.refresh(assistant_msg)
@@ -701,19 +842,21 @@ def chat(
     public_id: str,
     body: ChatIn,
     response: Response,
+    chat_session_id: int | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     robot = _get_robot_or_404(public_id, session, current_user)
+    active_chat = _get_robot_chat_session_or_404(session, robot, chat_session_id)
     ensure_credits(current_user, "robot_chat_message")
     msgs = session.exec(
         select(ChatMessage)
-        .where(ChatMessage.robot_id == robot.id)
+        .where(ChatMessage.robot_id == robot.id, ChatMessage.chat_session_id == active_chat.id)
         .order_by(ChatMessage.created_at.asc())
     ).all()
     history = [{"role": m.role, "content": m.content} for m in msgs][-20:]
 
-    user_msg = ChatMessage(robot_id=robot.id, role="user", content=body.message)
+    user_msg = ChatMessage(robot_id=robot.id, chat_session_id=active_chat.id, role="user", content=body.message)
     session.add(user_msg)
     session.commit()
     session.refresh(user_msg)
@@ -730,7 +873,7 @@ def chat(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    assistant_msg = ChatMessage(robot_id=robot.id, role="assistant", content=answer)
+    assistant_msg = ChatMessage(robot_id=robot.id, chat_session_id=active_chat.id, role="assistant", content=answer)
     session.add(assistant_msg)
 
     estimated_credits = estimate_action_credits(
@@ -742,6 +885,10 @@ def chat(
     action = charge_credits(session, current_user, "robot_chat_message", estimated_credits=estimated_credits)
     attach_credit_headers(response, current_user, charged_credits=action.credits, action_key=action.key)
 
+    active_chat.updated_at = utcnow()
+    if active_chat.title in ("Novo chat", "Chat antigo"):
+        active_chat.title = _chat_session_title_from_message(body.message)
+    session.add(active_chat)
     session.add(assistant_msg)
     session.commit()
     session.refresh(assistant_msg)
@@ -1043,14 +1190,25 @@ def _normalize_nucleus(nucleus: dict) -> dict:
     return out
 
 
+def _clean_authority_agent_output(text: str) -> str:
+    value = str(text or "")
+    value = re.sub(r"\*\*(.*?)\*\*", r"\1", value, flags=re.DOTALL)
+    value = re.sub(r"(?m)^\s*\*\s+", "- ", value)
+    value = re.sub(r"(^|[\s(])\*(?!\s)([^*\n]+?)\*(?=[\s).,!?:;]|$)", r"\1\2", value)
+    return value
+
+
 @app.get("/api/authority-agents/history", response_model=AuthorityAgentHistoryOut)
-def authority_agents_history(client_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    items = session.exec(
-        select(AuthorityAgentRun)
-        .where(AuthorityAgentRun.user_id == current_user.id)
-        .order_by(AuthorityAgentRun.created_at.desc())
-        .limit(50)
-    ).all()
+def authority_agents_history(
+    client_id: str,
+    agent_key: str | None = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    query = select(AuthorityAgentRun).where(AuthorityAgentRun.user_id == current_user.id)
+    if agent_key:
+        query = query.where(AuthorityAgentRun.agent_key == agent_key)
+    items = session.exec(query.order_by(AuthorityAgentRun.created_at.desc()).limit(50)).all()
 
     return {
         "items": [
@@ -1089,7 +1247,7 @@ def authority_agents_update_run(run_id: int, payload: dict, session: Session = D
         raise HTTPException(status_code=403, detail="Acesso negado para esta execução.")
 
     if "output_text" in payload:
-        run.output_text = payload["output_text"]
+        run.output_text = _clean_authority_agent_output(payload["output_text"])
         session.add(run)
         session.commit()
         session.refresh(run)
@@ -1114,7 +1272,7 @@ def authority_agents_run(
     nucleus = _inject_business_core_knowledge(payload.nucleus, session, current_user)
 
     try:
-        output = run_authority_agent(payload.agent_key, nucleus)
+        output = _clean_authority_agent_output(run_authority_agent(payload.agent_key, nucleus))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

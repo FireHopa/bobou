@@ -78,6 +78,13 @@ def _ensure_sqlite_columns() -> None:
     )
 
     _ensure_sqlite_table_columns(
+        "chat_message",
+        {
+            "chat_session_id": "INTEGER",
+        },
+    )
+
+    _ensure_sqlite_table_columns(
         "bobar_column",
         {
             "board_id": "INTEGER",

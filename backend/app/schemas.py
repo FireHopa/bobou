@@ -99,6 +99,15 @@ class ChatMessageOut(BaseModel):
     content: str
     created_at: str
 
+class RobotChatSessionOut(BaseModel):
+    id: int
+    title: str
+    created_at: str
+    updated_at: str
+
+class RobotChatSessionCreateIn(BaseModel):
+    title: Optional[str] = None
+
 class MessageUpdateIn(BaseModel):
     content: str = Field(min_length=1)
 
