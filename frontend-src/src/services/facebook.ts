@@ -13,10 +13,15 @@ export type FacebookPage = {
   picture_url?: string | null;
 };
 
+export type FacebookPublishType = "feed" | "video" | "story";
+
 export type FacebookPublishPayload = {
   message: string;
+  publish_type?: FacebookPublishType;
   link?: string;
   image_url?: string;
+  video_url?: string;
+  title?: string;
   carousel_images?: string[];
   published?: boolean;
   scheduled_publish_time?: number;
@@ -40,6 +45,7 @@ export const facebookService = {
       "pages_show_list",
       "pages_read_engagement",
       "pages_manage_posts",
+      "publish_video",
     ].join(",");
 
     const authUrl = `https://www.facebook.com/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;

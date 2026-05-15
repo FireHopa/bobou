@@ -4,9 +4,14 @@ import { http } from "./http";
 const DEFAULT_REDIRECT_URI =
   import.meta.env.VITE_INSTAGRAM_META_REDIRECT_URI?.trim() || buildAppUrl("/auth/facebook/callback");
 
+export type InstagramPublishType = "feed" | "reels" | "story";
+
 export type InstagramPublishPayload = {
   caption: string;
+  publish_type?: InstagramPublishType;
   image_url?: string;
+  video_url?: string;
+  cover_url?: string;
   carousel_images?: string[];
   collaborators?: string[];
   location_id?: string;

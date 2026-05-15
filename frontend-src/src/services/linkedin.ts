@@ -12,6 +12,8 @@ export type LinkedInPublishPayload = {
   mode: LinkedInPublishMode;
   text: string;
   article?: LinkedInArticlePayload;
+  image_urls?: string[];
+  alt_text?: string;
 };
 
 export type LinkedInPublishResponse = {
@@ -25,6 +27,10 @@ let lastPublishSignature = "";
 let lastPublishAt = 0;
 
 function normalizePublishPayload(payload: LinkedInPublishPayload) {
+  const imageUrls = Array.isArray(payload.image_urls)
+    ? payload.image_urls.map((url) => String(url || "").trim()).filter(Boolean).slice(0, 10)
+    : [];
+
   return {
     mode: payload.mode,
     text: payload.text.trim(),
@@ -36,6 +42,8 @@ function normalizePublishPayload(payload: LinkedInPublishPayload) {
             description: payload.article.description?.trim() || "",
           }
         : undefined,
+    image_urls: payload.mode === "feed" && imageUrls.length ? imageUrls : undefined,
+    alt_text: payload.alt_text?.trim() || undefined,
   };
 }
 

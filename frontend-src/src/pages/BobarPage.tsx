@@ -5878,6 +5878,427 @@ export default function BobarPage() {
   const selectedTemplate = CARD_TEMPLATES.find((template) => template.key === templateKey) || null;
   const ActiveImportIcon = activeImportAgent?.Icon || AUTHORITY_AGENTS[0]?.Icon;
 
+  const collaborationSection = board && hasWorkspaceContext ? (
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Card variant="glass" className="rounded-[2.1rem] border-cyan-400/10 bg-[#040914] shadow-[0_22px_64px_rgba(1,6,20,0.38)]">
+            <CardHeader>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                Compartilhamento do quadro
+              </div>
+              <CardTitle className="text-3xl font-black text-white">Acesso e membros</CardTitle>
+              <CardDescription className="text-white/55">
+                Compartilhe por link com quem já tem conta e acompanhe quem pode acessar esse quadro.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    {collaboration?.can_manage_access ? "Você gerencia esse acesso" : "Quadro compartilhado"}
+                  </div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-white/55">
+                    <Users className="h-3.5 w-3.5" />
+                    {collaboration?.members.length || 0} pessoas
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                        {formatBoardRoleLabel(collaboration?.current_user_role)}
+                      </Badge>
+                      <Badge
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]",
+                          canEditBoard
+                            ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-100"
+                            : "border-amber-400/25 bg-amber-400/10 text-amber-100",
+                        )}
+                      >
+                        {canEditBoard ? "Pode editar" : "Somente visualização"}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 text-sm text-white/70">
+                      {collaboration?.can_manage_access
+                        ? "Você é o dono deste quadro e pode gerar, copiar e revogar quantos links quiser."
+                        : canEditBoard
+                          ? "Você pode editar o quadro, mas somente o dono gerencia os links de acesso."
+                          : "Você recebeu acesso apenas para visualizar o quadro. Não é possível alterar cards, colunas, etiquetas ou chat."}
+                    </div>
+                  </div>
+
+                  {collaboration?.can_manage_access ? (
+                    <>
+                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] p-4 sm:p-5">
+                        <div className="mb-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                            Gerar link de compartilhamento
+                          </div>
+                          <div className="mt-1 text-sm text-white/55">
+                            Defina o papel e, se quiser, limite a quantidade de usos antes de criar o link.
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="min-w-0">
+                            <SelectField
+                              label="Nível de acesso"
+                              value={shareAccessRole}
+                              options={[
+                                {
+                                  value: "editor",
+                                  label: "Editor",
+                                  description: "Pode editar quadro, anexos e chat",
+                                },
+                                {
+                                  value: "viewer",
+                                  label: "Visualizador",
+                                  description: "Pode apenas visualizar o quadro",
+                                },
+                              ]}
+                              onChange={(value) => setShareAccessRole(value as BobarShareRole)}
+                              disabled={shareBusy || busy}
+                            />
+                          </div>
+
+                          <div className="min-w-0 space-y-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                              Quantidade de usos
+                            </div>
+                            <Input
+                              value={shareMaxUsesDraft}
+                              onChange={(event) => setShareMaxUsesDraft(event.target.value.replace(/[^0-9]/g, ""))}
+                              inputMode="numeric"
+                              placeholder="Vazio = ilimitado"
+                              className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
+                              disabled={shareBusy || busy}
+                            />
+                            <div className="text-xs leading-5 text-white/45">
+                              Defina quantas vezes o link pode ser usado. Deixe vazio para ilimitado.
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex justify-end">
+                          <Button
+                            className="h-12 w-full rounded-2xl px-5 sm:w-auto"
+                            onClick={() => void handleCreateShareLink()}
+                            disabled={shareBusy || busy}
+                          >
+                            {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                            Gerar novo link
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {visibleInvites.length ? (
+                          visibleInvites.map((invite) => {
+                            const shareUrl = `${window.location.origin}/bobar?share=${invite.token}`;
+
+                            return (
+                              <div
+                                key={invite.id}
+                                className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                                      {formatBoardRoleLabel(invite.role)}
+                                    </Badge>
+                                    <Badge className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+                                      Ativo
+                                    </Badge>
+                                  </div>
+
+                                  <div className="text-right text-xs text-white/45">
+                                    <div>Criado em {formatDate(invite.created_at)}</div>
+                                    <div className="mt-1">{formatInviteUsage(invite)}</div>
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 rounded-[1.2rem] border border-white/10 bg-[#07101f] p-3">
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
+                                    Link
+                                  </div>
+                                  <div className="custom-scrollbar scrollbar-gutter-stable mt-2 max-h-24 overflow-y-auto break-all pr-1 text-sm leading-6 text-white/78">
+                                    {shareUrl}
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                                  <Button
+                                    className="h-10 min-w-[122px] rounded-2xl px-4"
+                                    variant="outline"
+                                    onClick={() => void handleCopyShareLink(invite.token)}
+                                    disabled={shareBusy}
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                    Copiar
+                                  </Button>
+                                  <Button
+                                    className="h-10 min-w-[122px] rounded-2xl px-4 text-red-200 hover:text-red-100"
+                                    variant="outline"
+                                    onClick={() => void handleRevokeShareLink(invite.id)}
+                                    disabled={shareBusy}
+                                  >
+                                    <Unlink className="h-4 w-4" />
+                                    Revogar
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <EmptyState
+                            title="Nenhum link ativo"
+                            description="Crie um novo link para compartilhar este quadro com editor ou visualizador."
+                          />
+                        )}
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {(collaboration?.members || []).length ? (
+                  collaboration?.members.map((member) => {
+                    const displayName =
+                      member.full_name?.trim() || member.email.split("@")[0] || "Usuário";
+                    const isCurrentUser = currentUser?.email === member.email;
+
+                    return (
+                      <div
+                        key={member.user_id}
+                        className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="truncate text-sm font-semibold text-white">{displayName}</div>
+                              <Badge
+                                className={cn(
+                                  "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]",
+                                  member.is_owner
+                                    ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-100"
+                                    : "border-white/10 bg-white/[0.06] text-white/70",
+                                )}
+                              >
+                                {member.is_owner ? "Dono" : formatBoardRoleLabel(member.role)}
+                              </Badge>
+                              {isCurrentUser ? (
+                                <Badge className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                                  Você
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <div className="mt-1 truncate text-xs text-white/45">{member.email}</div>
+                            <div className="mt-2 text-xs text-white/40">
+                              Entrou em {formatDate(member.joined_at)}
+                            </div>
+                          </div>
+
+                          {collaboration?.can_manage_access && !member.is_owner ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              className="h-9 w-9 rounded-2xl"
+                              onClick={() => void handleRemoveMember(member.user_id, displayName)}
+                              disabled={shareBusy}
+                              aria-label={`Remover acesso de ${displayName}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <EmptyState
+                    title="Sem membros ainda"
+                    description="Quando alguém confirmar o link, o acesso aparece aqui."
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card variant="glass" className="rounded-[2.1rem] border-cyan-400/10 bg-[#040914] shadow-[0_22px_64px_rgba(1,6,20,0.38)]">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                    Colaboração em tempo real
+                  </div>
+                  <CardTitle className="text-3xl font-black text-white">Chat e atividade</CardTitle>
+                  <CardDescription className="text-white/55">
+                    Mensagens entre quem está no quadro e histórico do que foi feito. Atualização automática a cada 3 segundos.
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 rounded-2xl px-4"
+                  onClick={() => {
+                    void loadCollaboration(board.id);
+                    if (!hasPendingChanges) {
+                      void refreshBoardSilently(board.id, selectedCardId);
+                    }
+                  }}
+                  disabled={collaborationLoading || shareBusy}
+                >
+                  {collaborationLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="h-4 w-4" />
+                  )}
+                  Atualizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-4">
+                <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <MessageSquare className="h-4 w-4 text-cyan-200" />
+                      Chat do projeto
+                    </div>
+                    {!canEditBoard ? (
+                      <Badge className="rounded-full border border-amber-400/25 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                        Visualização
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  <div
+                    ref={chatMessagesRef}
+                    className="custom-scrollbar scrollbar-gutter-stable h-[520px] space-y-3 overflow-y-auto pr-1"
+                  >
+                    {(collaboration?.chat_messages || []).length ? (
+                      collaboration?.chat_messages.map((message) => {
+                        const mine = currentUser?.email === message.user_email;
+                        return (
+                          <div
+                            key={message.id}
+                            className={cn(
+                              "max-w-[92%] rounded-[1.3rem] border px-4 py-3",
+                              mine
+                                ? "ml-auto border-cyan-400/20 bg-cyan-400/10"
+                                : "border-white/10 bg-[#07101f]",
+                            )}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">
+                                {message.user_name || message.user_email}
+                              </div>
+                              <div className="text-[11px] text-white/35">{formatDate(message.created_at)}</div>
+                            </div>
+                            <div className="mt-2 whitespace-pre-wrap break-words text-sm text-white/82">
+                              {message.message}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-8 text-center text-sm text-white/50">
+                        {canEditBoard
+                          ? "Nenhuma mensagem ainda. Use o campo abaixo para começar o chat do projeto."
+                          : "Nenhuma mensagem ainda. Visualizadores acompanham a conversa, mas não podem enviar mensagens."}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex gap-3">
+                    <Textarea
+                      value={chatMessageDraft}
+                      onChange={(event) => setChatMessageDraft(event.target.value)}
+                      placeholder={
+                        canEditBoard
+                          ? "Escreva uma mensagem para quem está colaborando nesse quadro..."
+                          : "Somente editores podem enviar mensagens no chat."
+                      }
+                      readOnly={!canEditBoard}
+                      className="bobar-project-chat-input custom-scrollbar min-h-[110px] rounded-[1.6rem] border-cyan-400/20 bg-[#0a1225]"
+                      onKeyDown={(event) => {
+                        if (!canEditBoard) return;
+                        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                          event.preventDefault();
+                          void handleSendProjectMessage();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      className="bobar-project-chat-send h-auto min-h-[110px] rounded-[1.6rem] px-5"
+                      onClick={() => void handleSendProjectMessage()}
+                      disabled={shareBusy || !chatMessageDraft.trim() || !canEditBoard}
+                    >
+                      {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      Enviar
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <Clock3 className="h-4 w-4 text-cyan-200" />
+                      Log do projeto
+                    </div>
+                    <div className="w-full max-w-[320px]">
+                      <SelectField
+                        label="Filtrar ação"
+                        value={activityFilter}
+                        options={activityFilterOptions}
+                        onChange={setActivityFilter}
+                        disabled={collaborationLoading}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="custom-scrollbar scrollbar-gutter-stable max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                    {filteredActivities.length ? (
+                      filteredActivities.map((activity) => (
+                        <div
+                          key={activity.id}
+                          className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">
+                                {activity.actor_name || activity.actor_email || "Sistema"}
+                              </div>
+                              <Badge className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
+                                {formatActivityLabel(activity.event_type)}
+                              </Badge>
+                            </div>
+                            <div className="text-[11px] text-white/35">{formatDate(activity.created_at)}</div>
+                          </div>
+                          <div className="mt-2 break-words text-sm text-white/80">{activity.message}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-8 text-center text-sm text-white/50">
+                        {(collaboration?.activities || []).length
+                          ? "Nenhum registro para o filtro selecionado."
+                          : "O histórico de ações aparece aqui conforme alguém mexe no quadro."}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null;
+
   return (
     <div className="theme-page-bobar relative min-h-dvh overflow-x-hidden bg-[#020611] px-3 pb-8 pt-4 text-white sm:px-4 lg:px-5 xl:px-6">
       <Button
@@ -6524,6 +6945,7 @@ export default function BobarPage() {
 
         {hasWorkspaceContext ? (
         <div className="grid gap-5 2xl:items-start 2xl:grid-cols-[minmax(0,1.3fr)_390px]">
+          <div className="min-w-0 space-y-5">
           <Card
             id="bobar-editor"
             variant="glass"
@@ -6960,7 +7382,10 @@ export default function BobarPage() {
             </CardContent>
           </Card>
 
-          <div className="space-y-6">
+            {collaborationSection}
+          </div>
+
+          <div className="space-y-6 2xl:sticky 2xl:top-5">
             <Card variant="glass" className="rounded-[2.1rem] border-cyan-400/10 bg-[#040914] shadow-[0_22px_64px_rgba(1,6,20,0.38)]">
               <CardHeader>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
@@ -7484,426 +7909,7 @@ export default function BobarPage() {
         ) : null}
       </div>
 
-      {board && hasWorkspaceContext ? (
-        <div className="mt-6 grid gap-5 2xl:grid-cols-[minmax(0,620px)_minmax(0,1fr)]">
-          <Card variant="glass" className="rounded-[2.1rem] border-cyan-400/10 bg-[#040914] shadow-[0_22px_64px_rgba(1,6,20,0.38)]">
-            <CardHeader>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-                Compartilhamento do quadro
-              </div>
-              <CardTitle className="text-3xl font-black text-white">Acesso e membros</CardTitle>
-              <CardDescription className="text-white/55">
-                Compartilhe por link com quem já tem conta e acompanhe quem pode acessar esse quadro.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    {collaboration?.can_manage_access ? "Você gerencia esse acesso" : "Quadro compartilhado"}
-                  </div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-white/55">
-                    <Users className="h-3.5 w-3.5" />
-                    {collaboration?.members.length || 0} pessoas
-                  </div>
-                </div>
 
-                <div className="mt-4 space-y-4">
-                  <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
-                        {formatBoardRoleLabel(collaboration?.current_user_role)}
-                      </Badge>
-                      <Badge
-                        className={cn(
-                          "rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]",
-                          canEditBoard
-                            ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-100"
-                            : "border-amber-400/25 bg-amber-400/10 text-amber-100",
-                        )}
-                      >
-                        {canEditBoard ? "Pode editar" : "Somente visualização"}
-                      </Badge>
-                    </div>
-
-                    <div className="mt-3 text-sm text-white/70">
-                      {collaboration?.can_manage_access
-                        ? "Você é o dono deste quadro e pode gerar, copiar e revogar quantos links quiser."
-                        : canEditBoard
-                          ? "Você pode editar o quadro, mas somente o dono gerencia os links de acesso."
-                          : "Você recebeu acesso apenas para visualizar o quadro. Não é possível alterar cards, colunas, etiquetas ou chat."}
-                    </div>
-                  </div>
-
-                  {collaboration?.can_manage_access ? (
-                    <>
-                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] p-4 sm:p-5">
-                        <div className="mb-4">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
-                            Gerar link de compartilhamento
-                          </div>
-                          <div className="mt-1 text-sm text-white/55">
-                            Defina o papel e, se quiser, limite a quantidade de usos antes de criar o link.
-                          </div>
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="min-w-0">
-                            <SelectField
-                              label="Nível de acesso"
-                              value={shareAccessRole}
-                              options={[
-                                {
-                                  value: "editor",
-                                  label: "Editor",
-                                  description: "Pode editar quadro, anexos e chat",
-                                },
-                                {
-                                  value: "viewer",
-                                  label: "Visualizador",
-                                  description: "Pode apenas visualizar o quadro",
-                                },
-                              ]}
-                              onChange={(value) => setShareAccessRole(value as BobarShareRole)}
-                              disabled={shareBusy || busy}
-                            />
-                          </div>
-
-                          <div className="min-w-0 space-y-2">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
-                              Quantidade de usos
-                            </div>
-                            <Input
-                              value={shareMaxUsesDraft}
-                              onChange={(event) => setShareMaxUsesDraft(event.target.value.replace(/[^0-9]/g, ""))}
-                              inputMode="numeric"
-                              placeholder="Vazio = ilimitado"
-                              className="h-12 rounded-2xl border-cyan-400/20 bg-[#0a1225]"
-                              disabled={shareBusy || busy}
-                            />
-                            <div className="text-xs leading-5 text-white/45">
-                              Defina quantas vezes o link pode ser usado. Deixe vazio para ilimitado.
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex justify-end">
-                          <Button
-                            className="h-12 w-full rounded-2xl px-5 sm:w-auto"
-                            onClick={() => void handleCreateShareLink()}
-                            disabled={shareBusy || busy}
-                          >
-                            {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-                            Gerar novo link
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {visibleInvites.length ? (
-                          visibleInvites.map((invite) => {
-                            const shareUrl = `${window.location.origin}/bobar?share=${invite.token}`;
-
-                            return (
-                              <div
-                                key={invite.id}
-                                className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
-                              >
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <Badge className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
-                                      {formatBoardRoleLabel(invite.role)}
-                                    </Badge>
-                                    <Badge className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
-                                      Ativo
-                                    </Badge>
-                                  </div>
-
-                                  <div className="text-right text-xs text-white/45">
-                                    <div>Criado em {formatDate(invite.created_at)}</div>
-                                    <div className="mt-1">{formatInviteUsage(invite)}</div>
-                                  </div>
-                                </div>
-
-                                <div className="mt-3 rounded-[1.2rem] border border-white/10 bg-[#07101f] p-3">
-                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
-                                    Link
-                                  </div>
-                                  <div className="custom-scrollbar scrollbar-gutter-stable mt-2 max-h-24 overflow-y-auto break-all pr-1 text-sm leading-6 text-white/78">
-                                    {shareUrl}
-                                  </div>
-                                </div>
-
-                                <div className="mt-3 flex flex-wrap justify-end gap-2">
-                                  <Button
-                                    className="h-10 min-w-[122px] rounded-2xl px-4"
-                                    variant="outline"
-                                    onClick={() => void handleCopyShareLink(invite.token)}
-                                    disabled={shareBusy}
-                                  >
-                                    <Copy className="h-4 w-4" />
-                                    Copiar
-                                  </Button>
-                                  <Button
-                                    className="h-10 min-w-[122px] rounded-2xl px-4 text-red-200 hover:text-red-100"
-                                    variant="outline"
-                                    onClick={() => void handleRevokeShareLink(invite.id)}
-                                    disabled={shareBusy}
-                                  >
-                                    <Unlink className="h-4 w-4" />
-                                    Revogar
-                                  </Button>
-                                </div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <EmptyState
-                            title="Nenhum link ativo"
-                            description="Crie um novo link para compartilhar este quadro com editor ou visualizador."
-                          />
-                        )}
-                      </div>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {(collaboration?.members || []).length ? (
-                  collaboration?.members.map((member) => {
-                    const displayName =
-                      member.full_name?.trim() || member.email.split("@")[0] || "Usuário";
-                    const isCurrentUser = currentUser?.email === member.email;
-
-                    return (
-                      <div
-                        key={member.user_id}
-                        className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="truncate text-sm font-semibold text-white">{displayName}</div>
-                              <Badge
-                                className={cn(
-                                  "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]",
-                                  member.is_owner
-                                    ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-100"
-                                    : "border-white/10 bg-white/[0.06] text-white/70",
-                                )}
-                              >
-                                {member.is_owner ? "Dono" : formatBoardRoleLabel(member.role)}
-                              </Badge>
-                              {isCurrentUser ? (
-                                <Badge className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
-                                  Você
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <div className="mt-1 truncate text-xs text-white/45">{member.email}</div>
-                            <div className="mt-2 text-xs text-white/40">
-                              Entrou em {formatDate(member.joined_at)}
-                            </div>
-                          </div>
-
-                          {collaboration?.can_manage_access && !member.is_owner ? (
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              className="h-9 w-9 rounded-2xl"
-                              onClick={() => void handleRemoveMember(member.user_id, displayName)}
-                              disabled={shareBusy}
-                              aria-label={`Remover acesso de ${displayName}`}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <EmptyState
-                    title="Sem membros ainda"
-                    description="Quando alguém confirmar o link, o acesso aparece aqui."
-                  />
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card variant="glass" className="rounded-[2.1rem] border-cyan-400/10 bg-[#040914] shadow-[0_22px_64px_rgba(1,6,20,0.38)]">
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-                    Colaboração em tempo real
-                  </div>
-                  <CardTitle className="text-3xl font-black text-white">Chat e atividade</CardTitle>
-                  <CardDescription className="text-white/55">
-                    Mensagens entre quem está no quadro e histórico do que foi feito. Atualização automática a cada 3 segundos.
-                  </CardDescription>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 rounded-2xl px-4"
-                  onClick={() => {
-                    void loadCollaboration(board.id);
-                    if (!hasPendingChanges) {
-                      void refreshBoardSilently(board.id, selectedCardId);
-                    }
-                  }}
-                  disabled={collaborationLoading || shareBusy}
-                >
-                  {collaborationLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCcw className="h-4 w-4" />
-                  )}
-                  Atualizar agora
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-4">
-                <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                      <MessageSquare className="h-4 w-4 text-cyan-200" />
-                      Chat do projeto
-                    </div>
-                    {!canEditBoard ? (
-                      <Badge className="rounded-full border border-amber-400/25 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
-                        Visualização
-                      </Badge>
-                    ) : null}
-                  </div>
-
-                  <div
-                    ref={chatMessagesRef}
-                    className="custom-scrollbar scrollbar-gutter-stable h-[520px] space-y-3 overflow-y-auto pr-1"
-                  >
-                    {(collaboration?.chat_messages || []).length ? (
-                      collaboration?.chat_messages.map((message) => {
-                        const mine = currentUser?.email === message.user_email;
-                        return (
-                          <div
-                            key={message.id}
-                            className={cn(
-                              "max-w-[92%] rounded-[1.3rem] border px-4 py-3",
-                              mine
-                                ? "ml-auto border-cyan-400/20 bg-cyan-400/10"
-                                : "border-white/10 bg-[#07101f]",
-                            )}
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">
-                                {message.user_name || message.user_email}
-                              </div>
-                              <div className="text-[11px] text-white/35">{formatDate(message.created_at)}</div>
-                            </div>
-                            <div className="mt-2 whitespace-pre-wrap break-words text-sm text-white/82">
-                              {message.message}
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-8 text-center text-sm text-white/50">
-                        {canEditBoard
-                          ? "Nenhuma mensagem ainda. Use o campo abaixo para começar o chat do projeto."
-                          : "Nenhuma mensagem ainda. Visualizadores acompanham a conversa, mas não podem enviar mensagens."}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-4 flex gap-3">
-                    <Textarea
-                      value={chatMessageDraft}
-                      onChange={(event) => setChatMessageDraft(event.target.value)}
-                      placeholder={
-                        canEditBoard
-                          ? "Escreva uma mensagem para quem está colaborando nesse quadro..."
-                          : "Somente editores podem enviar mensagens no chat."
-                      }
-                      readOnly={!canEditBoard}
-                      className="bobar-project-chat-input custom-scrollbar min-h-[110px] rounded-[1.6rem] border-cyan-400/20 bg-[#0a1225]"
-                      onKeyDown={(event) => {
-                        if (!canEditBoard) return;
-                        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                          event.preventDefault();
-                          void handleSendProjectMessage();
-                        }
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      className="bobar-project-chat-send h-auto min-h-[110px] rounded-[1.6rem] px-5"
-                      onClick={() => void handleSendProjectMessage()}
-                      disabled={shareBusy || !chatMessageDraft.trim() || !canEditBoard}
-                    >
-                      {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                      Enviar
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                      <Clock3 className="h-4 w-4 text-cyan-200" />
-                      Log do projeto
-                    </div>
-                    <div className="w-full max-w-[320px]">
-                      <SelectField
-                        label="Filtrar ação"
-                        value={activityFilter}
-                        options={activityFilterOptions}
-                        onChange={setActivityFilter}
-                        disabled={collaborationLoading}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="custom-scrollbar scrollbar-gutter-stable max-h-[420px] space-y-3 overflow-y-auto pr-1">
-                    {filteredActivities.length ? (
-                      filteredActivities.map((activity) => (
-                        <div
-                          key={activity.id}
-                          className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-3"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">
-                                {activity.actor_name || activity.actor_email || "Sistema"}
-                              </div>
-                              <Badge className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
-                                {formatActivityLabel(activity.event_type)}
-                              </Badge>
-                            </div>
-                            <div className="text-[11px] text-white/35">{formatDate(activity.created_at)}</div>
-                          </div>
-                          <div className="mt-2 break-words text-sm text-white/80">{activity.message}</div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-[1.3rem] border border-white/10 bg-[#07101f] px-4 py-8 text-center text-sm text-white/50">
-                        {(collaboration?.activities || []).length
-                          ? "Nenhum registro para o filtro selecionado."
-                          : "O histórico de ações aparece aqui conforme alguém mexe no quadro."}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      ) : null}
 
       {sharePreview ? (
         <Dialog

@@ -1151,6 +1151,9 @@ const dirtyProjectIdsRef = useRef<Set<string>>(new Set());
 const [projectsReady, setProjectsReady] = useState(false);
 const [projectsLoading, setProjectsLoading] = useState(true);
 const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+const [bulkProjectSelectionMode, setBulkProjectSelectionMode] = useState(false);
+const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+const [bulkDeletingProjects, setBulkDeletingProjects] = useState(false);
 const [logsOpen, setLogsOpen] = useState(false);
   const [debugLogs, setDebugLogs] = useState<ImageDebugLog[]>([]);
 
@@ -1229,6 +1232,10 @@ const currentProject = useMemo(
   [currentProjectId, projectSeed, projects]
 );
 
+const selectedProjectIdSet = useMemo(() => new Set(selectedProjectIds), [selectedProjectIds]);
+const selectedProjectCount = selectedProjectIds.length;
+const allProjectsSelected = projects.length > 0 && selectedProjectCount === projects.length;
+
 const getPersistableBaseDataUrl = useCallback(async (reference: ReferenceAttachment) => {
   const cached = baseDataUrlCacheRef.current[reference.id];
   if (cached) return cached;
@@ -1300,6 +1307,24 @@ const deleteProjectOnServer = useCallback(
     });
   },
   [fetchProjectsJson]
+);
+
+const deleteProjectsOnServer = useCallback(
+  async (projectIds: string[]) => {
+    const uniqueIds = Array.from(new Set(projectIds)).filter(Boolean);
+    if (uniqueIds.length === 0) return;
+
+    if (uniqueIds.length === 1) {
+      await deleteProjectOnServer(uniqueIds[0]);
+      return;
+    }
+
+    await fetchProjectsJson("/api/image-engine/projects/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids: uniqueIds }),
+    });
+  },
+  [deleteProjectOnServer, fetchProjectsJson]
 );
 
 const persistProjectToServer = useCallback(
@@ -1534,6 +1559,14 @@ useEffect(() => {
 }, [commitCurrentProjectSnapshot, projectsReady]);
 
 useEffect(() => {
+  const availableProjectIds = new Set(projects.map((project) => project.id));
+  setSelectedProjectIds((current) => {
+    const next = current.filter((projectId) => availableProjectIds.has(projectId));
+    return next.length === current.length ? current : next;
+  });
+}, [projects]);
+
+useEffect(() => {
   if (!projectsReady || projectHydratingRef.current) return;
   if (persistProjectsTimeoutRef.current) {
     window.clearTimeout(persistProjectsTimeoutRef.current);
@@ -1635,10 +1668,128 @@ const handleSelectProject = useCallback(
   [abortActiveJobsForProjectSwitch, applyProjectSnapshot, commitCurrentProjectSnapshot, currentProjectId, persistProjectOrderToServer]
 );
 
+const handleToggleBulkProjectSelectionMode = useCallback(() => {
+  setBulkProjectSelectionMode((current) => {
+    if (current) {
+      setSelectedProjectIds([]);
+    }
+    return !current;
+  });
+}, []);
+
+const handleToggleProjectSelection = useCallback((projectId: string) => {
+  setSelectedProjectIds((current) =>
+    current.includes(projectId)
+      ? current.filter((item) => item !== projectId)
+      : [...current, projectId]
+  );
+}, []);
+
+const handleSelectAllProjects = useCallback(() => {
+  setSelectedProjectIds(projectsRef.current.map((project) => project.id));
+}, []);
+
+const handleClearProjectSelection = useCallback(() => {
+  setSelectedProjectIds([]);
+}, []);
+
+const handleDeleteSelectedProjects = useCallback(async () => {
+  if (bulkDeletingProjects || deletingProjectId) return;
+
+  const idsToDelete = Array.from(new Set(selectedProjectIds)).filter((projectId) =>
+    projectsRef.current.some((project) => project.id === projectId)
+  );
+
+  if (idsToDelete.length === 0) return;
+
+  const selectedProjects = projectsRef.current.filter((project) => idsToDelete.includes(project.id));
+  const sampleNames = selectedProjects.slice(0, 4).map((project) => `• ${project.name}`).join("\n");
+  const extraCount = selectedProjects.length > 4 ? `\n• +${selectedProjects.length - 4} projeto(s)` : "";
+  const confirmed = window.confirm(
+    `Excluir ${selectedProjects.length} projeto(s) selecionado(s)?\n\n${sampleNames}${extraCount}\n\nEssa ação remove os canvases salvos desses projetos.`
+  );
+  if (!confirmed) return;
+
+  setBulkDeletingProjects(true);
+
+  try {
+    let syncedProjects = commitCurrentProjectSnapshot();
+    const deleteIdSet = new Set(idsToDelete);
+
+    if (deleteIdSet.has(currentProjectId)) {
+      abortActiveJobsForProjectSwitch();
+      syncedProjects = commitCurrentProjectSnapshot();
+    }
+
+    await deleteProjectsOnServer(idsToDelete);
+
+    for (const projectId of idsToDelete) {
+      dirtyProjectIdsRef.current.delete(projectId);
+    }
+
+    const remainingProjects = syncedProjects.filter((project) => !deleteIdSet.has(project.id));
+
+    if (remainingProjects.length === 0) {
+      const fallbackProjectTemplate = createProjectItem(1);
+      const fallbackProject = await createProjectOnServer(
+        fallbackProjectTemplate.name,
+        fallbackProjectTemplate.snapshot,
+        0,
+        true
+      );
+
+      projectsRef.current = [fallbackProject];
+      setProjects([fallbackProject]);
+      setCurrentProjectId(fallbackProject.id);
+      applyProjectSnapshot(fallbackProject.snapshot);
+      setSelectedProjectIds([]);
+      setBulkProjectSelectionMode(false);
+      setStatusText(`${selectedProjects.length} projeto(s) excluído(s). Um novo projeto vazio foi criado.`);
+      setIsProjectsOpen(false);
+      return;
+    }
+
+    const nextCurrentProjectId = deleteIdSet.has(currentProjectId) ? remainingProjects[0].id : currentProjectId;
+    const nextCurrentProject =
+      remainingProjects.find((project) => project.id === nextCurrentProjectId) ?? remainingProjects[0];
+
+    await persistProjectOrderToServer(remainingProjects, nextCurrentProject.id);
+
+    projectsRef.current = remainingProjects;
+    setProjects(remainingProjects);
+    setCurrentProjectId(nextCurrentProject.id);
+
+    if (deleteIdSet.has(currentProjectId)) {
+      applyProjectSnapshot(nextCurrentProject.snapshot);
+    }
+
+    setSelectedProjectIds([]);
+    setBulkProjectSelectionMode(false);
+    setStatusText(`${selectedProjects.length} projeto(s) excluído(s).`);
+    setIsProjectsOpen(false);
+  } catch (error) {
+    console.error("Falha ao excluir projetos no servidor:", error);
+    setStatusText("Não foi possível excluir os projetos selecionados.");
+  } finally {
+    setBulkDeletingProjects(false);
+  }
+}, [
+  abortActiveJobsForProjectSwitch,
+  applyProjectSnapshot,
+  bulkDeletingProjects,
+  commitCurrentProjectSnapshot,
+  createProjectOnServer,
+  currentProjectId,
+  deleteProjectsOnServer,
+  deletingProjectId,
+  persistProjectOrderToServer,
+  selectedProjectIds,
+]);
+
 const handleDeleteProject = useCallback(
   async (projectId: string) => {
     const targetProject = projectsRef.current.find((project) => project.id === projectId);
-    if (!targetProject || deletingProjectId) return;
+    if (!targetProject || deletingProjectId || bulkDeletingProjects) return;
 
     const confirmed = window.confirm(`Excluir o projeto "${targetProject.name}"? Essa ação remove o canvas salvo desse projeto.`);
     if (!confirmed) return;
@@ -1654,6 +1805,8 @@ const handleDeleteProject = useCallback(
       }
 
       await deleteProjectOnServer(projectId);
+      dirtyProjectIdsRef.current.delete(projectId);
+      setSelectedProjectIds((current) => current.filter((item) => item !== projectId));
 
       const remainingProjects = syncedProjects.filter((project) => project.id !== projectId);
 
@@ -1707,6 +1860,7 @@ const handleDeleteProject = useCallback(
     currentProjectId,
     deleteProjectOnServer,
     deletingProjectId,
+    bulkDeletingProjects,
     persistProjectOrderToServer,
   ]
 );
@@ -2916,10 +3070,58 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                 <Button
                   type="button"
                   onClick={() => void handleCreateProject()}
-                  className="h-9 rounded-xl bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-500"
+                  disabled={bulkDeletingProjects || Boolean(deletingProjectId)}
+                  className="h-9 rounded-xl bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Novo projeto
                 </Button>
+              </div>
+
+              <div className="mb-3 flex flex-wrap items-center gap-2 px-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleToggleBulkProjectSelectionMode}
+                  disabled={bulkDeletingProjects || Boolean(deletingProjectId)}
+                  className={cn(
+                    "h-9 rounded-xl border px-3 text-xs font-semibold transition",
+                    bulkProjectSelectionMode
+                      ? "border-blue-400/30 bg-blue-500/12 text-blue-100 hover:bg-blue-500/18"
+                      : "border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/[0.08]"
+                  )}
+                >
+                  {bulkProjectSelectionMode ? "Cancelar seleção" : "Selecionar vários"}
+                </Button>
+
+                {bulkProjectSelectionMode ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={allProjectsSelected ? handleClearProjectSelection : handleSelectAllProjects}
+                      disabled={bulkDeletingProjects || Boolean(deletingProjectId) || projects.length === 0}
+                      className="h-9 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {allProjectsSelected ? "Limpar" : "Selecionar todos"}
+                    </Button>
+
+                    <Button
+                      type="button"
+                      onClick={() => void handleDeleteSelectedProjects()}
+                      disabled={selectedProjectCount === 0 || bulkDeletingProjects || Boolean(deletingProjectId)}
+                      className="h-9 rounded-xl bg-red-600 px-3 text-xs font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {bulkDeletingProjects ? (
+                        <>
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          Excluindo...
+                        </>
+                      ) : (
+                        <>Excluir selecionados{selectedProjectCount ? ` (${selectedProjectCount})` : ""}</>
+                      )}
+                    </Button>
+                  </>
+                ) : null}
               </div>
 
               <div className="custom-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 scrollbar-gutter-stable">
@@ -2927,21 +3129,48 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                   const projectCanvasCount = project.snapshot.canvasItems.filter((item) => item.kind !== "pending").length;
                   const isCurrentProject = project.id === currentProjectId;
                   const isDeletingProject = deletingProjectId === project.id;
+                  const isSelectedProject = selectedProjectIdSet.has(project.id);
 
                   return (
                     <div
                       key={project.id}
                       className={cn(
                         "flex items-center gap-2 rounded-2xl border p-2 transition-all",
-                        isCurrentProject
-                          ? "border-blue-400/35 bg-blue-500/10"
-                          : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+                        isSelectedProject
+                          ? "border-red-400/35 bg-red-500/10"
+                          : isCurrentProject
+                            ? "border-blue-400/35 bg-blue-500/10"
+                            : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
                       )}
                     >
+                      {bulkProjectSelectionMode ? (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleProjectSelection(project.id)}
+                          disabled={bulkDeletingProjects || Boolean(deletingProjectId)}
+                          className={cn(
+                            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-60",
+                            isSelectedProject
+                              ? "border-red-300/45 bg-red-500/20 text-red-100"
+                              : "border-white/10 bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]"
+                          )}
+                          title={isSelectedProject ? `Remover ${project.name} da seleção` : `Selecionar ${project.name}`}
+                        >
+                          {isSelectedProject ? <Check className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                        </button>
+                      ) : null}
+
                       <button
                         type="button"
-                        onClick={() => handleSelectProject(project.id)}
-                        className="flex min-w-0 flex-1 items-center justify-between rounded-xl px-2 py-1 text-left"
+                        onClick={() => {
+                          if (bulkProjectSelectionMode) {
+                            handleToggleProjectSelection(project.id);
+                            return;
+                          }
+                          handleSelectProject(project.id);
+                        }}
+                        disabled={bulkDeletingProjects || Boolean(deletingProjectId)}
+                        className="flex min-w-0 flex-1 items-center justify-between rounded-xl px-2 py-1 text-left disabled:cursor-not-allowed disabled:opacity-70"
                       >
                         <div className="min-w-0 pr-3">
                           <div className="truncate text-sm font-semibold text-white">{project.name}</div>
@@ -2960,20 +3189,22 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                         )}
                       </button>
 
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        disabled={Boolean(deletingProjectId)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleDeleteProject(project.id);
-                        }}
-                        className="h-10 w-10 shrink-0 rounded-xl border border-red-500/20 bg-red-500/10 text-red-200 hover:bg-red-500/20 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        title={isDeletingProject ? "Excluindo projeto..." : `Excluir ${project.name}`}
-                      >
-                        {isDeletingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                      </Button>
+                      {!bulkProjectSelectionMode ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={Boolean(deletingProjectId) || bulkDeletingProjects}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDeleteProject(project.id);
+                          }}
+                          className="h-10 w-10 shrink-0 rounded-xl border border-red-500/20 bg-red-500/10 text-red-200 hover:bg-red-500/20 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          title={isDeletingProject ? "Excluindo projeto..." : `Excluir ${project.name}`}
+                        >
+                          {isDeletingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                        </Button>
+                      ) : null}
                     </div>
                   );
                 })}

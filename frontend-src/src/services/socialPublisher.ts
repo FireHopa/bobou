@@ -3,6 +3,8 @@ import { http } from "./http";
 export type SocialPublisherMediaUploadItem = {
   url: string;
   filename: string;
+  type?: "image" | "video";
+  content_type?: string;
 };
 
 export type SocialPublisherMediaUploadResponse = {
