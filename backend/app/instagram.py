@@ -27,7 +27,10 @@ class LinkRequest(BaseModel):
 
 class PublishRequest(BaseModel):
     caption: str = Field(default="", max_length=2200)
+    publish_type: str = Field(default="feed")
     image_url: Optional[str] = None
+    video_url: Optional[str] = None
+    cover_url: Optional[str] = None
     carousel_images: list[str] = Field(default_factory=list)
     collaborators: list[str] = Field(default_factory=list)
     location_id: Optional[str] = None
@@ -36,10 +39,19 @@ class PublishRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_media(self):
+        publish_type = (self.publish_type or "feed").strip().lower()
         has_single = bool((self.image_url or "").strip())
+        has_video = bool((self.video_url or "").strip())
         carousel = [u for u in self.carousel_images if str(u).strip()]
-        if not has_single and not carousel:
+
+        if publish_type not in {"feed", "reels", "story"}:
+            raise ValueError("Tipo de publicação do Instagram inválido.")
+        if publish_type == "feed" and not has_single and not carousel:
             raise ValueError("Informe uma image_url ou pelo menos uma imagem no carrossel.")
+        if publish_type == "reels" and not has_video:
+            raise ValueError("Informe um video_url para publicar Reels no Instagram.")
+        if publish_type == "story" and not has_single and not has_video:
+            raise ValueError("Informe uma image_url ou video_url para publicar Stories no Instagram.")
         return self
 
 
@@ -292,11 +304,36 @@ async def publish_to_instagram(req: PublishRequest, current_user: User = Depends
     ig_user_id = current_user.instagram_account_id
     access_token = current_user.instagram_meta_access_token
 
+    publish_type = (req.publish_type or "feed").strip().lower()
     collaborators = [item.strip().lstrip("@") for item in req.collaborators if str(item).strip()]
     carousel_images = [item.strip() for item in req.carousel_images if str(item).strip()]
 
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        if len(carousel_images) > 1:
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        if publish_type == "reels":
+            payload: dict[str, object] = {
+                "media_type": "REELS",
+                "video_url": (req.video_url or "").strip(),
+                "caption": req.caption,
+            }
+            if req.cover_url and req.cover_url.strip():
+                payload["cover_url"] = req.cover_url.strip()
+            if req.share_to_feed is not None:
+                payload["share_to_feed"] = req.share_to_feed
+            if collaborators:
+                payload["collaborators"] = collaborators
+            creation_id = await _create_media_container(client, ig_user_id, access_token, payload)
+            await _wait_until_ready(client, creation_id, access_token, timeout_seconds=180, poll_seconds=4)
+
+        elif publish_type == "story":
+            payload = {"media_type": "STORIES"}
+            if req.video_url and req.video_url.strip():
+                payload["video_url"] = req.video_url.strip()
+            else:
+                payload["image_url"] = (req.image_url or "").strip()
+            creation_id = await _create_media_container(client, ig_user_id, access_token, payload)
+            await _wait_until_ready(client, creation_id, access_token, timeout_seconds=180, poll_seconds=4)
+
+        elif len(carousel_images) > 1:
             children_ids: list[str] = []
             for image_url in carousel_images:
                 child_id = await _create_media_container(
@@ -336,7 +373,7 @@ async def publish_to_instagram(req: PublishRequest, current_user: User = Depends
         media_id = await _publish_container(client, ig_user_id, access_token, creation_id)
 
         comment_warning = None
-        if req.first_comment and req.first_comment.strip():
+        if publish_type == "feed" and req.first_comment and req.first_comment.strip():
             try:
                 await _create_first_comment(client, media_id, access_token, req.first_comment.strip())
             except HTTPException as exc:

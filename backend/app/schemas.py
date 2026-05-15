@@ -206,3 +206,5 @@ class LinkedInPublishIn(BaseModel):
     mode: Literal["feed", "article"] = "feed"
     text: str = ""
     article: Optional[LinkedInArticleIn] = None
+    image_urls: Optional[list[str]] = None
+    alt_text: Optional[str] = None

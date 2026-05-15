@@ -119,6 +119,11 @@ class ImageEngineProjectReorderPayload(BaseModel):
     current_project_id: Optional[str] = None
 
 
+class ImageEngineProjectBulkDeletePayload(BaseModel):
+    ids: List[str] = Field(default_factory=list)
+    current_project_id: Optional[str] = None
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -910,6 +915,62 @@ def reorder_image_engine_projects(
         .order_by(ImageEngineProject.position.asc(), ImageEngineProject.updated_at.desc())
     ).all()
     return {"ok": True, "projects": [_serialize_image_project(project).model_dump() for project in refreshed_projects]}
+
+
+@router.post("/api/image-engine/projects/bulk-delete")
+def bulk_delete_image_engine_projects(
+    payload: ImageEngineProjectBulkDeletePayload,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    requested_ids = list(dict.fromkeys([item.strip() for item in payload.ids if item and item.strip()]))
+    if not requested_ids:
+        return {"ok": True, "deleted_project_ids": [], "projects": []}
+
+    projects_to_delete = session.exec(
+        select(ImageEngineProject).where(
+            ImageEngineProject.user_id == current_user.id,
+            ImageEngineProject.public_id.in_(requested_ids),
+        )
+    ).all()
+
+    found_ids = [project.public_id for project in projects_to_delete]
+    for project in projects_to_delete:
+        session.delete(project)
+
+    session.commit()
+
+    remaining_projects = session.exec(
+        select(ImageEngineProject)
+        .where(ImageEngineProject.user_id == current_user.id)
+        .order_by(ImageEngineProject.position.asc(), ImageEngineProject.updated_at.desc())
+    ).all()
+
+    if remaining_projects:
+        now = _utcnow()
+        preferred_current_id = payload.current_project_id if payload.current_project_id not in found_ids else None
+        current_project = next((project for project in remaining_projects if project.public_id == preferred_current_id), None)
+        if current_project is None:
+            current_project = next((project for project in remaining_projects if project.is_current), None) or remaining_projects[0]
+
+        for index, project in enumerate(remaining_projects):
+            project.position = index
+            project.is_current = project.public_id == current_project.public_id
+            project.updated_at = now
+            session.add(project)
+
+        session.commit()
+        remaining_projects = session.exec(
+            select(ImageEngineProject)
+            .where(ImageEngineProject.user_id == current_user.id)
+            .order_by(ImageEngineProject.position.asc(), ImageEngineProject.updated_at.desc())
+        ).all()
+
+    return {
+        "ok": True,
+        "deleted_project_ids": found_ids,
+        "projects": [_serialize_image_project(project).model_dump() for project in remaining_projects],
+    }
 
 
 @router.delete("/api/image-engine/projects/{public_id}")

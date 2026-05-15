@@ -1482,9 +1482,113 @@ def _is_valid_http_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.host)
 
 
-def _build_linkedin_post_payload(current_user: User, payload: LinkedInPublishIn) -> dict:
+MAX_LINKEDIN_IMAGE_ITEMS = 10
+MAX_LINKEDIN_IMAGE_BYTES = 20 * 1024 * 1024
+
+
+def _normalize_linkedin_image_urls(payload: LinkedInPublishIn) -> list[str]:
+    raw_urls = payload.image_urls or []
+    if not raw_urls:
+        return []
+    if not isinstance(raw_urls, list):
+        raise HTTPException(status_code=400, detail="As imagens do LinkedIn precisam ser enviadas em uma lista de URLs.")
+
+    urls: list[str] = []
+    for raw_url in raw_urls:
+        url = str(raw_url or "").strip()
+        if not url:
+            continue
+        if not _is_valid_http_url(url):
+            raise HTTPException(status_code=400, detail="As imagens do LinkedIn precisam começar com http:// ou https://.")
+        urls.append(url)
+
+    if len(urls) > MAX_LINKEDIN_IMAGE_ITEMS:
+        raise HTTPException(status_code=400, detail=f"Envie no máximo {MAX_LINKEDIN_IMAGE_ITEMS} imagens para o LinkedIn.")
+    return urls
+
+
+async def _download_linkedin_image_source(client: httpx.AsyncClient, image_url: str, index: int) -> bytes:
+    try:
+        resp = await client.get(image_url, follow_redirects=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Não foi possível baixar a imagem {index} para publicar no LinkedIn: {exc}")
+
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=400, detail=f"Não foi possível baixar a imagem {index} para publicar no LinkedIn. Código {resp.status_code}.")
+
+    content_type = (resp.headers.get("content-type") or "").lower()
+    if content_type and not content_type.startswith("image/") and "octet-stream" not in content_type:
+        raise HTTPException(status_code=400, detail=f"O arquivo {index} não parece ser uma imagem válida para o LinkedIn.")
+
+    raw = resp.content
+    if not raw:
+        raise HTTPException(status_code=400, detail=f"A imagem {index} está vazia.")
+    if len(raw) > MAX_LINKEDIN_IMAGE_BYTES:
+        raise HTTPException(status_code=400, detail=f"A imagem {index} passou de 20MB.")
+    return raw
+
+
+async def _upload_linkedin_image(
+    client: httpx.AsyncClient,
+    current_user: User,
+    headers: dict[str, str],
+    image_url: str,
+    index: int,
+) -> str:
+    raw = await _download_linkedin_image_source(client, image_url, index)
+
+    init_resp = await client.post(
+        "https://api.linkedin.com/rest/images?action=initializeUpload",
+        headers=headers,
+        json={"initializeUploadRequest": {"owner": current_user.linkedin_urn}},
+    )
+    if init_resp.status_code not in {200, 201}:
+        detail, status_code = _extract_linkedin_api_message(init_resp.text)
+        raise HTTPException(status_code=status_code, detail=f"Erro ao preparar a imagem {index} no LinkedIn: {detail}")
+
+    try:
+        init_data = init_resp.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"O LinkedIn não retornou os dados de upload da imagem {index}.")
+
+    value = init_data.get("value") if isinstance(init_data, dict) else None
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail=f"O LinkedIn não retornou uma resposta válida para a imagem {index}.")
+
+    upload_url = str(value.get("uploadUrl") or "").strip()
+    image_urn = str(value.get("image") or "").strip()
+    if not upload_url or not image_urn:
+        raise HTTPException(status_code=400, detail=f"O LinkedIn não retornou a URL de upload ou o ID da imagem {index}.")
+
+    upload_headers = {
+        "Authorization": f"Bearer {current_user.linkedin_access_token}",
+        "Linkedin-Version": LINKEDIN_API_VERSION,
+        "Content-Type": "application/octet-stream",
+    }
+    upload_resp = await client.put(upload_url, headers=upload_headers, content=raw)
+    if upload_resp.status_code not in {200, 201, 202, 204}:
+        detail, status_code = _extract_linkedin_api_message(upload_resp.text)
+        raise HTTPException(status_code=status_code, detail=f"Erro ao enviar a imagem {index} para o LinkedIn: {detail}")
+
+    return image_urn
+
+
+async def _upload_linkedin_images(
+    client: httpx.AsyncClient,
+    current_user: User,
+    headers: dict[str, str],
+    image_urls: list[str],
+) -> list[str]:
+    image_urns: list[str] = []
+    for index, image_url in enumerate(image_urls, start=1):
+        image_urns.append(await _upload_linkedin_image(client, current_user, headers, image_url, index))
+    return image_urns
+
+
+def _build_linkedin_post_payload(current_user: User, payload: LinkedInPublishIn, image_urns: Optional[list[str]] = None) -> dict:
     mode = (payload.mode or "feed").strip().lower()
     commentary = (payload.text or "").strip()
+    image_urns = image_urns or []
 
     body: dict[str, object] = {
         "author": current_user.linkedin_urn,
@@ -1502,6 +1606,25 @@ def _build_linkedin_post_payload(current_user: User, payload: LinkedInPublishIn)
         if not commentary:
             raise HTTPException(status_code=400, detail="Informe o texto da publicação para o feed.")
         body["commentary"] = commentary
+
+        if image_urns:
+            alt_text = (payload.alt_text or "Imagem da publicação").strip()[:4086] or "Imagem da publicação"
+            if len(image_urns) == 1:
+                body["content"] = {
+                    "media": {
+                        "id": image_urns[0],
+                        "altText": alt_text,
+                    }
+                }
+            else:
+                body["content"] = {
+                    "multiImage": {
+                        "images": [
+                            {"id": image_urn, "altText": alt_text}
+                            for image_urn in image_urns
+                        ]
+                    }
+                }
         return body
 
     if mode != "article":
@@ -1646,9 +1769,11 @@ async def publish_linkedin(payload: LinkedInPublishIn, session: Session = Depend
         "X-Restli-Protocol-Version": "2.0.0",
         "Content-Type": "application/json",
     }
-    data = _build_linkedin_post_payload(current_user, payload)
+    image_urls = _normalize_linkedin_image_urls(payload) if (payload.mode or "feed") == "feed" else []
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        image_urns = await _upload_linkedin_images(client, current_user, headers, image_urls) if image_urls else []
+        data = _build_linkedin_post_payload(current_user, payload, image_urns=image_urns)
         resp = await client.post(url, headers=headers, json=data)
         if resp.status_code != 201:
             detail, status_code = _extract_linkedin_api_message(resp.text)

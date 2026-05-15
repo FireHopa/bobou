@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import mimetypes
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,19 +18,33 @@ from .models import User
 router = APIRouter(prefix="/api/social-publisher", tags=["social-publisher"])
 
 RUNTIME_DIR = Path(__file__).resolve().parent / "_runtime" / "social_publisher_media"
-MAX_UPLOAD_MB = 20
-MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+MAX_IMAGE_UPLOAD_MB = 20
+MAX_VIDEO_UPLOAD_MB = 300
+MAX_IMAGE_UPLOAD_BYTES = MAX_IMAGE_UPLOAD_MB * 1024 * 1024
+MAX_VIDEO_UPLOAD_BYTES = MAX_VIDEO_UPLOAD_MB * 1024 * 1024
 MAX_MEDIA_ITEMS = 10
 MAX_IMAGE_EDGE = 4096
 MEDIA_TTL_DAYS = 7
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"}
+ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"}
+ALLOWED_VIDEO_CONTENT_TYPES = {
+    "video/mp4",
+    "video/quicktime",
+    "video/x-m4v",
+    "video/webm",
+    "video/mpeg",
+    "video/3gpp",
+}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm", ".mpeg", ".mpg", ".3gp"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 
 def _cleanup_old_media() -> None:
     cutoff = datetime.now(timezone.utc) - timedelta(days=MEDIA_TTL_DAYS)
     try:
         RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-        for path in RUNTIME_DIR.glob("*.jpg"):
+        for path in RUNTIME_DIR.iterdir():
+            if not path.is_file():
+                continue
             try:
                 modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
                 if modified < cutoff:
@@ -55,9 +70,35 @@ def _build_public_url(request: Request, filename: str) -> str:
 
 
 def _safe_filename(value: str) -> str:
-    stem = Path(value or "imagem").stem.lower()
+    stem = Path(value or "midia").stem.lower()
     stem = re.sub(r"[^a-z0-9_-]+", "-", stem).strip("-")[:48]
-    return stem or "imagem"
+    return stem or "midia"
+
+
+def _extension_from_content_type(content_type: str, fallback: str = ".bin") -> str:
+    guessed = mimetypes.guess_extension(content_type or "")
+    if guessed == ".jpe":
+        return ".jpg"
+    if guessed:
+        return guessed
+    return fallback
+
+
+def _detect_kind(file: UploadFile) -> tuple[str, str]:
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    ext = Path(file.filename or "").suffix.lower()
+
+    if content_type in ALLOWED_IMAGE_CONTENT_TYPES or (not content_type and ext in IMAGE_EXTENSIONS):
+        return "image", content_type or mimetypes.guess_type(file.filename or "")[0] or "image/jpeg"
+    if content_type in ALLOWED_VIDEO_CONTENT_TYPES or (not content_type and ext in VIDEO_EXTENSIONS) or (content_type in {"application/octet-stream", "binary/octet-stream"} and ext in VIDEO_EXTENSIONS):
+        return "video", content_type if content_type not in {"application/octet-stream", "binary/octet-stream"} else (mimetypes.guess_type(file.filename or "")[0] or "video/mp4")
+
+    if content_type.startswith("image/"):
+        return "image", content_type
+    if content_type.startswith("video/"):
+        return "video", content_type
+
+    raise HTTPException(status_code=400, detail=f"{file.filename or 'Arquivo'} não é uma imagem ou vídeo aceito.")
 
 
 def _image_to_publishable_jpeg(raw: bytes) -> bytes:
@@ -96,31 +137,40 @@ async def upload_social_publisher_media(
     current_user: User = Depends(get_current_user),
 ):
     if not files:
-        raise HTTPException(status_code=400, detail="Envie pelo menos uma imagem.")
+        raise HTTPException(status_code=400, detail="Envie pelo menos uma imagem ou vídeo.")
     if len(files) > MAX_MEDIA_ITEMS:
-        raise HTTPException(status_code=400, detail=f"Envie no máximo {MAX_MEDIA_ITEMS} imagens por publicação.")
+        raise HTTPException(status_code=400, detail=f"Envie no máximo {MAX_MEDIA_ITEMS} arquivos por publicação.")
 
     _cleanup_old_media()
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
     uploaded: list[dict[str, str]] = []
     for index, file in enumerate(files, start=1):
-        content_type = (file.content_type or "").lower()
-        if content_type and content_type not in ALLOWED_CONTENT_TYPES:
-            raise HTTPException(status_code=400, detail=f"{file.filename or 'Arquivo'} não é uma imagem aceita.")
-
+        kind, content_type = _detect_kind(file)
         raw = await file.read()
         if not raw:
             raise HTTPException(status_code=400, detail=f"{file.filename or 'Arquivo'} está vazio.")
-        if len(raw) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=400, detail=f"{file.filename or 'Arquivo'} passou de {MAX_UPLOAD_MB}MB.")
 
-        jpeg = _image_to_publishable_jpeg(raw)
-        basename = _safe_filename(file.filename or f"imagem-{index}")
-        filename = f"user-{current_user.id}-{uuid.uuid4().hex}-{basename}.jpg"
+        basename = _safe_filename(file.filename or f"midia-{index}")
+        if kind == "image":
+            if len(raw) > MAX_IMAGE_UPLOAD_BYTES:
+                raise HTTPException(status_code=400, detail=f"{file.filename or 'Arquivo'} passou de {MAX_IMAGE_UPLOAD_MB}MB.")
+            prepared = _image_to_publishable_jpeg(raw)
+            filename = f"user-{current_user.id}-{uuid.uuid4().hex}-{basename}.jpg"
+            media_type = "image/jpeg"
+        else:
+            if len(raw) > MAX_VIDEO_UPLOAD_BYTES:
+                raise HTTPException(status_code=400, detail=f"{file.filename or 'Arquivo'} passou de {MAX_VIDEO_UPLOAD_MB}MB.")
+            prepared = raw
+            ext = Path(file.filename or "").suffix.lower() or _extension_from_content_type(content_type, ".mp4")
+            if ext not in VIDEO_EXTENSIONS:
+                ext = ".mp4"
+            filename = f"user-{current_user.id}-{uuid.uuid4().hex}-{basename}{ext}"
+            media_type = content_type or mimetypes.guess_type(filename)[0] or "video/mp4"
+
         path = RUNTIME_DIR / filename
-        path.write_bytes(jpeg)
-        uploaded.append({"url": _build_public_url(request, filename), "filename": filename})
+        path.write_bytes(prepared)
+        uploaded.append({"url": _build_public_url(request, filename), "filename": filename, "type": kind, "content_type": media_type})
 
     return {"ok": True, "items": uploaded, "urls": [item["url"] for item in uploaded]}
 
@@ -134,4 +184,5 @@ async def get_social_publisher_media(filename: str):
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
-    return FileResponse(path, media_type="image/jpeg", filename=filename)
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type, filename=filename)

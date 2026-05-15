@@ -34,8 +34,11 @@ class SelectPageRequest(BaseModel):
 
 class PublishRequest(BaseModel):
     message: str = Field(default="", max_length=63206)
+    publish_type: str = Field(default="feed")
     link: Optional[str] = None
     image_url: Optional[str] = None
+    video_url: Optional[str] = None
+    title: Optional[str] = None
     carousel_images: list[str] = Field(default_factory=list)
     published: bool = True
     scheduled_publish_time: Optional[int] = None
@@ -45,12 +48,21 @@ class PublishRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_payload(self):
+        publish_type = (self.publish_type or "feed").strip().lower()
         has_message = bool(self.message.strip())
         has_link = bool((self.link or "").strip())
         has_image = bool((self.image_url or "").strip())
+        has_video = bool((self.video_url or "").strip())
         has_carousel = any(str(item).strip() for item in self.carousel_images)
-        if not any([has_message, has_link, has_image, has_carousel]):
+
+        if publish_type not in {"feed", "video", "story"}:
+            raise ValueError("Tipo de publicação do Facebook inválido.")
+        if publish_type == "feed" and not any([has_message, has_link, has_image, has_carousel]):
             raise ValueError("Informe pelo menos texto, link, imagem ou carrossel para publicar no Facebook.")
+        if publish_type == "video" and not has_video:
+            raise ValueError("Informe um video_url para publicar vídeo no Facebook.")
+        if publish_type == "story" and not has_image:
+            raise ValueError("No momento, o Stories do Facebook nesta tela usa imagem. Selecione uma imagem.")
         if self.scheduled_publish_time and self.published:
             raise ValueError("Para agendar uma publicação, marque como não publicada.")
         return self
@@ -195,6 +207,17 @@ async def _create_photo(client: httpx.AsyncClient, page_id: str, page_token: str
     return str(photo_id)
 
 
+async def _publish_photo_story(client: httpx.AsyncClient, page_id: str, page_token: str, image_url: str) -> str:
+    photo_id = await _create_photo(client, page_id, page_token, image_url, published=False)
+    res = await client.post(
+        f"{GRAPH_BASE}/{page_id}/photo_stories",
+        data={"photo_id": photo_id, "access_token": page_token},
+    )
+    data = await _raise_if_graph_error(res, "Erro ao publicar Story de imagem no Facebook.")
+    story_id = data.get("post_id") or data.get("id") or photo_id
+    return str(story_id)
+
+
 @router.post("/publish")
 async def publish_to_facebook(req: PublishRequest, current_user: User = Depends(get_current_user)):
     if not current_user.facebook_page_id or not current_user.facebook_page_access_token:
@@ -202,28 +225,53 @@ async def publish_to_facebook(req: PublishRequest, current_user: User = Depends(
 
     page_id = current_user.facebook_page_id
     page_token = current_user.facebook_page_access_token
+    publish_type = (req.publish_type or "feed").strip().lower()
     carousel_images = [item.strip() for item in req.carousel_images if str(item).strip()]
     tags = [item.strip() for item in req.tags if str(item).strip()]
 
     feed_payload: dict[str, str] = {}
     if req.message.strip():
         feed_payload["message"] = req.message.strip()
-    if req.link and req.link.strip():
+    if req.link and req.link.strip() and publish_type == "feed":
         feed_payload["link"] = req.link.strip()
-    if req.place and req.place.strip():
+    if req.place and req.place.strip() and publish_type == "feed":
         feed_payload["place"] = req.place.strip()
-    if tags:
+    if tags and publish_type == "feed":
         feed_payload["tags"] = ",".join(tags)
     if not req.published:
         feed_payload["published"] = "false"
     if req.scheduled_publish_time:
         feed_payload["scheduled_publish_time"] = str(req.scheduled_publish_time)
         feed_payload["unpublished_content_type"] = "SCHEDULED"
-    if req.backdated_time and req.backdated_time.strip():
+    if req.backdated_time and req.backdated_time.strip() and publish_type == "feed":
         feed_payload["backdated_time"] = req.backdated_time.strip()
 
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        if len(carousel_images) > 1:
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        permalink_url = None
+
+        if publish_type == "story":
+            post_id = await _publish_photo_story(client, page_id, page_token, (req.image_url or "").strip())
+
+        elif publish_type == "video":
+            video_payload = {
+                "file_url": (req.video_url or "").strip(),
+                "description": req.message.strip(),
+                "access_token": page_token,
+            }
+            if req.title and req.title.strip():
+                video_payload["title"] = req.title.strip()
+            if not req.published:
+                video_payload["published"] = "false"
+            if req.scheduled_publish_time:
+                video_payload["scheduled_publish_time"] = str(req.scheduled_publish_time)
+                video_payload["unpublished_content_type"] = "SCHEDULED"
+            res = await client.post(f"{GRAPH_BASE}/{page_id}/videos", data=video_payload)
+            data = await _raise_if_graph_error(res, "Erro ao publicar vídeo no Facebook.")
+            post_id = data.get("id") or data.get("post_id")
+            if not post_id:
+                raise HTTPException(status_code=400, detail="A Meta não devolveu o ID do vídeo do Facebook.")
+
+        elif len(carousel_images) > 1:
             attached_media: list[dict[str, str]] = []
             for image_url in carousel_images:
                 media_fbid = await _create_photo(client, page_id, page_token, image_url, published=False)
@@ -231,19 +279,27 @@ async def publish_to_facebook(req: PublishRequest, current_user: User = Depends(
             for idx, media in enumerate(attached_media):
                 feed_payload[f"attached_media[{idx}]"] = __import__("json").dumps(media, ensure_ascii=False)
             res = await client.post(f"{GRAPH_BASE}/{page_id}/feed", data={**feed_payload, "access_token": page_token})
+            data = await _raise_if_graph_error(res, "Erro ao publicar no Facebook.")
+            post_id = data.get("post_id") or data.get("id")
+            if not post_id:
+                raise HTTPException(status_code=400, detail="A Meta não devolveu o ID da publicação do Facebook.")
+
         elif req.image_url and req.image_url.strip():
             photo_payload = {k: v for k, v in feed_payload.items() if k not in {"link"}}
             photo_payload["url"] = req.image_url.strip()
             res = await client.post(f"{GRAPH_BASE}/{page_id}/photos", data={**photo_payload, "access_token": page_token})
+            data = await _raise_if_graph_error(res, "Erro ao publicar no Facebook.")
+            post_id = data.get("post_id") or data.get("id")
+            if not post_id:
+                raise HTTPException(status_code=400, detail="A Meta não devolveu o ID da publicação do Facebook.")
+
         else:
             res = await client.post(f"{GRAPH_BASE}/{page_id}/feed", data={**feed_payload, "access_token": page_token})
+            data = await _raise_if_graph_error(res, "Erro ao publicar no Facebook.")
+            post_id = data.get("post_id") or data.get("id")
+            if not post_id:
+                raise HTTPException(status_code=400, detail="A Meta não devolveu o ID da publicação do Facebook.")
 
-        data = await _raise_if_graph_error(res, "Erro ao publicar no Facebook.")
-        post_id = data.get("post_id") or data.get("id")
-        if not post_id:
-            raise HTTPException(status_code=400, detail="A Meta não devolveu o ID da publicação do Facebook.")
-
-        permalink_url = None
         try:
             permalink_resp = await client.get(
                 f"{GRAPH_BASE}/{post_id}",
