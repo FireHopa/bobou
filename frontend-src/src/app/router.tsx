@@ -3,33 +3,36 @@ import { createBrowserRouter } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { RouteErrorBoundary } from "@/components/layout/RouteErrorBoundary";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
+import { withSuspense } from "@/app/Lazy";
 
-import LoginPage from "@/pages/LoginPage";
-import RegisterPage from "@/pages/RegisterPage";
-import LandingPage from "@/pages/LandingPage";
-import JourneyPage from "@/pages/JourneyPage";
-import DashboardPage from "@/pages/DashboardPage";
-import RobotDetailPage from "@/pages/RobotDetailPage";
-import RobotChatPage from "@/pages/RobotChatPage";
-import BobarPage from "@/pages/BobarPage";
-import MaterialsPage from "@/pages/MaterialsPage";
-import VideoPage from "@/pages/VideoPage";
-import AuthorityAgentsPage from "@/pages/AuthorityAgentsPage";
-import AuthorityAgentRunPage from "@/pages/AuthorityAgentRunPage";
-import AuthorityAgentChatPage from "@/pages/AuthorityAgentChatPage";
-import AuthorityNucleusPage from "@/pages/AuthorityNucleusPage";
-import NotFoundPage from "@/pages/NotFoundPage";
-import AccountPage from "@/pages/AccountPage";
-import LinkedInCallbackPage from "@/pages/LinkedInCallbackPage";
-import ImageEnginePage from "@/pages/ImageEnginePage";
-import { FacebookCallbackPage } from "@/pages/FacebookCallbackPage";
-import YouTubeCallbackPage from "@/pages/YouTubeCallbackPage";
-import TikTokCallbackPage from "@/pages/TikTokCallbackPage";
-import GoogleBusinessCallbackPage from "@/pages/GoogleBusinessCallbackPage";
-import SkyBobPage from "@/pages/SkyBobPage";
-import SocialPublisherPage from "@/pages/SocialPublisherPage";
-import TermsOfServicePage from "@/pages/TermsOfServicePage";
-import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
+const LoginPage = withSuspense(React.lazy(() => import("@/pages/LoginPage")));
+const RegisterPage = withSuspense(React.lazy(() => import("@/pages/RegisterPage")));
+const LandingPage = withSuspense(React.lazy(() => import("@/pages/LandingPage")));
+const JourneyPage = withSuspense(React.lazy(() => import("@/pages/JourneyPage")));
+const DashboardPage = withSuspense(React.lazy(() => import("@/pages/DashboardPage")));
+const RobotDetailPage = withSuspense(React.lazy(() => import("@/pages/RobotDetailPage")));
+const RobotChatPage = withSuspense(React.lazy(() => import("@/pages/RobotChatPage")));
+const BobarPage = withSuspense(React.lazy(() => import("@/pages/BobarPage")));
+const MaterialsPage = withSuspense(React.lazy(() => import("@/pages/MaterialsPage")));
+const VideoPage = withSuspense(React.lazy(() => import("@/pages/VideoPage")));
+const AuthorityAgentsPage = withSuspense(React.lazy(() => import("@/pages/AuthorityAgentsPage")));
+const AuthorityAgentRunPage = withSuspense(React.lazy(() => import("@/pages/AuthorityAgentRunPage")));
+const AuthorityAgentChatPage = withSuspense(React.lazy(() => import("@/pages/AuthorityAgentChatPage")));
+const AuthorityNucleusPage = withSuspense(React.lazy(() => import("@/pages/AuthorityNucleusPage")));
+const NotFoundPage = withSuspense(React.lazy(() => import("@/pages/NotFoundPage")));
+const AccountPage = withSuspense(React.lazy(() => import("@/pages/AccountPage")));
+const LinkedInCallbackPage = withSuspense(React.lazy(() => import("@/pages/LinkedInCallbackPage")));
+const FacebookCallbackPage = withSuspense(
+  React.lazy(() => import("@/pages/FacebookCallbackPage").then((mod) => ({ default: mod.FacebookCallbackPage }))),
+);
+const YouTubeCallbackPage = withSuspense(React.lazy(() => import("@/pages/YouTubeCallbackPage")));
+const TikTokCallbackPage = withSuspense(React.lazy(() => import("@/pages/TikTokCallbackPage")));
+const GoogleBusinessCallbackPage = withSuspense(React.lazy(() => import("@/pages/GoogleBusinessCallbackPage")));
+const ImageEnginePage = withSuspense(React.lazy(() => import("@/pages/ImageEnginePage")));
+const SkyBobPage = withSuspense(React.lazy(() => import("@/pages/SkyBobPage")));
+const SocialPublisherPage = withSuspense(React.lazy(() => import("@/pages/SocialPublisherPage")));
+const TermsOfServicePage = withSuspense(React.lazy(() => import("@/pages/TermsOfServicePage")));
+const PrivacyPolicyPage = withSuspense(React.lazy(() => import("@/pages/PrivacyPolicyPage")));
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },

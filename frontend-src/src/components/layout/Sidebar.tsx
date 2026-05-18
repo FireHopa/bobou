@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { APP_NAME } from "@/constants/app";
-import logoUrl from "@/casadoads.png";
+import logoUrl from "@/casadoads-sidebar.webp";
 import { transitions } from "@/lib/motion";
 import { AUTHORITY_AGENTS } from "@/constants/authorityAgents";
 import { useAuthStore } from "@/state/authStore";
@@ -115,7 +115,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
             "hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           )}
         >
-          <img src={logoUrl} alt="Logo Autoridade" className={cn("h-10 w-auto max-w-[160px] object-contain", collapsed ? "max-w-[44px]" : "")} />
+          <img src={logoUrl} alt="Logo Autoridade" width={40} height={40} decoding="async" fetchPriority="high" className={cn("h-10 w-auto max-w-[160px] object-contain", collapsed ? "max-w-[44px]" : "")} />
           {!collapsed ? (
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold tracking-tight">{APP_NAME}</div>

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Timer, Sparkles, ExternalLink, History, Loader2, X, Copy, Linkedin } from "lucide-react";
+import { Timer, Sparkles, ArrowRight, History, Loader2, X, Copy, Linkedin } from "lucide-react";
 import { AUTHORITY_AGENTS } from "@/constants/authorityAgents";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Particles } from "@/components/effects/Particles";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { api, getClientId, type AuthorityAgentRunItem } from "@/services/robots";
 import { motion, AnimatePresence } from "framer-motion";
 import { toastSuccess, toastApiError } from "@/lib/toast";
@@ -44,6 +45,7 @@ function loadCooldowns(): Record<string, number> {
 }
 
 export default function AuthorityAgentsPage() {
+  const navigate = useNavigate();
   const [cooldowns, setCooldowns] = React.useState<Record<string, number>>(loadCooldowns);
   const [selectedHistory, setSelectedHistory] = React.useState<AuthorityAgentRunItem | null>(null);
 
@@ -159,9 +161,9 @@ export default function AuthorityAgentsPage() {
                       className="w-full rounded-xl transition-all shadow-sm"
                       variant={disabled ? "secondary" : "accent"}
                       disabled={disabled}
-                      onClick={() => window.open(`/authority-agents/run/${agent.key}`, "_blank")}
+                      onClick={() => navigate(`/authority-agents/run/${agent.key}`)}
                     >
-                      {remaining > 0 ? "Em Cooldown" : <><ExternalLink className="h-4 w-4 mr-2" /> Escolher Ação</>}
+                      {remaining > 0 ? "Em Cooldown" : <><ArrowRight className="h-4 w-4 mr-2" /> Escolher Ação</>}
                     </Button>
                   </div>
                 </Card>

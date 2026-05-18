@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useGoogleLogin } from "@react-oauth/google";
+import { GoogleOAuthProvider, useGoogleLogin } from "@react-oauth/google";
 import { authService } from "@/services/auth";
 import { useAuthStore } from "@/state/authStore";
 
-export default function LoginPage() {
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "1053030810053-0s7tuee76cpm8a46bibv6449v3351q15.apps.googleusercontent.com";
+
+function LoginForm() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((state) => state.setAuth);
   
@@ -148,5 +150,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <LoginForm />
+    </GoogleOAuthProvider>
   );
 }
