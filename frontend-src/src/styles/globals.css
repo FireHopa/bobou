@@ -985,13 +985,20 @@
     color: #F8FAFC !important;
   }
 
-  /* Mantem botoes ativos com fundo claro/ciano legiveis. */
+  /* Mantem botoes ativos ciano com texto branco e cards brancos com texto escuro. */
   html[data-color-theme="googleGray"] :where(.theme-page-skybob, .theme-page-social-publisher) :where(
     [class*="bg-cyan-300"],
-    [class*="bg-cyan-400"],
+    [class*="bg-cyan-400"]
+  ):where([class*="text-[#03111d]"], [class*="text-slate-950"], [class*="text-slate-900"]) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .theme-page-social-publisher) :where(
     [class*="bg-white"]
   ):where([class*="text-[#03111d]"], [class*="text-slate-950"], [class*="text-slate-900"]) {
     color: #03111D !important;
+    -webkit-text-fill-color: #03111D !important;
   }
 
   /* Badges suaves sobre cards escuros. */
@@ -1751,7 +1758,8 @@
     button[class*="bg-cyan-300"] [class*="text-slate-950"],
     button[class*="bg-cyan-400"] [class*="text-slate-950"]
   ) {
-    color: #03111D !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
   }
 }
 
@@ -5101,5 +5109,350 @@ html[data-color-theme="googleGray"] :where(
 ) :where(span, div, p, strong, small, svg, svg *) {
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+
+/* -------------------------------------------------------------
+   Blue surface text safety v3
+   Garante texto e icones brancos em superficies azuis/ciano reais.
+   Usamos tokens exatos para nao afetar fundos translúcidos como bg-blue-500/10.
+   ------------------------------------------------------------- */
+html body :is(
+  [class~="bg-blue-300"], [class~="bg-blue-400"], [class~="bg-blue-500"], [class~="bg-blue-600"], [class~="bg-blue-700"], [class~="bg-blue-800"], [class~="bg-blue-900"], [class~="bg-blue-950"],
+  [class~="bg-cyan-300"], [class~="bg-cyan-400"], [class~="bg-cyan-500"], [class~="bg-cyan-600"], [class~="bg-cyan-700"], [class~="bg-cyan-800"], [class~="bg-cyan-900"], [class~="bg-cyan-950"],
+  [class~="bg-sky-300"], [class~="bg-sky-400"], [class~="bg-sky-500"], [class~="bg-sky-600"], [class~="bg-sky-700"], [class~="bg-sky-800"], [class~="bg-sky-900"], [class~="bg-sky-950"],
+  [class~="bg-indigo-300"], [class~="bg-indigo-400"], [class~="bg-indigo-500"], [class~="bg-indigo-600"], [class~="bg-indigo-700"], [class~="bg-indigo-800"], [class~="bg-indigo-900"], [class~="bg-indigo-950"],
+  [class~="bg-theme-accent"], .btn-primary, .bobar-view-tab--active,
+  button[class*="bg-[#0026FF]"], button[class*="bg-[#0026ff]"],
+  button[class*="bg-[#0A66C2]"], button[class*="bg-[#0a66c2]"],
+  button[class*="bg-[#1877F2]"], button[class*="bg-[#1877f2]"],
+  button[class*="bg-[#1A73E8]"], button[class*="bg-[#1a73e8]"],
+  button[class*="bg-[#2563EB]"], button[class*="bg-[#2563eb]"],
+  button[class*="bg-[#174EA6]"], button[class*="bg-[#174ea6]"],
+  button[class*="bg-[#4285F4]"], button[class*="bg-[#4285f4]"],
+  button[class*="bg-[#00C8E8]"], button[class*="bg-[#00c8e8]"],
+  a[class*="bg-[#0026FF]"], a[class*="bg-[#0026ff]"],
+  a[class*="bg-[#0A66C2]"], a[class*="bg-[#0a66c2]"],
+  a[class*="bg-[#1877F2]"], a[class*="bg-[#1877f2]"],
+  a[class*="bg-[#1A73E8]"], a[class*="bg-[#1a73e8]"],
+  a[class*="bg-[#2563EB]"], a[class*="bg-[#2563eb]"],
+  a[class*="bg-[#174EA6]"], a[class*="bg-[#174ea6]"],
+  a[class*="bg-[#4285F4]"], a[class*="bg-[#4285f4]"],
+  a[class*="bg-[#00C8E8]"], a[class*="bg-[#00c8e8]"],
+  [role="button"][class*="bg-[#0026FF]"], [role="button"][class*="bg-[#0026ff]"],
+  [role="button"][class*="bg-[#0A66C2]"], [role="button"][class*="bg-[#0a66c2]"],
+  [role="button"][class*="bg-[#1877F2]"], [role="button"][class*="bg-[#1877f2]"],
+  [role="button"][class*="bg-[#1A73E8]"], [role="button"][class*="bg-[#1a73e8]"],
+  [role="button"][class*="bg-[#2563EB]"], [role="button"][class*="bg-[#2563eb]"],
+  [role="button"][class*="bg-[#174EA6]"], [role="button"][class*="bg-[#174ea6]"],
+  [role="button"][class*="bg-[#4285F4]"], [role="button"][class*="bg-[#4285f4]"],
+  [role="button"][class*="bg-[#00C8E8]"], [role="button"][class*="bg-[#00c8e8]"]
+) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+html body :is(
+  [class~="bg-blue-300"], [class~="bg-blue-400"], [class~="bg-blue-500"], [class~="bg-blue-600"], [class~="bg-blue-700"], [class~="bg-blue-800"], [class~="bg-blue-900"], [class~="bg-blue-950"],
+  [class~="bg-cyan-300"], [class~="bg-cyan-400"], [class~="bg-cyan-500"], [class~="bg-cyan-600"], [class~="bg-cyan-700"], [class~="bg-cyan-800"], [class~="bg-cyan-900"], [class~="bg-cyan-950"],
+  [class~="bg-sky-300"], [class~="bg-sky-400"], [class~="bg-sky-500"], [class~="bg-sky-600"], [class~="bg-sky-700"], [class~="bg-sky-800"], [class~="bg-sky-900"], [class~="bg-sky-950"],
+  [class~="bg-indigo-300"], [class~="bg-indigo-400"], [class~="bg-indigo-500"], [class~="bg-indigo-600"], [class~="bg-indigo-700"], [class~="bg-indigo-800"], [class~="bg-indigo-900"], [class~="bg-indigo-950"],
+  [class~="bg-theme-accent"], .btn-primary, .bobar-view-tab--active,
+  button[class*="bg-[#0026FF]"], button[class*="bg-[#0026ff]"], button[class*="bg-[#0A66C2]"], button[class*="bg-[#0a66c2]"], button[class*="bg-[#1877F2]"], button[class*="bg-[#1877f2]"], button[class*="bg-[#1A73E8]"], button[class*="bg-[#1a73e8]"], button[class*="bg-[#2563EB]"], button[class*="bg-[#2563eb]"], button[class*="bg-[#174EA6]"], button[class*="bg-[#174ea6]"], button[class*="bg-[#4285F4]"], button[class*="bg-[#4285f4]"], button[class*="bg-[#00C8E8]"], button[class*="bg-[#00c8e8]"],
+  a[class*="bg-[#0026FF]"], a[class*="bg-[#0026ff]"], a[class*="bg-[#0A66C2]"], a[class*="bg-[#0a66c2]"], a[class*="bg-[#1877F2]"], a[class*="bg-[#1877f2]"], a[class*="bg-[#1A73E8]"], a[class*="bg-[#1a73e8]"], a[class*="bg-[#2563EB]"], a[class*="bg-[#2563eb]"], a[class*="bg-[#174EA6]"], a[class*="bg-[#174ea6]"], a[class*="bg-[#4285F4]"], a[class*="bg-[#4285f4]"], a[class*="bg-[#00C8E8]"], a[class*="bg-[#00c8e8]"],
+  [role="button"][class*="bg-[#0026FF]"], [role="button"][class*="bg-[#0026ff]"], [role="button"][class*="bg-[#0A66C2]"], [role="button"][class*="bg-[#0a66c2]"], [role="button"][class*="bg-[#1877F2]"], [role="button"][class*="bg-[#1877f2]"], [role="button"][class*="bg-[#1A73E8]"], [role="button"][class*="bg-[#1a73e8]"], [role="button"][class*="bg-[#2563EB]"], [role="button"][class*="bg-[#2563eb]"], [role="button"][class*="bg-[#174EA6]"], [role="button"][class*="bg-[#174ea6]"], [role="button"][class*="bg-[#4285F4]"], [role="button"][class*="bg-[#4285f4]"], [role="button"][class*="bg-[#00C8E8]"], [role="button"][class*="bg-[#00c8e8]"]
+) :where(span, div, p, strong, small, em, b, svg, svg *, .lucide, [class*="text-"]) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+html body :is(
+  button[class*="from-blue-"], button[class*="via-blue-"], button[class*="to-blue-"],
+  button[class*="from-cyan-"], button[class*="via-cyan-"], button[class*="to-cyan-"],
+  button[class*="from-sky-"], button[class*="via-sky-"], button[class*="to-sky-"],
+  a[class*="from-blue-"], a[class*="via-blue-"], a[class*="to-blue-"],
+  a[class*="from-cyan-"], a[class*="via-cyan-"], a[class*="to-cyan-"],
+  a[class*="from-sky-"], a[class*="via-sky-"], a[class*="to-sky-"],
+  [role="button"][class*="from-blue-"], [role="button"][class*="via-blue-"], [role="button"][class*="to-blue-"],
+  [role="button"][class*="from-cyan-"], [role="button"][class*="via-cyan-"], [role="button"][class*="to-cyan-"],
+  [role="button"][class*="from-sky-"], [role="button"][class*="via-sky-"], [role="button"][class*="to-sky-"]
+),
+html body :is(
+  button[class*="from-blue-"], button[class*="via-blue-"], button[class*="to-blue-"],
+  button[class*="from-cyan-"], button[class*="via-cyan-"], button[class*="to-cyan-"],
+  button[class*="from-sky-"], button[class*="via-sky-"], button[class*="to-sky-"],
+  a[class*="from-blue-"], a[class*="via-blue-"], a[class*="to-blue-"],
+  a[class*="from-cyan-"], a[class*="via-cyan-"], a[class*="to-cyan-"],
+  a[class*="from-sky-"], a[class*="via-sky-"], a[class*="to-sky-"],
+  [role="button"][class*="from-blue-"], [role="button"][class*="via-blue-"], [role="button"][class*="to-blue-"],
+  [role="button"][class*="from-cyan-"], [role="button"][class*="via-cyan-"], [role="button"][class*="to-cyan-"],
+  [role="button"][class*="from-sky-"], [role="button"][class*="via-sky-"], [role="button"][class*="to-sky-"]
+) :where(span, div, p, strong, small, em, b, svg, svg *, .lucide, [class*="text-"]) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+
+/* -------------------------------------------------------------
+   Blue surface definitive contrast hardening v4
+   Corrige os casos remanescentes de texto escuro em fundos azuis
+   no Bobar, Motor de Imagem e AccountPage. Mantém o escopo em
+   controles/elementos azuis fortes e força também filhos e ícones.
+   ------------------------------------------------------------- */
+.text-on-blue,
+.text-on-blue *,
+html body .text-on-blue,
+html body .text-on-blue :is(span, div, p, small, strong, em, b, svg, svg *, .lucide) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+  text-shadow: none !important;
+}
+
+html[data-color-theme="googleGray"] body button.text-on-blue,
+html[data-color-theme="googleGray"] body a.text-on-blue,
+html[data-color-theme="googleGray"] body [role="button"].text-on-blue,
+html[data-color-theme="googleGray"] body .text-on-blue {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+html[data-color-theme="googleGray"] body button.text-on-blue *,
+html[data-color-theme="googleGray"] body a.text-on-blue *,
+html[data-color-theme="googleGray"] body [role="button"].text-on-blue *,
+html[data-color-theme="googleGray"] body .text-on-blue * {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+/* Controles azuis fortes, inclusive classes arbitrárias e gradientes. */
+html[data-color-theme="googleGray"] body button:is([class*="bg-blue-"], [class*="bg-cyan-"], [class*="bg-sky-"], [class*="from-blue-"], [class*="via-blue-"], [class*="to-blue-"], [class*="from-cyan-"], [class*="to-cyan-"], [class*="bg-[#0A66C2]"], [class*="bg-[#0a66c2]"], [class*="bg-[#1877F2]"], [class*="bg-[#1877f2]"], [class*="bg-[#1A73E8]"], [class*="bg-[#1a73e8]"], [class*="bg-[#2563EB]"], [class*="bg-[#2563eb]"], [class*="bg-[#174EA6]"], [class*="bg-[#174ea6]"]):not(:disabled):not([aria-disabled="true"]),
+html[data-color-theme="googleGray"] body a:is([class*="bg-blue-"], [class*="bg-cyan-"], [class*="bg-sky-"], [class*="from-blue-"], [class*="via-blue-"], [class*="to-blue-"], [class*="from-cyan-"], [class*="to-cyan-"], [class*="bg-[#0A66C2]"], [class*="bg-[#0a66c2]"], [class*="bg-[#1877F2]"], [class*="bg-[#1877f2]"], [class*="bg-[#1A73E8]"], [class*="bg-[#1a73e8]"], [class*="bg-[#2563EB]"], [class*="bg-[#2563eb]"], [class*="bg-[#174EA6]"], [class*="bg-[#174ea6]"]):not([aria-disabled="true"]),
+html[data-color-theme="googleGray"] body [role="button"]:is([class*="bg-blue-"], [class*="bg-cyan-"], [class*="bg-sky-"], [class*="from-blue-"], [class*="via-blue-"], [class*="to-blue-"], [class*="from-cyan-"], [class*="to-cyan-"], [class*="bg-[#0A66C2]"], [class*="bg-[#0a66c2]"], [class*="bg-[#1877F2]"], [class*="bg-[#1877f2]"], [class*="bg-[#1A73E8]"], [class*="bg-[#1a73e8]"], [class*="bg-[#2563EB]"], [class*="bg-[#2563eb]"], [class*="bg-[#174EA6]"], [class*="bg-[#174ea6]"]):not([aria-disabled="true"]),
+html[data-color-theme="googleGray"] body .bobar-view-tab--active,
+html[data-color-theme="googleGray"] body .bobar-calendar-day--selected,
+html[data-color-theme="googleGray"] body .bobar-time-option--active,
+html[data-color-theme="googleGray"] body .bobar-time-chip--active {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+html[data-color-theme="googleGray"] body button:is([class*="bg-blue-"], [class*="bg-cyan-"], [class*="bg-sky-"], [class*="from-blue-"], [class*="via-blue-"], [class*="to-blue-"], [class*="from-cyan-"], [class*="to-cyan-"], [class*="bg-[#0A66C2]"], [class*="bg-[#0a66c2]"], [class*="bg-[#1877F2]"], [class*="bg-[#1877f2]"], [class*="bg-[#1A73E8]"], [class*="bg-[#1a73e8]"], [class*="bg-[#2563EB]"], [class*="bg-[#2563eb]"], [class*="bg-[#174EA6]"], [class*="bg-[#174ea6]"]):not(:disabled):not([aria-disabled="true"]) *,
+html[data-color-theme="googleGray"] body a:is([class*="bg-blue-"], [class*="bg-cyan-"], [class*="bg-sky-"], [class*="from-blue-"], [class*="via-blue-"], [class*="to-blue-"], [class*="from-cyan-"], [class*="to-cyan-"], [class*="bg-[#0A66C2]"], [class*="bg-[#0a66c2]"], [class*="bg-[#1877F2]"], [class*="bg-[#1877f2]"], [class*="bg-[#1A73E8]"], [class*="bg-[#1a73e8]"], [class*="bg-[#2563EB]"], [class*="bg-[#2563eb]"], [class*="bg-[#174EA6]"], [class*="bg-[#174ea6]"]):not([aria-disabled="true"]) *,
+html[data-color-theme="googleGray"] body [role="button"]:is([class*="bg-blue-"], [class*="bg-cyan-"], [class*="bg-sky-"], [class*="from-blue-"], [class*="via-blue-"], [class*="to-blue-"], [class*="from-cyan-"], [class*="to-cyan-"], [class*="bg-[#0A66C2]"], [class*="bg-[#0a66c2]"], [class*="bg-[#1877F2]"], [class*="bg-[#1877f2]"], [class*="bg-[#1A73E8]"], [class*="bg-[#1a73e8]"], [class*="bg-[#2563EB]"], [class*="bg-[#2563eb]"], [class*="bg-[#174EA6]"], [class*="bg-[#174ea6]"]):not([aria-disabled="true"]) *,
+html[data-color-theme="googleGray"] body .bobar-view-tab--active *,
+html[data-color-theme="googleGray"] body .bobar-calendar-day--selected *,
+html[data-color-theme="googleGray"] body .bobar-time-option--active *,
+html[data-color-theme="googleGray"] body .bobar-time-chip--active * {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+/* Bobar: card selecionado azul precisa ter leitura branca em todo o conteúdo. */
+html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-board-card.bobar-board-card--active:not(.bobar-board-card--completed):not(.bobar-board-card--overdue) {
+  background: linear-gradient(135deg, #2F6FED 0%, #1D4ED8 100%) !important;
+  background-color: #2563EB !important;
+  background-image: linear-gradient(135deg, #2F6FED 0%, #1D4ED8 100%) !important;
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-board-card.bobar-board-card--active:not(.bobar-board-card--completed):not(.bobar-board-card--overdue) :is(h1,h2,h3,h4,p,span,div,small,strong,em,b,button,a,svg,svg *, .lucide) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-board-card.bobar-board-card--active:not(.bobar-board-card--completed):not(.bobar-board-card--overdue) .bobar-card-expand-button {
+  background: rgba(255,255,255,0.16) !important;
+  border-color: rgba(255,255,255,0.26) !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+/* Badges/labels dentro de superfície azul não podem manter cor inline escura. */
+html[data-color-theme="googleGray"] body .text-on-blue [style],
+html[data-color-theme="googleGray"] body .bobar-board-card--active [style] {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+/* Account fullscreen: botão recomendado e categorias ativas. */
+html[data-color-theme="googleGray"] body > .account-credits-fullscreen button.text-on-blue,
+html[data-color-theme="googleGray"] body > .account-credits-fullscreen button.text-on-blue * {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+
+/* -------------------------------------------------------------
+   Google Gray final corrective pass v6
+   Escopo cirúrgico para os problemas visuais reportados:
+   - botões de plano legíveis
+   - feedback forte nos formatos do Publicador Social
+   - escolhas de qualidade/formato do Motor de Imagem legíveis
+   - status finalizado do Bobar com verde claro no tema Google
+   - botão da sidebar sem invadir a área de conteúdo
+   ------------------------------------------------------------- */
+html[data-color-theme="googleGray"] .sidebar-brand-logo {
+  background: #111827 !important;
+  border-radius: 999px !important;
+  object-fit: contain !important;
+}
+
+html[data-color-theme="googleGray"] aside.bg-sidebar > button[aria-label*="menu lateral"] {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.20) !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.24) !important;
+}
+html[data-color-theme="googleGray"] aside.bg-sidebar > button[aria-label*="menu lateral"]:hover {
+  background: rgba(66, 133, 244, 0.32) !important;
+}
+html[data-color-theme="googleGray"] aside.bg-sidebar > button[aria-label*="menu lateral"] :where(svg, svg *) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-account .account-plan-activate-button {
+  background: linear-gradient(135deg, #1A73E8 0%, #2563EB 58%, #174EA6 100%) !important;
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  opacity: 1 !important;
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.22) !important;
+  text-shadow: 0 1px 1px rgba(31, 41, 55, 0.26) !important;
+}
+html[data-color-theme="googleGray"] .theme-page-account .account-plan-activate-button:disabled {
+  background: #D2E3FC !important;
+  border-color: #AECBFA !important;
+  color: #174EA6 !important;
+  -webkit-text-fill-color: #174EA6 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+html[data-color-theme="googleGray"] .theme-page-account .account-plan-activate-button:disabled :where(svg, svg *, span) {
+  color: #174EA6 !important;
+  -webkit-text-fill-color: #174EA6 !important;
+  stroke: currentColor !important;
+}
+html[data-color-theme="googleGray"] .theme-page-account .account-plan-activate-button:not(:disabled) :where(svg, svg *, span) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segmented-control {
+  background: #EEF2F7 !important;
+  border-color: #D8DEE8 !important;
+  box-shadow: inset 0 1px 2px rgba(31, 41, 55, 0.04) !important;
+}
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option {
+  border-color: transparent !important;
+  color: #4B5563 !important;
+  -webkit-text-fill-color: #4B5563 !important;
+}
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option :where(svg, svg *) {
+  color: currentColor !important;
+  -webkit-text-fill-color: currentColor !important;
+  stroke: currentColor !important;
+}
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option--idle {
+  background: #FFFFFF !important;
+  border-color: #E5EAF2 !important;
+}
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option--idle:hover {
+  background: #EAF2FF !important;
+  border-color: #CFE0FF !important;
+  color: #2563EB !important;
+  -webkit-text-fill-color: #2563EB !important;
+}
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option--active,
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option[aria-pressed="true"] {
+  background: linear-gradient(135deg, #1A73E8 0%, #2563EB 58%, #174EA6 100%) !important;
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.25) !important;
+}
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option--active :where(svg, svg *, span),
+html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option[aria-pressed="true"] :where(svg, svg *, span) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--active {
+  background: linear-gradient(135deg, #1A73E8 0%, #2563EB 58%, #174EA6 100%) !important;
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.22) !important;
+}
+html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--active :where(div, span, p, strong, small, svg, svg *, .lucide, [class*="text-"]) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle {
+  background: #FFFFFF !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+}
+html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle:hover {
+  background: #EAF2FF !important;
+  border-color: #AECBFA !important;
+}
+
+html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card.bobar-board-card--completed {
+  background: #E6F4EA !important;
+  border-color: #A8DAB5 !important;
+  color: #0D652D !important;
+  -webkit-text-fill-color: #0D652D !important;
+  box-shadow: 0 14px 30px rgba(19, 115, 51, 0.10) !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card.bobar-board-card--completed :where(h1,h2,h3,h4,p,span,div,small,strong,em,b,button,a,svg,svg *, .lucide) {
+  color: #0D652D !important;
+  -webkit-text-fill-color: #0D652D !important;
+  stroke: currentColor !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card.bobar-board-card--completed .bobar-card-expand-button {
+  background: #FFFFFF !important;
+  border-color: #A8DAB5 !important;
+  color: #0D652D !important;
+  -webkit-text-fill-color: #0D652D !important;
+}
+html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card.bobar-board-card--completed .bobar-card-expand-button :where(svg, svg *, span) {
+  color: #0D652D !important;
+  -webkit-text-fill-color: #0D652D !important;
+  stroke: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-reference, .theme-page-image-engine, .theme-page-social-publisher) button[title*="Excluir"],
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-reference, .theme-page-image-engine, .theme-page-social-publisher) button[aria-label*="Excluir"],
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-reference, .theme-page-image-engine, .theme-page-social-publisher) button[title*="Remover"],
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-reference, .theme-page-image-engine, .theme-page-social-publisher) button[aria-label*="Remover"] {
+  background: #FFFFFF !important;
+  border-color: #F5C2BF !important;
+  color: #B3261E !important;
+  -webkit-text-fill-color: #B3261E !important;
+}
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-reference, .theme-page-image-engine, .theme-page-social-publisher) button[title*="Excluir"] :where(svg, svg *),
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-reference, .theme-page-image-engine, .theme-page-social-publisher) button[aria-label*="Excluir"] :where(svg, svg *),
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-reference, .theme-page-image-engine, .theme-page-social-publisher) button[title*="Remover"] :where(svg, svg *),
+html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-reference, .theme-page-image-engine, .theme-page-social-publisher) button[aria-label*="Remover"] :where(svg, svg *) {
+  color: #B3261E !important;
+  -webkit-text-fill-color: #B3261E !important;
   stroke: currentColor !important;
 }

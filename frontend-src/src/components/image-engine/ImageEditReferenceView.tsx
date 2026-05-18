@@ -533,16 +533,19 @@ function getNextCanvasPosition(items: CanvasItem[]) {
   };
 }
 
-function buildChatAttachments(baseReference: ReferenceAttachment | null): ChatAttachment[] {
-  if (!baseReference) return [];
-  return [
-    {
-      id: baseReference.id,
-      label: "Base",
-      name: baseReference.file.name,
-      previewUrl: baseReference.previewUrl,
-    },
-  ];
+function buildChatAttachments(baseReferencesInput: ReferenceAttachment | ReferenceAttachment[] | null): ChatAttachment[] {
+  const references = Array.isArray(baseReferencesInput)
+    ? baseReferencesInput
+    : baseReferencesInput
+    ? [baseReferencesInput]
+    : [];
+
+  return references.slice(0, 6).map((reference, index) => ({
+    id: reference.id,
+    label: references.length > 1 ? `Base ${index + 1}` : "Base",
+    name: reference.file.name,
+    previewUrl: reference.previewUrl,
+  }));
 }
 
 function isBrowserObjectUrl(url: string) {
@@ -777,6 +780,7 @@ type ProjectSnapshot = {
   statusText: string;
   messages: ChatMessage[];
   baseReference: ReferenceAttachment | null;
+  baseReferences: ReferenceAttachment[];
   canvasItems: CanvasItem[];
   selectedItemId: string | null;
   viewport: {
@@ -803,8 +807,9 @@ type PersistedBaseReference = {
   height: number;
 };
 
-type PersistedProjectSnapshot = Omit<ProjectSnapshot, "baseReference" | "canvasItems"> & {
+type PersistedProjectSnapshot = Omit<ProjectSnapshot, "baseReference" | "baseReferences" | "canvasItems"> & {
   baseReference: PersistedBaseReference | null;
+  baseReferences?: PersistedBaseReference[];
   canvasItems: CanvasItem[];
 };
 
@@ -843,7 +848,7 @@ function createInitialAssistantMessages(): ChatMessage[] {
       id: makeId(),
       role: "assistant",
       content:
-        "Este editor trabalha com uma imagem-base fixa no canvas. Envie sua base e descreva exatamente o que precisa mudar.",
+        "Este editor trabalha com uma ou mais imagens-base no canvas. Envie as bases e descreva exatamente o que precisa mudar.",
     },
   ];
 }
@@ -876,6 +881,7 @@ function createDefaultProjectSnapshot(): ProjectSnapshot {
     statusText: "Carregue uma base e descreva a alteração.",
     messages: createInitialAssistantMessages(),
     baseReference: null,
+    baseReferences: [],
     canvasItems: [],
     selectedItemId: null,
     viewport: {
@@ -927,6 +933,15 @@ function buildSnapshotSignature(snapshot: ProjectSnapshot) {
           type: snapshot.baseReference.file?.type || "",
         }
       : null,
+    baseReferences: (snapshot.baseReferences?.length ? snapshot.baseReferences : snapshot.baseReference ? [snapshot.baseReference] : []).map((reference) => ({
+      id: reference.id,
+      previewUrl: reference.previewUrl,
+      width: reference.width,
+      height: reference.height,
+      name: reference.file?.name || "",
+      size: reference.file?.size || 0,
+      type: reference.file?.type || "",
+    })),
     messages: snapshot.messages.map((message) => ({
       id: message.id,
       role: message.role,
@@ -966,24 +981,33 @@ async function serializeProjectSnapshot(
   snapshot: ProjectSnapshot,
   getBaseDataUrl: (reference: ReferenceAttachment) => Promise<string>
 ): Promise<PersistedProjectSnapshot> {
-  const baseDataUrl = snapshot.baseReference ? await getBaseDataUrl(snapshot.baseReference) : null;
+  const snapshotBaseReferences = snapshot.baseReferences?.length
+    ? snapshot.baseReferences
+    : snapshot.baseReference
+    ? [snapshot.baseReference]
+    : [];
+
+  const persistedBaseReferences: PersistedBaseReference[] = await Promise.all(
+    snapshotBaseReferences.map(async (reference) => ({
+      id: reference.id,
+      kind: "base" as const,
+      name: reference.file.name || "base.png",
+      mimeType: reference.file.type || "image/png",
+      previewUrl: await getBaseDataUrl(reference),
+      width: reference.width,
+      height: reference.height,
+    }))
+  );
+
   const persistedBaseReference: PersistedBaseReference | null = snapshot.baseReference
-    ? {
-        id: snapshot.baseReference.id,
-        kind: "base",
-        name: snapshot.baseReference.file.name || "base.png",
-        mimeType: snapshot.baseReference.file.type || "image/png",
-        previewUrl: baseDataUrl || "",
-        width: snapshot.baseReference.width,
-        height: snapshot.baseReference.height,
-      }
-    : null;
+    ? persistedBaseReferences.find((reference) => reference.id === snapshot.baseReference?.id) ?? persistedBaseReferences[0] ?? null
+    : persistedBaseReferences[0] ?? null;
 
   const persistedCanvasItems = await Promise.all(
     snapshot.canvasItems
       .filter((item) => item.kind !== "pending")
       .map(async (item) => {
-        if (item.kind === "base" && persistedBaseReference) {
+        if (item.kind === "base" && persistedBaseReference && item.id === BASE_CANVAS_ITEM_ID) {
           return {
             ...item,
             url: persistedBaseReference.previewUrl,
@@ -1006,31 +1030,39 @@ async function serializeProjectSnapshot(
   return {
     ...snapshot,
     baseReference: persistedBaseReference,
+    baseReferences: persistedBaseReferences,
     canvasItems: persistedCanvasItems,
   };
 }
-
 async function deserializeProjectSnapshot(snapshot?: PersistedProjectSnapshot | null): Promise<ProjectSnapshot> {
   const fallback = createDefaultProjectSnapshot();
   if (!snapshot) return fallback;
 
-  let baseReference: ReferenceAttachment | null = null;
+  const persistedBaseReferences = Array.isArray(snapshot.baseReferences) && snapshot.baseReferences.length > 0
+    ? snapshot.baseReferences
+    : snapshot.baseReference
+    ? [snapshot.baseReference]
+    : [];
 
-  if (snapshot.baseReference?.previewUrl) {
-    const baseFile = await dataUrlToFile(
-      snapshot.baseReference.previewUrl,
-      snapshot.baseReference.name || "base.png"
-    );
+  const baseReferences: ReferenceAttachment[] = await Promise.all(
+    persistedBaseReferences
+      .filter((reference) => reference?.previewUrl)
+      .map(async (reference) => {
+        const baseFile = await dataUrlToFile(reference.previewUrl, reference.name || "base.png");
+        return {
+          id: reference.id || makeId(),
+          kind: "base" as const,
+          file: baseFile,
+          previewUrl: reference.previewUrl,
+          width: reference.width || 1,
+          height: reference.height || 1,
+        };
+      })
+  );
 
-    baseReference = {
-      id: snapshot.baseReference.id || makeId(),
-      kind: "base",
-      file: baseFile,
-      previewUrl: snapshot.baseReference.previewUrl,
-      width: snapshot.baseReference.width || 1,
-      height: snapshot.baseReference.height || 1,
-    };
-  }
+  const baseReference = snapshot.baseReference?.id
+    ? baseReferences.find((reference) => reference.id === snapshot.baseReference?.id) ?? baseReferences[0] ?? null
+    : baseReferences[0] ?? null;
 
   const canvasItems = Array.isArray(snapshot.canvasItems)
     ? snapshot.canvasItems
@@ -1068,6 +1100,7 @@ async function deserializeProjectSnapshot(snapshot?: PersistedProjectSnapshot | 
         ? snapshot.messages
         : createInitialAssistantMessages(),
     baseReference,
+    baseReferences,
     canvasItems,
     selectedItemId:
       snapshot.selectedItemId && canvasItems.some((item) => item.id === snapshot.selectedItemId)
@@ -1097,6 +1130,7 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(projectSeed.snapshot.messages);
   const [baseReference, setBaseReference] = useState<ReferenceAttachment | null>(projectSeed.snapshot.baseReference);
+  const [baseReferences, setBaseReferences] = useState<ReferenceAttachment[]>(projectSeed.snapshot.baseReferences);
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>(projectSeed.snapshot.canvasItems);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(projectSeed.snapshot.selectedItemId);
   const [activeJobs, setActiveJobs] = useState<ActiveJob[]>([]);
@@ -1136,6 +1170,7 @@ export default function ImageEditReferenceView({ onBack }: Props) {
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const activeJobsRef = useRef(new Map<string, AbortController>());
   const queuedJobsRef = useRef<QueuedImageJob[]>([]);
+  const baseReferencesRef = useRef<ReferenceAttachment[]>([]);
   const runQueuedJobsTimerRef = useRef<number | null>(null);
   const createdObjectUrlsRef = useRef<string[]>([]);
   const canvasItemsRef = useRef<CanvasItem[]>([]);
@@ -1401,7 +1436,13 @@ const applyProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
   setPromptInput(snapshot.promptInput);
   setStatusText(snapshot.statusText);
   setMessages(snapshot.messages);
-  setBaseReference(snapshot.baseReference);
+  const snapshotBaseReferences = snapshot.baseReferences?.length
+    ? snapshot.baseReferences
+    : snapshot.baseReference
+    ? [snapshot.baseReference]
+    : [];
+  setBaseReference(snapshot.baseReference ?? snapshotBaseReferences[0] ?? null);
+  setBaseReferences(snapshotBaseReferences);
   setCanvasItems(snapshot.canvasItems);
   setSelectedItemId(snapshot.selectedItemId);
   setViewport(snapshot.viewport);
@@ -1435,6 +1476,7 @@ const buildProjectSnapshot = useCallback(
       statusText,
       messages,
       baseReference,
+      baseReferences,
       canvasItems,
       selectedItemId,
       viewport,
@@ -1444,6 +1486,7 @@ const buildProjectSnapshot = useCallback(
   [
     allowResizeCrop,
     baseReference,
+    baseReferences,
     editScope,
     canvasItems,
     customHeight,
@@ -1942,9 +1985,26 @@ const handleDeleteProject = useCallback(
     [canvasItems]
   );
 
+  const activeBaseReferences = useMemo(
+    () => (baseReferences.length ? baseReferences : baseReference ? [baseReference] : []),
+    [baseReference, baseReferences]
+  );
+
+  const baseSummaryLabel = useMemo(() => {
+    if (activeBaseReferences.length > 1) {
+      return `${activeBaseReferences.length} bases carregadas`;
+    }
+    return activeBaseReferences[0]?.file.name || "Nenhuma";
+  }, [activeBaseReferences]);
+
+
   useEffect(() => {
     canvasItemsRef.current = canvasItems;
   }, [canvasItems]);
+
+  useEffect(() => {
+    baseReferencesRef.current = baseReferences.length ? baseReferences : baseReference ? [baseReference] : [];
+  }, [baseReference, baseReferences]);
 
   useEffect(() => {
   const syncViewportMetrics = () => {
@@ -2253,19 +2313,43 @@ const handleDeleteProject = useCallback(
     return validFiles;
   }, [pushAssistantMessage]);
 
+  const handleBaseFilesSelection = useCallback(
+    async (files?: File[] | null) => {
+      if (!files?.length) return;
+      const validFiles = validateFiles(files);
+      if (!validFiles.length) return;
+
+      const attachments = await Promise.all(validFiles.map((file) => loadReferenceAttachment(file)));
+      const primaryAttachment = attachments[0] ?? null;
+      setBaseReferences(attachments);
+      setBaseReference(primaryAttachment);
+
+      if (primaryAttachment) {
+        upsertBaseCanvasItem(primaryAttachment);
+        setStatusText(
+          attachments.length > 1
+            ? `${attachments.length} bases carregadas. O mesmo pedido será aplicado em todas.`
+            : `Base ativa: ${primaryAttachment.file.name}`
+        );
+        pushAssistantMessage(
+          attachments.length > 1
+            ? `${attachments.length} bases carregadas. Quando enviar o pedido, vou aplicar a mesma solicitação em cada base e respeitar os formatos selecionados.`
+            : `Base carregada: ${primaryAttachment.file.name}`,
+          "success"
+        );
+      }
+
+      requestAnimationFrame(() => fitCanvasToItems());
+    },
+    [fitCanvasToItems, loadReferenceAttachment, pushAssistantMessage, upsertBaseCanvasItem, validateFiles]
+  );
+
   const handleBaseFileSelection = useCallback(
     async (file?: File | null) => {
       if (!file) return;
-      const [validFile] = validateFiles([file]);
-      if (!validFile) return;
-
-      const attachment = await loadReferenceAttachment(validFile);
-      setBaseReference(attachment);
-      upsertBaseCanvasItem(attachment);
-      setStatusText(`Base ativa: ${attachment.file.name}`);
-      requestAnimationFrame(() => fitCanvasToItems());
+      await handleBaseFilesSelection([file]);
     },
-    [fitCanvasToItems, loadReferenceAttachment, upsertBaseCanvasItem, validateFiles]
+    [handleBaseFilesSelection]
   );
 
   const updateCanvasItem = useCallback((itemId: string, patch: Partial<CanvasItem>) => {
@@ -2280,6 +2364,7 @@ const handleDeleteProject = useCallback(
         const file = await fileFromUrl(item.url, `${item.kind === "result" ? "resultado" : "base"}-${Date.now()}.png`);
         const nextBase = await loadReferenceAttachment(file);
         setBaseReference(nextBase);
+        setBaseReferences([nextBase]);
         upsertBaseCanvasItem(nextBase, {
           sourceCanvasItemId: item.id,
           sourcePosition: { x: item.x, y: item.y },
@@ -2922,6 +3007,49 @@ const handleDeleteProject = useCallback(
     ]
   );
 
+  const handleGenerateBatch = useCallback(() => {
+    const instruction = promptInput.trim();
+    const references = baseReferencesRef.current.length
+      ? baseReferencesRef.current
+      : baseReference
+      ? [baseReference]
+      : [];
+
+    if (!references.length) {
+      pushAssistantMessage("Antes de pedir uma edição, você precisa carregar pelo menos uma imagem-base.", "warning");
+      setStatusText("Sem base ativa.");
+      return;
+    }
+
+    if (!instruction) {
+      pushAssistantMessage("Descreva o que deve mudar na imagem para eu começar.", "warning");
+      return;
+    }
+
+    if (references.length <= 1) {
+      void handleGenerate();
+      return;
+    }
+
+    setPromptInput("");
+    setStatusText(`${references.length} bases recebidas. Processando uma base por vez.`);
+    pushAssistantMessage(
+      `Recebi ${references.length} bases. Vou aplicar a mesma solicitação em todas e gerar os formatos selecionados para cada uma.`,
+      "success"
+    );
+
+    references.forEach((reference) => {
+      if (activeJobsRef.current.size < MAX_ACTIVE_JOBS) {
+        void handleGenerate(instruction, {
+          fromQueue: true,
+          baseReferenceOverride: reference,
+        });
+        return;
+      }
+      enqueueGenerateJob(instruction, reference);
+    });
+  }, [baseReference, enqueueGenerateJob, handleGenerate, promptInput, pushAssistantMessage]);
+
 const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
   const usingMiddleButton = event.button === 1;
   const usingLeftOnEmptyArea = event.button === 0 && event.target === event.currentTarget;
@@ -3019,7 +3147,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           setDragActive(false);
           const files = Array.from(event.dataTransfer.files || []);
           if (!files.length) return;
-          handleBaseFileSelection(files[0]);
+          handleBaseFilesSelection(files);
         }}
       />
 
@@ -3037,14 +3165,15 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
 
         <label className="pointer-events-auto inline-flex h-11 cursor-pointer items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-600 px-5 text-sm font-semibold text-white shadow-[0_14px_32px_rgba(37,99,235,0.28)] hover:bg-blue-500">
           <Upload className="h-4 w-4" />
-          {baseReference ? "Trocar base" : "Carregar base"}
+          {activeBaseReferences.length > 1 ? "Trocar bases" : baseReference ? "Trocar base" : "Carregar base"}
           <input
             ref={baseInputRef}
             type="file"
             accept="image/png,image/jpeg,image/jpg,image/webp"
+            multiple
             className="hidden"
             onChange={(event) => {
-              handleBaseFileSelection(event.target.files?.[0] || null);
+              handleBaseFilesSelection(Array.from(event.target.files || []));
               event.currentTarget.value = "";
             }}
           />
@@ -3180,7 +3309,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                         <div className="min-w-0 pr-3">
                           <div className="truncate text-sm font-semibold text-white">{project.name}</div>
                           <div className="mt-1 text-xs text-slate-400">
-                            {project.snapshot.baseReference ? "Com base carregada" : "Sem base"} • {projectCanvasCount} item{projectCanvasCount === 1 ? "" : "s"} no canvas
+                            {project.snapshot.baseReferences?.length ? `${project.snapshot.baseReferences.length} base${project.snapshot.baseReferences.length === 1 ? "" : "s"}` : project.snapshot.baseReference ? "Com base carregada" : "Sem base"} • {projectCanvasCount} item{projectCanvasCount === 1 ? "" : "s"} no canvas
                           </div>
                         </div>
                         {isCurrentProject ? (
@@ -3313,9 +3442,9 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           </div>
         </div>
         <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 shadow-lg">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Base ativa</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Bases</div>
           <div className="mt-1 max-w-[320px] truncate text-sm font-medium text-slate-100">
-            {baseReference?.file.name || "Nenhuma"}
+            {baseSummaryLabel}
           </div>
         </div>
       </div>
@@ -3411,7 +3540,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           <div className="pointer-events-none absolute inset-10 z-10 rounded-[32px] border-2 border-dashed border-blue-400/60 bg-blue-500/10 shadow-[0_0_0_1px_rgba(59,130,246,0.25)]" />
         ) : null}
 
-        {!baseReference ? (
+        {!activeBaseReferences.length ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center p-6 md:p-10">
             <div
               className="w-full max-w-[920px] rounded-[36px] border border-white/10 bg-slate-950/82 p-8 text-center shadow-[0_40px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl md:p-10"
@@ -3422,7 +3551,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               </div>
               <h1 className="mt-6 text-3xl font-bold text-white">Canvas de edição de imagem</h1>
               <p className="mt-3 text-base leading-relaxed text-slate-400">
-                Carregue a imagem-base para abrir o canvas livre, pedir ajustes sucessivos e manter até {MAX_ACTIVE_JOBS} imagens processando/visíveis ao mesmo tempo.
+                Carregue uma ou mais imagens-base para abrir o canvas livre, pedir ajustes sucessivos e aplicar a mesma solicitação em várias bases.
               </p>
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 <Button
@@ -3650,7 +3779,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               {baseReference ? (
                 <div className="flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
                   <Check className="h-3.5 w-3.5" />
-                  Base pronta
+                  {activeBaseReferences.length > 1 ? `${activeBaseReferences.length} bases prontas` : "Base pronta"}
                 </div>
               ) : (
                 <div className="flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs text-amber-200">
@@ -3829,15 +3958,15 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                     onClick={() => baseInputRef.current?.click()}
                   >
                     <Upload className="h-4 w-4" />
-                    Base
+                    {activeBaseReferences.length > 1 ? "Bases" : "Base"}
                   </Button>
                 </div>
               </div>
 
               <Button
                 className="h-10 rounded-xl bg-blue-600 px-5 text-white hover:bg-blue-500"
-                onClick={() => handleGenerate()}
-                disabled={!baseReference || !promptInput.trim()}
+                onClick={handleGenerateBatch}
+                disabled={!activeBaseReferences.length || !promptInput.trim()}
               >
                 {activeJobs.length > 0 ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizonal className="h-4 w-4" />}
                 {activeJobs.length > 0 ? "Adicionar à fila" : "Enviar pedido"}
@@ -3936,17 +4065,17 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                         type="button"
                         onClick={() => setQualidade(option.value)}
                         className={cn(
-                          "rounded-[22px] border px-4 py-4 text-left transition-all",
+                          "image-engine-choice-card rounded-[22px] border px-4 py-4 text-left transition-all",
                           active
-                            ? "border-emerald-400/35 bg-emerald-500/10"
-                            : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+                            ? "image-engine-choice-card--active border-blue-500 bg-blue-600 text-white shadow-[0_16px_30px_rgba(37,99,235,0.18)]"
+                            : "image-engine-choice-card--idle border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
                         )}
                       >
                         <div className="flex min-h-[72px] flex-col justify-between gap-4">
                           <div
                             className={cn(
                               "flex h-10 w-10 items-center justify-center rounded-2xl",
-                              active ? "bg-emerald-500/20 text-emerald-200" : "bg-white/5 text-slate-300"
+                              active ? "bg-white/18 text-white" : "bg-white/5 text-slate-300"
                             )}
                           >
                             {option.icon}
@@ -3971,9 +4100,9 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                     <span className="font-semibold text-white">{currentQuality.shortLabel}</span>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
-                    <span>Base ativa</span>
+                    <span>Bases</span>
                     <span className="max-w-[180px] truncate text-right font-semibold text-white">
-                      {baseReference?.file.name || "Nenhuma"}
+                      {baseSummaryLabel}
                     </span>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">

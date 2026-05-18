@@ -781,7 +781,7 @@ function importProgressButtonClasses(active: boolean, status: ImportProgressStat
   }
   if (status === "done") return "border-emerald-400/35 bg-emerald-400/15 text-emerald-50";
   if (status === "in_progress") return "border-amber-400/35 bg-amber-400/15 text-amber-50";
-  return "border-cyan-400/35 bg-cyan-400/15 text-cyan-50";
+  return "text-on-blue border-blue-600 bg-blue-600 text-white";
 }
 
 function formatImportProgressLabel(status: ImportProgressStatus) {
@@ -1210,7 +1210,7 @@ function DetectedLinksPanel({
             target="_blank"
             rel="noreferrer noopener"
             className={cn(
-              "inline-flex max-w-full items-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1.5 text-xs font-medium text-cyan-100 transition hover:bg-cyan-400/14",
+              "text-on-blue inline-flex max-w-full items-center gap-2 rounded-full border border-transparent bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-[0_8px_18px_rgba(37,99,235,0.18)] transition hover:bg-blue-500",
               compact && "px-2.5 py-1 text-[11px]",
             )}
             onClick={(event) => event.stopPropagation()}
@@ -2370,7 +2370,7 @@ function ColumnLane({
             <Button
               variant="outline"
               size="icon"
-              className="h-10 w-10 rounded-2xl"
+              className="google-gray-danger-button h-10 w-10 rounded-2xl"
               onClick={() => onDeleteColumn(column)}
               disabled={!canEdit}
               aria-label={`Excluir coluna ${column.name}`}
@@ -2457,7 +2457,7 @@ function ColumnLane({
                         ? "bobar-board-card--active bobar-board-card--completed border-emerald-300/50 bg-emerald-500/10 ring-2 ring-emerald-400/20"
                         : overdue
                           ? "bobar-board-card--active bobar-board-card--overdue border-red-300/50 bg-red-500/10 ring-2 ring-red-400/20"
-                          : "bobar-board-card--active border-cyan-400/50 bg-cyan-400/10 ring-2 ring-cyan-400/25"
+                          : "text-on-blue bobar-board-card--active border-blue-600 bg-blue-600 text-white ring-2 ring-blue-300/35 hover:bg-blue-500"
                       : completed
                         ? "bobar-board-card--completed border-emerald-400/25 bg-emerald-500/10 hover:bg-emerald-500/14"
                         : overdue
@@ -6306,7 +6306,7 @@ export default function BobarPage() {
         variant="outline"
         size="icon"
         onClick={handleExitBobar}
-        className="fixed left-4 top-4 z-[70] h-11 w-11 rounded-2xl border-red-400/30 bg-[#17070d]/92 text-red-100 shadow-[0_18px_42px_rgba(127,29,29,0.35)] backdrop-blur transition hover:border-red-300/45 hover:bg-[#230a13] hover:text-white"
+        className="google-gray-danger-button fixed left-4 top-4 z-[70] h-11 w-11 rounded-2xl border-red-400/30 bg-[#17070d]/92 text-red-100 shadow-[0_18px_42px_rgba(127,29,29,0.35)] backdrop-blur transition hover:border-red-300/45 hover:bg-[#230a13] hover:text-white"
         title="Sair do Bobar"
         aria-label="Sair do Bobar"
       >
@@ -6388,7 +6388,7 @@ export default function BobarPage() {
                     className={cn(
                       "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
                       activeView === "board"
-                        ? "bobar-view-tab bobar-view-tab--active bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        ? "text-on-blue bobar-view-tab bobar-view-tab--active bg-cyan-400 text-white hover:bg-cyan-300"
                         : "bobar-view-tab border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
                     )}
                     variant="ghost"
@@ -6401,7 +6401,7 @@ export default function BobarPage() {
                     className={cn(
                       "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
                       activeView === "imports"
-                        ? "bobar-view-tab bobar-view-tab--active bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        ? "text-on-blue bobar-view-tab bobar-view-tab--active bg-cyan-400 text-white hover:bg-cyan-300"
                         : "bobar-view-tab border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
                     )}
                     variant="ghost"
@@ -6414,7 +6414,7 @@ export default function BobarPage() {
                     className={cn(
                       "h-10 flex-1 rounded-full px-4 text-sm shadow-none sm:flex-none",
                       activeView === "shared"
-                        ? "bobar-view-tab bobar-view-tab--active bg-cyan-400 text-[#03111d] hover:bg-cyan-300"
+                        ? "text-on-blue bobar-view-tab bobar-view-tab--active bg-cyan-400 text-white hover:bg-cyan-300"
                         : "bobar-view-tab border-0 bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white",
                     )}
                     variant="ghost"

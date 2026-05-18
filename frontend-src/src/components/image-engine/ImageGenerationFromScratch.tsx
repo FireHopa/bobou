@@ -451,16 +451,16 @@ export default function ImageGenerationFromScratch({ onBack }: Props) {
                             setFormato(option.value);
                           }}
                           className={cn(
-                            "relative flex flex-col items-center justify-center p-4 rounded-2xl border transition-all duration-200",
+                            "image-engine-choice-card relative flex flex-col items-center justify-center p-4 rounded-2xl border transition-all duration-200",
                             isSelected
-                              ? "border-blue-500 bg-blue-500/10 shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
-                              : "border-white/10 bg-white/[0.03] hover:border-blue-400/30"
+                              ? "image-engine-choice-card--active border-blue-500 bg-blue-600 text-white shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
+                              : "image-engine-choice-card--idle border-white/10 bg-white/[0.03] hover:border-blue-400/30"
                           )}
                         >
                           <div
                             className={cn(
                               "mb-2",
-                              isSelected ? "text-blue-300" : "text-slate-400"
+                              isSelected ? "text-white" : "text-slate-400"
                             )}
                           >
                             {option.icon}
@@ -489,16 +489,16 @@ export default function ImageGenerationFromScratch({ onBack }: Props) {
                         disabled={isGenerating}
                         onClick={() => setQualidade(option.value)}
                         className={cn(
-                          "relative flex items-center gap-3 p-4 rounded-2xl border transition-all duration-200 text-left",
+                          "image-engine-choice-card relative flex items-center gap-3 p-4 rounded-2xl border transition-all duration-200 text-left",
                           qualidade === option.value
-                            ? "border-blue-500 bg-blue-500/10 shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
-                            : "border-white/10 bg-white/[0.03] hover:border-blue-400/30"
+                            ? "image-engine-choice-card--active border-blue-500 bg-blue-600 text-white shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
+                            : "image-engine-choice-card--idle border-white/10 bg-white/[0.03] hover:border-blue-400/30"
                         )}
                       >
                         <div
                           className={cn(
                             "shrink-0",
-                            qualidade === option.value ? "text-blue-300" : "text-slate-400"
+                            qualidade === option.value ? "text-white" : "text-slate-400"
                           )}
                         >
                           {option.icon}

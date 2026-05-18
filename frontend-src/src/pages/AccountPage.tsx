@@ -1249,10 +1249,10 @@ export default function AccountPage() {
                           onClick={() => handleActivateCreditPlan(plan.id)}
                           disabled={Boolean(activatingPlanId)}
                           className={cn(
-                            "mt-auto inline-flex h-12 w-full items-center justify-center rounded-2xl px-5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60",
+                            "text-on-blue account-plan-activate-button mt-auto inline-flex h-12 w-full items-center justify-center rounded-2xl px-5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-100",
                             isRecommended
-                              ? "border border-transparent bg-gradient-to-r from-[#4285F4] via-[#34A853] to-[#FBBC05] text-white shadow-[0_16px_30px_rgba(66,133,244,0.24)]"
-                              : "border border-slate-200 bg-white text-slate-900 shadow-[0_10px_24px_rgba(15,23,42,0.07)] hover:border-blue-200 hover:text-blue-700",
+                              ? "account-plan-activate-button--recommended border border-transparent bg-gradient-to-r from-[#4285F4] via-[#34A853] to-[#FBBC05] text-white shadow-[0_16px_30px_rgba(66,133,244,0.24)] disabled:text-white"
+                              : "border border-blue-200 bg-blue-600 text-white shadow-[0_10px_24px_rgba(37,99,235,0.18)] hover:bg-blue-700 disabled:bg-blue-500 disabled:text-white",
                           )}
                         >
                           {isActivating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ativar plano"}

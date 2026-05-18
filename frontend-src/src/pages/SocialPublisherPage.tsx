@@ -252,18 +252,19 @@ function SegmentedControl<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-1.5 sm:grid-cols-3">
+    <div className="social-publisher-segmented-control grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-1.5 sm:grid-cols-3">
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           disabled={option.disabled}
+          aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-45",
+            "social-publisher-segment-option inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
             value === option.value
-              ? "bg-white text-[#07111F] shadow-lg shadow-black/20"
-              : "text-white/58 hover:bg-white/[0.07] hover:text-white"
+              ? "social-publisher-segment-option--active border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/20"
+              : "social-publisher-segment-option--idle border-transparent text-white/58 hover:bg-white/[0.07] hover:text-white"
           )}
         >
           {option.icon}

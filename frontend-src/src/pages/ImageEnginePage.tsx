@@ -93,7 +93,7 @@ export default function ImageEnginePage() {
 
                 <Button
                   size="lg"
-                  className="mt-8 w-full font-semibold gap-2 rounded-xl h-12 px-6 bg-blue-600 hover:bg-blue-500 text-white"
+                  className="text-on-blue mt-8 w-full font-semibold gap-2 rounded-xl h-12 px-6 bg-blue-600 hover:bg-blue-500 text-white"
                   onClick={() => openMode("generate")}
                 >
                   Abrir geração do zero

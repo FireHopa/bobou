@@ -115,7 +115,18 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
             "hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           )}
         >
-          <img src={logoUrl} alt="Logo Autoridade" width={40} height={40} decoding="async" fetchPriority="high" className={cn("h-10 w-auto max-w-[160px] object-contain", collapsed ? "max-w-[44px]" : "")} />
+          <img
+            src={logoUrl}
+            alt="Logo Autoridade"
+            width={48}
+            height={48}
+            decoding="async"
+            fetchPriority="high"
+            className={cn(
+              "sidebar-brand-logo h-12 w-12 shrink-0 rounded-full bg-slate-950 object-contain p-1.5 shadow-sm ring-1 ring-white/20",
+              !collapsed && "mr-1"
+            )}
+          />
           {!collapsed ? (
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold tracking-tight">{APP_NAME}</div>
@@ -276,12 +287,12 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        className="fixed z-50 grid h-11 w-11 place-items-center rounded-full border border-theme-soft bg-theme-elevated text-label shadow-lg transition hover:scale-105 hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        style={{ left: width - 22, top: "50%", transform: "translateY(-50%)" }}
+        className="fixed z-50 grid h-9 w-9 place-items-center rounded-full border border-theme-soft bg-theme-elevated text-label shadow-[0_14px_35px_rgba(15,23,42,0.20)] ring-2 ring-background/80 transition hover:scale-105 hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={{ left: collapsed ? 23 : width - 48, top: 18 }}
         aria-label={collapsed ? "Expandir menu lateral" : "Retrair menu lateral"}
         title={collapsed ? "Expandir menu" : "Retrair menu"}
       >
-        {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+        {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
       </button>
     </aside>
   );
