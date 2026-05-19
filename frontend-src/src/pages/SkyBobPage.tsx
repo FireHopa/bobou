@@ -154,7 +154,7 @@ function BulletList({
         : "text-slate-100 border-white/10 bg-white/[0.03]";
 
   return (
-    <Card className="border-white/10 bg-white/[0.02]">
+    <Card className="theme-card">
       <CardHeader className="pb-4">
         <CardTitle className="text-xl">{title}</CardTitle>
       </CardHeader>
@@ -178,7 +178,7 @@ function BulletList({
 
 function InsightCard({ card }: { card: SkyBobCard }) {
   return (
-    <Card className="h-full border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(10,14,23,0.92))]">
+    <Card className="theme-card h-full">
       <CardHeader className="pb-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{card.section || "insight"}</Badge>
@@ -209,7 +209,7 @@ function CatalogSignalCard({ item }: { item: SkyBobCatalogItem }) {
   const chips = [...item.messaging_angles, ...item.pains, ...item.desires].filter(Boolean).slice(0, 4);
 
   return (
-    <Card className="h-full border-white/10 bg-white/[0.02]">
+    <Card className="theme-card h-full">
       <CardHeader className="pb-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="blue">{item.kind || "item"}</Badge>
@@ -243,7 +243,7 @@ function HookOptionCard({
   onVote: (hook: SkyBobHook, value: VoteValue) => void;
 }) {
   return (
-    <Card className="h-full border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(10,14,23,0.92))]">
+    <Card className="theme-card h-full">
       <CardHeader className="gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="blue">{hook.format_hint || "Formato livre"}</Badge>
@@ -605,7 +605,7 @@ function IntroScreen({
   onStart: () => void;
 }) {
   return (
-    <Card className="skybob-intro-card relative z-10 overflow-hidden border-cyan-400/20 bg-[radial-gradient(circle_at_top,rgba(0,200,232,0.18),transparent_36%),linear-gradient(180deg,rgba(8,11,20,0.96),rgba(8,11,20,1))] backdrop-blur-sm">
+    <Card className="skybob-intro-card theme-surface relative z-10 overflow-hidden backdrop-blur-sm">
       <CardContent className="flex min-h-[calc(100dvh-13rem)] items-center justify-center p-6 md:p-10">
         <div className="grid w-full max-w-5xl gap-10 xl:grid-cols-[0.9fr_1.1fr] xl:items-center">
           <div className="flex justify-center xl:justify-start">
@@ -711,7 +711,7 @@ function StudyView({
   return (
     <div className="skybob-study-view relative z-10 space-y-6">
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <Card className="border-cyan-400/16 bg-[linear-gradient(180deg,rgba(11,18,30,0.94),rgba(8,11,20,0.98))] backdrop-blur-md">
+        <Card className="theme-card backdrop-blur-md">
           <CardHeader className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="blue">Leitura do nicho</Badge>
@@ -722,7 +722,7 @@ function StudyView({
           </CardHeader>
         </Card>
 
-        <Card className="border-white/10 bg-white/[0.02] backdrop-blur-md">
+        <Card className="theme-card backdrop-blur-md">
           <CardHeader className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Direção editorial</Badge>
@@ -770,7 +770,7 @@ function StudyView({
         <BulletList title="Oportunidades para destacar a marca" items={study.opportunities} />
       </div>
 
-      <Card className="border-white/10 bg-white/[0.02] backdrop-blur-md">
+      <Card className="theme-card backdrop-blur-md">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">Calendário editorial</Badge>
@@ -809,7 +809,7 @@ function StudyView({
         </div>
       ) : null}
 
-      <Card className="border-white/10 bg-white/[0.02] backdrop-blur-md">
+      <Card className="theme-card backdrop-blur-md">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">Núcleo interpretado</Badge>
@@ -855,7 +855,7 @@ function HookLabView({
 }) {
   return (
     <div className="space-y-6 relative z-10">
-      <Card className="border-cyan-400/16 bg-[linear-gradient(180deg,rgba(11,18,30,0.94),rgba(8,11,20,0.98))] backdrop-blur-md">
+      <Card className="theme-card backdrop-blur-md">
         <CardContent className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between md:p-8">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -1191,7 +1191,7 @@ export default function SkyBobPage() {
     : null;
 
   return (
-    <div className="skybob-page-root relative min-h-dvh overflow-hidden">
+    <div className="skybob-page-root theme-page-bg relative min-h-dvh overflow-hidden">
       
       {/* FUNDO GLOBAL ANIMADO PARA A PÁGINA INTEIRA (Resultados/Intro) */}
       {!isRunningStudy && !isGeneratingHooks && (
@@ -1209,7 +1209,7 @@ export default function SkyBobPage() {
       )}
 
       <div className="fixed left-4 top-4 z-50 sm:left-6 sm:top-6">
-        <Button variant="outline" onClick={handleBack} className="theme-back-button border-white/15 bg-black/20 text-white backdrop-blur hover:bg-white/10">
+        <Button variant="outline" onClick={handleBack} className="theme-back-button backdrop-blur">
           <ArrowLeft className="h-4 w-4" />
           Voltar
         </Button>
@@ -1232,7 +1232,7 @@ export default function SkyBobPage() {
             <IntroScreen canStart={filledCount > 0} filledCount={filledCount} onStart={() => void startSkyBob()} />
           ) : (
             <>
-              <Card className="relative overflow-hidden border-cyan-400/16 bg-[radial-gradient(circle_at_top,rgba(0,200,232,0.14),transparent_32%),linear-gradient(180deg,rgba(10,16,28,0.94),rgba(8,11,20,0.98))] backdrop-blur-md">
+              <Card className="theme-surface relative overflow-hidden backdrop-blur-md">
                 <CardContent className="flex flex-col gap-6 p-6 md:p-8">
                   <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                     <div className="space-y-4">

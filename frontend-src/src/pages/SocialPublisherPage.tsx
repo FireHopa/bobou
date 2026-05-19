@@ -946,11 +946,11 @@ export default function SocialPublisherPage() {
   const instagramName = user?.instagram_username ? `@${user.instagram_username}` : "@seuinstagram";
 
   return (
-    <div className="theme-page-social-publisher social-publisher-shell relative min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(0,200,232,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.10),transparent_30%),linear-gradient(180deg,#040812_0%,#070B14_48%,#05070D_100%)] text-white">
+    <div className="theme-page-social-publisher social-publisher-shell theme-page-bg relative min-h-dvh overflow-x-hidden">
       <div className="social-publisher-grid-overlay pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:44px_44px] opacity-40" />
 
       <div className="fixed left-4 top-4 z-50 sm:left-6 sm:top-6">
-        <Button variant="outline" onClick={handleBack} className="border-white/15 bg-black/30 text-white backdrop-blur hover:bg-white/10">
+        <Button variant="outline" onClick={handleBack} className="theme-back-button backdrop-blur">
           <ArrowLeft className="h-4 w-4" />
           Voltar
         </Button>

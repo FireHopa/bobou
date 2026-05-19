@@ -18,12 +18,12 @@ export function AppShell() {
   const isFullscreenRoute = isReferenceEditorRoute || isSkyBobFullscreenRoute || isBobarFullscreenRoute || isSocialPublisherFullscreenRoute;
 
   const pageThemeClass = React.useMemo(() => {
-    if (isBobarFullscreenRoute) return "theme-page-bobar theme-google-gray-compat";
-    if (isSkyBobFullscreenRoute) return "theme-page-skybob theme-google-gray-compat";
-    if (isSocialPublisherFullscreenRoute) return "theme-page-social-publisher theme-google-gray-compat";
-    if (isReferenceEditorRoute) return "theme-page-image-reference theme-google-gray-compat";
-    if (location.pathname === "/conta") return "theme-page-account theme-google-gray-compat";
-    if (location.pathname === "/image-engine") return "theme-page-image-engine theme-google-gray-compat";
+    if (isBobarFullscreenRoute) return "theme-page-bobar";
+    if (isSkyBobFullscreenRoute) return "theme-page-skybob";
+    if (isSocialPublisherFullscreenRoute) return "theme-page-social-publisher";
+    if (isReferenceEditorRoute) return "theme-page-image-reference";
+    if (location.pathname === "/conta") return "theme-page-account";
+    if (location.pathname === "/image-engine") return "theme-page-image-engine";
     return "theme-page-standard";
   }, [isBobarFullscreenRoute, isReferenceEditorRoute, isSkyBobFullscreenRoute, isSocialPublisherFullscreenRoute, location.pathname]);
 

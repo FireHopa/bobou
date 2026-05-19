@@ -5753,7 +5753,7 @@ export default function BobarPage() {
     isFlowEditorOpen && isFlowCard && activeFlow && typeof document !== "undefined"
       ? createPortal(
           <div
-            className="theme-page-bobar theme-page-bobar-flow fixed inset-0 z-[2147483647] h-screen w-screen overflow-hidden bg-[#020611] text-white"
+            className="theme-page-bobar theme-page-bobar-flow theme-page-bg fixed inset-0 z-[2147483647] h-screen w-screen overflow-hidden"
             style={{ position: "fixed", inset: 0 }}
           >
             <div className="flex h-screen w-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.08),transparent_28%),#020611]">
@@ -6300,7 +6300,7 @@ export default function BobarPage() {
       ) : null;
 
   return (
-    <div className="theme-page-bobar relative min-h-dvh overflow-x-hidden bg-[#020611] px-3 pb-8 pt-4 text-white sm:px-4 lg:px-5 xl:px-6">
+    <div className="theme-page-bobar theme-page-bg relative min-h-dvh overflow-x-hidden px-3 pb-8 pt-4 sm:px-4 lg:px-5 xl:px-6">
       <Button
         type="button"
         variant="outline"

@@ -81,33 +81,33 @@ export default function ImageHistoryView({ onBack }: Props) {
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="space-y-6 rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(2,6,23,0.98)_60%,rgba(7,12,22,1)_100%)] p-6 md:p-8 lg:p-10 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+      <div className="theme-surface space-y-6 rounded-3xl p-6 md:p-8 lg:p-10">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-3">
-            <Button variant="ghost" className="gap-2 px-0 text-slate-300 hover:text-white hover:bg-transparent" onClick={onBack}>
+            <Button variant="ghost" className="theme-back-button gap-2 px-3" onClick={onBack}>
               <ArrowLeft className="w-4 h-4" />
               Voltar
             </Button>
             <div>
-              <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-white">Histórico de imagens</h1>
-              <p className="mt-2 max-w-3xl text-slate-400">
+              <h1 className="theme-title text-3xl md:text-4xl font-semibold tracking-tight">Histórico de imagens</h1>
+              <p className="theme-copy mt-2 max-w-3xl">
                 Aqui ficam salvas as imagens que já foram geradas do zero ou editadas por referência, com formato, qualidade e ação rápida para salvar novamente.
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Total</div>
-              <div className="mt-1 text-lg font-semibold text-white">{groupedStats.total}</div>
+            <div className="theme-stat-card rounded-2xl px-4 py-3 text-sm">
+              <div className="theme-subtle text-[11px] uppercase tracking-[0.18em]">Total</div>
+              <div className="theme-title mt-1 text-lg font-semibold">{groupedStats.total}</div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Geradas</div>
-              <div className="mt-1 text-lg font-semibold text-white">{groupedStats.generated}</div>
+            <div className="theme-stat-card rounded-2xl px-4 py-3 text-sm">
+              <div className="theme-subtle text-[11px] uppercase tracking-[0.18em]">Geradas</div>
+              <div className="theme-title mt-1 text-lg font-semibold">{groupedStats.generated}</div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Editadas</div>
-              <div className="mt-1 text-lg font-semibold text-white">{groupedStats.edited}</div>
+            <div className="theme-stat-card rounded-2xl px-4 py-3 text-sm">
+              <div className="theme-subtle text-[11px] uppercase tracking-[0.18em]">Editadas</div>
+              <div className="theme-title mt-1 text-lg font-semibold">{groupedStats.edited}</div>
             </div>
           </div>
         </div>
@@ -115,7 +115,7 @@ export default function ImageHistoryView({ onBack }: Props) {
         <div className="flex justify-end">
           <Button
             variant="outline"
-            className="rounded-xl border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/[0.08]"
+            className="theme-outline-button rounded-xl"
             onClick={handleClear}
             disabled={!items.length}
           >
@@ -127,21 +127,21 @@ export default function ImageHistoryView({ onBack }: Props) {
         {items.length ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {items.map((item) => (
-              <Card key={item.id} className="overflow-hidden border-white/10 bg-[linear-gradient(180deg,rgba(7,12,22,0.96)_0%,rgba(6,10,18,0.98)_100%)] shadow-[0_10px_30px_rgba(0,0,0,0.22)] rounded-2xl">
+              <Card key={item.id} className="theme-card overflow-hidden rounded-2xl">
                 <div className="relative aspect-square bg-black/30">
                   <img src={item.thumbnailUrl || item.url} alt={item.motor} className="h-full w-full object-contain" loading="lazy" />
-                  <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] font-medium text-white backdrop-blur-md">
+                  <div className="absolute left-3 top-3 rounded-full border border-black/10 bg-black/70 px-3 py-1 text-[11px] font-medium text-white backdrop-blur-md">
                     {formatHistoryMode(item.type)}
                   </div>
                 </div>
 
                 <CardHeader className="space-y-3 pb-3">
-                  <div className="flex items-center gap-2 text-slate-300 text-sm">
-                    {item.type === "generated" ? <Sparkles className="w-4 h-4 text-blue-300" /> : <Layers3 className="w-4 h-4 text-purple-300" />}
+                  <div className="theme-copy flex items-center gap-2 text-sm">
+                    {item.type === "generated" ? <Sparkles className="w-4 h-4 theme-accent-text" /> : <Layers3 className="w-4 h-4 theme-accent-text" />}
                     <span>{item.motor}</span>
                   </div>
-                  <CardTitle className="text-lg text-white">{formatHistoryMode(item.type)}</CardTitle>
-                  <CardDescription className="text-slate-400 flex items-center gap-2">
+                  <CardTitle className="theme-title text-lg">{formatHistoryMode(item.type)}</CardTitle>
+                  <CardDescription className="theme-copy flex items-center gap-2">
                     <Clock3 className="w-4 h-4" />
                     {formatDate(item.createdAt)}
                   </CardDescription>
@@ -149,18 +149,18 @@ export default function ImageHistoryView({ onBack }: Props) {
 
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Formato</div>
-                      <div className="mt-1 font-medium text-white">{formatLabel(item.format, FORMAT_LABELS)}</div>
+                    <div className="theme-card-soft rounded-xl p-3">
+                      <div className="theme-subtle text-[11px] uppercase tracking-[0.16em]">Formato</div>
+                      <div className="theme-title mt-1 font-medium">{formatLabel(item.format, FORMAT_LABELS)}</div>
                     </div>
-                    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Qualidade</div>
-                      <div className="mt-1 font-medium text-white">{formatLabel(item.quality, QUALITY_LABELS)}</div>
+                    <div className="theme-card-soft rounded-xl p-3">
+                      <div className="theme-subtle text-[11px] uppercase tracking-[0.16em]">Qualidade</div>
+                      <div className="theme-title mt-1 font-medium">{formatLabel(item.quality, QUALITY_LABELS)}</div>
                     </div>
                     {(item.width && item.height) ? (
-                      <div className="col-span-2 rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                        <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Tamanho final</div>
-                        <div className="mt-1 font-medium text-white">{item.width}x{item.height}</div>
+                      <div className="theme-card-soft col-span-2 rounded-xl p-3">
+                        <div className="theme-subtle text-[11px] uppercase tracking-[0.16em]">Tamanho final</div>
+                        <div className="theme-title mt-1 font-medium">{item.width}x{item.height}</div>
                       </div>
                     ) : null}
                   </div>
@@ -170,13 +170,13 @@ export default function ImageHistoryView({ onBack }: Props) {
                       href={item.url || item.thumbnailUrl || "#"}
                       target="_blank"
                       rel="noreferrer"
-                      className={`flex h-11 flex-1 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-sm font-medium text-slate-200 transition hover:bg-white/[0.08] ${!item.url ? "opacity-40 pointer-events-none" : ""}`}
+                      className={`theme-outline-button flex h-11 flex-1 items-center justify-center rounded-xl text-sm font-medium transition ${!item.url ? "opacity-40 pointer-events-none" : ""}`}
                     >
                       <ImageIcon className="mr-2 h-4 w-4" />
                       Abrir
                     </a>
                     <Button
-                      className="h-11 flex-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white"
+                      className="theme-primary-button h-11 flex-1 rounded-xl"
                       onClick={() => handleDownload(item)}
                       disabled={isDownloading === item.id}
                     >
@@ -189,12 +189,12 @@ export default function ImageHistoryView({ onBack }: Props) {
             ))}
           </div>
         ) : (
-          <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(7,12,22,0.96)_0%,rgba(6,10,18,0.98)_100%)] p-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-blue-400/10 bg-blue-500/10 mb-4">
-              <Clock3 className="w-8 h-8 text-blue-300" />
+          <div className="theme-card flex min-h-[360px] flex-col items-center justify-center rounded-3xl p-8 text-center">
+            <div className="theme-icon-box mb-4 flex h-16 w-16 items-center justify-center rounded-2xl">
+              <Clock3 className="w-8 h-8" />
             </div>
-            <h3 className="text-lg font-semibold text-white">Nenhuma imagem no histórico ainda</h3>
-            <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-400">
+            <h3 className="theme-title text-lg font-semibold">Nenhuma imagem no histórico ainda</h3>
+            <p className="theme-copy mt-2 max-w-md text-sm leading-relaxed">
               Assim que você gerar ou editar imagens, elas aparecem aqui com formato, qualidade e ação rápida para salvar.
             </p>
           </div>

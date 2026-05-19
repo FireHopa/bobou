@@ -847,8 +847,8 @@ export default function AccountPage() {
     <div className="theme-page-account mx-auto w-full max-w-7xl px-4 py-8">
       <div className="animate-in fade-in space-y-8 duration-500">
         <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-white">Minha conta</h1>
-          <p className="max-w-2xl text-sm leading-6 text-white/60">
+          <h1 className="theme-title text-3xl font-semibold tracking-tight">Minha conta</h1>
+          <p className="theme-copy max-w-2xl text-sm leading-6">
             {accountView === "credits"
               ? "Gerencie seus planos, recargas de créditos e a tabela de consumo do sistema."
               : "Gerencie seu perfil, escolha sua foto e conecte suas integrações em um só lugar."}
@@ -1094,9 +1094,9 @@ export default function AccountPage() {
                 role="dialog"
                 aria-modal="true"
                 aria-label="Planos e créditos"
-                className="account-credits-fullscreen fixed inset-0 z-[9999] overflow-y-auto bg-[#f4f7fb] px-4 py-5 text-slate-900 sm:px-6 lg:px-8"
+                className="account-credits-fullscreen theme-page-bg fixed inset-0 z-[9999] overflow-y-auto px-4 py-5 sm:px-6 lg:px-8"
               >
-            <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(66,133,244,0.12),transparent_34%),radial-gradient(circle_at_top_right,rgba(52,168,83,0.12),transparent_30%),linear-gradient(180deg,#f8fbff_0%,#eef3f9_100%)]" />
+            <div className="pointer-events-none fixed inset-0 theme-page-bg" />
 
             <div className="relative mx-auto flex min-h-full w-full max-w-[1680px] flex-col gap-6">
               <div className="sticky top-0 z-20 -mx-4 border-b border-slate-200/70 bg-[#f4f7fb]/88 px-4 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
