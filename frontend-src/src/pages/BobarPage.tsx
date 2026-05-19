@@ -2457,7 +2457,7 @@ function ColumnLane({
                         ? "bobar-board-card--active bobar-board-card--completed border-emerald-300/50 bg-emerald-500/10 ring-2 ring-emerald-400/20"
                         : overdue
                           ? "bobar-board-card--active bobar-board-card--overdue border-red-300/50 bg-red-500/10 ring-2 ring-red-400/20"
-                          : "text-on-blue bobar-board-card--active border-blue-600 bg-blue-600 text-white ring-2 ring-blue-300/35 hover:bg-blue-500"
+                          : "text-on-blue bobar-board-card--active bobar-board-card--selected-blue border-blue-600 bg-blue-600 text-white ring-2 ring-blue-300/35 hover:bg-blue-500"
                       : completed
                         ? "bobar-board-card--completed border-emerald-400/25 bg-emerald-500/10 hover:bg-emerald-500/14"
                         : overdue

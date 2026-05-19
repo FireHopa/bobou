@@ -404,28 +404,36 @@ function NetworkSelectorCard({
       onClick={onToggle}
       onKeyDown={handleKeyDown}
       className={cn(
-        "group relative cursor-pointer overflow-hidden rounded-[30px] border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-cyan-400/40",
-        selected ? item.activeClass : "border-white/10 bg-white/[0.032] hover:bg-white/[0.055]"
+        "social-publisher-network-card group relative cursor-pointer overflow-hidden rounded-[30px] border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-cyan-400/40",
+        selected
+          ? `social-publisher-network-card--selected ${item.activeClass}`
+          : "social-publisher-network-card--idle border-white/10 bg-white/[0.032] hover:bg-white/[0.055]"
       )}
     >
       <div className={cn("pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-3xl transition", selected ? item.glowClass : "bg-white/0")} />
       <div className="relative flex items-start gap-4">
-        <div className={cn("flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl text-white shadow-lg", item.iconClass)}>
+        <div
+          className={cn(
+            "social-publisher-network-card-icon flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl text-white shadow-lg",
+            `social-publisher-network-card-icon--${item.key}`,
+            item.iconClass,
+          )}
+        >
           <PlatformIcon platform={item.key} className="h-6 w-6" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-semibold text-white">{platformLabels[item.key]}</h3>
-            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", connected ? "bg-emerald-500/12 text-emerald-200" : "bg-white/[0.06] text-white/45")}>
+            <h3 className="social-publisher-network-card-title text-base font-semibold text-white">{platformLabels[item.key]}</h3>
+            <span className={cn("social-publisher-network-card-connection rounded-full px-2.5 py-1 text-[11px] font-semibold", connected ? "bg-emerald-500/12 text-emerald-200" : "bg-white/[0.06] text-white/45")}>
               {connected ? "conectado" : "desconectado"}
             </span>
           </div>
-          <p className="mt-1 text-sm leading-5 text-white/52">{item.description}</p>
-          <div className="mt-2 truncate text-xs text-white/42">{item.handle}</div>
+          <p className="social-publisher-network-card-description mt-1 text-sm leading-5 text-white/52">{item.description}</p>
+          <div className="social-publisher-network-card-handle mt-2 truncate text-xs text-white/42">{item.handle}</div>
         </div>
         <div
           className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition",
+            "social-publisher-network-card-check flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition",
             selected ? "border-cyan-300/40 bg-cyan-400/18 text-cyan-100" : "border-white/10 bg-black/25 text-white/30 group-hover:text-white/55"
           )}
         >
@@ -436,7 +444,7 @@ function NetworkSelectorCard({
       <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill result={result} />
-          <span className={cn("rounded-full px-3 py-1 text-xs font-medium", selected ? "bg-cyan-400/12 text-cyan-100" : "bg-white/[0.045] text-white/45")}>
+          <span className={cn("social-publisher-network-card-selection-label rounded-full px-3 py-1 text-xs font-medium", selected ? "bg-cyan-400/12 text-cyan-100" : "bg-white/[0.045] text-white/45")}>
             {selected ? "Selecionada para publicar" : "Não será publicada"}
           </span>
         </div>
@@ -938,7 +946,7 @@ export default function SocialPublisherPage() {
   const instagramName = user?.instagram_username ? `@${user.instagram_username}` : "@seuinstagram";
 
   return (
-    <div className="social-publisher-shell relative min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(0,200,232,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.10),transparent_30%),linear-gradient(180deg,#040812_0%,#070B14_48%,#05070D_100%)] text-white">
+    <div className="theme-page-social-publisher social-publisher-shell relative min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(0,200,232,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.10),transparent_30%),linear-gradient(180deg,#040812_0%,#070B14_48%,#05070D_100%)] text-white">
       <div className="social-publisher-grid-overlay pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:44px_44px] opacity-40" />
 
       <div className="fixed left-4 top-4 z-50 sm:left-6 sm:top-6">

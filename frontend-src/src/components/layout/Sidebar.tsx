@@ -246,7 +246,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                 {/* Botão de Sair */}
                 <button
                   onClick={handleLogout}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500/10 py-2.5 text-sm font-medium text-red-500 transition hover:bg-red-500/20 mt-1"
+                  className="sidebar-logout-button flex w-full items-center justify-center gap-2 rounded-lg bg-red-500/10 py-2.5 text-sm font-medium text-red-500 transition hover:bg-red-500/20 mt-1"
                 >
                   <LogOut className="h-4 w-4" />
                   Sair
@@ -275,7 +275,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                 <button
                   onClick={handleLogout}
                   title="Sair"
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-500 transition hover:bg-red-500/20"
+                  className="sidebar-logout-button flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-500 transition hover:bg-red-500/20"
                 >
                   <LogOut className="h-5 w-5" />
                 </button>

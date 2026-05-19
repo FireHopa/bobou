@@ -5456,3 +5456,160 @@ html[data-color-theme="googleGray"] :where(.theme-page-bobar, .theme-page-image-
   -webkit-text-fill-color: #B3261E !important;
   stroke: currentColor !important;
 }
+
+/* -------------------------------------------------------------
+   Google Gray scoped repair v12
+   Corrige de forma específica os dois pontos reportados:
+   1) Publicador Social: cards selecionados e ícone do LinkedIn legíveis.
+   2) Bobar: card selecionado sem transição de fundo branco para azul.
+   Escopo 100% limitado ao html[data-color-theme="googleGray"].
+   ------------------------------------------------------------- */
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card {
+  background: linear-gradient(135deg, #FFFFFF 0%, #F7FAFF 58%, #EFF6FF 100%) !important;
+  background-color: #FFFFFF !important;
+  border-color: #D8DEE8 !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 10px 26px rgba(31, 41, 55, 0.08) !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card.social-publisher-network-card--selected,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card.social-publisher-network-card--selected {
+  background: linear-gradient(135deg, #FFFFFF 0%, #F4F8FF 52%, #EAF2FF 100%) !important;
+  background-color: #FFFFFF !important;
+  border-color: #AECBFA !important;
+  color: #1F2937 !important;
+  -webkit-text-fill-color: currentColor !important;
+  box-shadow: 0 16px 34px rgba(66, 133, 244, 0.14) !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card :where(.social-publisher-network-card-title, h3),
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card :where(.social-publisher-network-card-title, h3) {
+  color: #1F2937 !important;
+  -webkit-text-fill-color: #1F2937 !important;
+  text-shadow: none !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card :where(.social-publisher-network-card-description, .social-publisher-network-card-handle, p),
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card :where(.social-publisher-network-card-description, .social-publisher-network-card-handle, p) {
+  color: #4B5563 !important;
+  -webkit-text-fill-color: #4B5563 !important;
+  text-shadow: none !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-connection,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-connection {
+  background: #E6F4EA !important;
+  border: 1px solid #CBEAD4 !important;
+  color: #137333 !important;
+  -webkit-text-fill-color: #137333 !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-selection-label,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-selection-label {
+  background: #EAF2FF !important;
+  border: 1px solid #CFE0FF !important;
+  color: #1A73E8 !important;
+  -webkit-text-fill-color: #1A73E8 !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-check,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-check {
+  background: #EAF2FF !important;
+  border-color: #AECBFA !important;
+  color: #1A73E8 !important;
+  -webkit-text-fill-color: #1A73E8 !important;
+  box-shadow: none !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-check :where(svg, svg *, span),
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-check :where(svg, svg *, span) {
+  color: #1A73E8 !important;
+  -webkit-text-fill-color: #1A73E8 !important;
+  stroke: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  border-color: transparent !important;
+  box-shadow: 0 12px 22px rgba(31, 41, 55, 0.18) !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon :where(svg, svg *, span),
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon :where(svg, svg *, span) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon--instagram,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon--instagram {
+  background: linear-gradient(135deg, #EC4899 0%, #D946EF 52%, #FB923C 100%) !important;
+  background-color: #EC4899 !important;
+  background-image: linear-gradient(135deg, #EC4899 0%, #D946EF 52%, #FB923C 100%) !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon--facebook,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon--facebook {
+  background: #1877F2 !important;
+  background-color: #1877F2 !important;
+  background-image: none !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon--linkedin,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon--linkedin {
+  background: #0A66C2 !important;
+  background-color: #0A66C2 !important;
+  background-image: none !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon--youtube,
+html[data-color-theme="googleGray"] body .theme-page-social-publisher .social-publisher-network-card .social-publisher-network-card-icon--youtube {
+  background: #FF0000 !important;
+  background-color: #FF0000 !important;
+  background-image: none !important;
+}
+
+html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-board-card {
+  transition-property: transform, box-shadow, border-color, opacity !important;
+  transition-duration: 140ms !important;
+  transition-timing-function: ease !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-bobar .bobar-board-card.bobar-board-card--selected-blue,
+html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-board-card.bobar-board-card--selected-blue {
+  background: linear-gradient(135deg, #4285F4 0%, #2563EB 58%, #1A56DB 100%) !important;
+  background-color: #2563EB !important;
+  background-image: linear-gradient(135deg, #4285F4 0%, #2563EB 58%, #1A56DB 100%) !important;
+  background-origin: border-box !important;
+  background-clip: border-box !important;
+  border-color: rgba(255, 255, 255, 0.34) !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  text-shadow: none !important;
+  transition-property: transform, box-shadow, border-color, opacity !important;
+  transition-duration: 140ms !important;
+  transition-timing-function: ease !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-bobar .bobar-board-card.bobar-board-card--selected-blue :where(h1,h2,h3,h4,p,span,div,small,strong,em,b,button,a,svg,svg *, .lucide),
+html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-board-card.bobar-board-card--selected-blue :where(h1,h2,h3,h4,p,span,div,small,strong,em,b,button,a,svg,svg *, .lucide) {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  stroke: currentColor !important;
+  text-shadow: none !important;
+}
+
+html[data-color-theme="googleGray"] body main.theme-page-bobar .bobar-board-card.bobar-board-card--selected-blue :where(.bobar-card-expand-button, .bobar-card-actions > div, .bobar-card-header [class*="rounded-full"], .bobar-card-header [class*="bg-white/"], [class*="border-white/10"]),
+html[data-color-theme="googleGray"] body .theme-page-bobar .bobar-board-card.bobar-board-card--selected-blue :where(.bobar-card-expand-button, .bobar-card-actions > div, .bobar-card-header [class*="rounded-full"], .bobar-card-header [class*="bg-white/"], [class*="border-white/10"]) {
+  background: rgba(255, 255, 255, 0.17) !important;
+  background-color: rgba(255, 255, 255, 0.17) !important;
+  background-image: none !important;
+  border-color: rgba(255, 255, 255, 0.34) !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  box-shadow: none !important;
+}
