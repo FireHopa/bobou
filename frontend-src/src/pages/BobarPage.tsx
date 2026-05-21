@@ -7094,11 +7094,11 @@ export default function BobarPage() {
                       ) : null}
                     </div>
 
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                    <div className="bobar-editor-section space-y-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
+                      <div className="bobar-editor-section-title text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
                         Etiquetas selecionadas
                       </div>
-                      <div className="min-h-12 rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-3">
+                      <div className="bobar-editor-field-box min-h-12 rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-3">
                         {selectedCardLabels.length ? (
                           <div className="flex flex-wrap gap-2">
                             {selectedCardLabels.map((label) => (
@@ -7124,7 +7124,7 @@ export default function BobarPage() {
                             ))}
                           </div>
                         ) : (
-                          <div className="text-sm text-white/45">
+                          <div className="bobar-editor-empty text-sm text-white/45">
                             Nenhuma etiqueta aplicada neste card.
                           </div>
                         )}
@@ -7132,17 +7132,17 @@ export default function BobarPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="bobar-editor-section space-y-3 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                        <div className="bobar-editor-section-title text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
                           Etiquetas
                         </div>
-                        <div className="mt-1 text-sm text-white/55">
+                        <div className="bobar-editor-section-description mt-1 text-sm text-white/55">
                           Clique para aplicar ou remover no card atual.
                         </div>
                       </div>
-                      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/50">
+                      <div className="bobar-editor-count-pill inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/50">
                         <Tags className="h-3.5 w-3.5" />
                         {(board?.labels || []).length} etiquetas
                       </div>
@@ -7179,13 +7179,13 @@ export default function BobarPage() {
                         })}
                       </div>
                     ) : (
-                      <div className="rounded-[1.4rem] border border-dashed border-white/10 px-4 py-4 text-sm text-white/45">
+                      <div className="bobar-editor-field-box bobar-editor-empty rounded-[1.4rem] border border-dashed border-white/10 px-4 py-4 text-sm text-white/45">
                         Crie etiquetas no painel lateral para começar a organizar os cards.
                       </div>
                     )}
                   </div>
 
-                  <div className="space-y-4 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="bobar-editor-section space-y-4 rounded-[1.8rem] border border-white/10 bg-white/[0.03] p-4">
                     <input
                       ref={attachmentInputRef}
                       type="file"
@@ -7196,10 +7196,10 @@ export default function BobarPage() {
 
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+                        <div className="bobar-editor-section-title text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
                           Anexos
                         </div>
-                        <div className="mt-1 text-sm text-white/55">
+                        <div className="bobar-editor-section-description mt-1 text-sm text-white/55">
                           Preview real no card. Clique para ampliar imagem, PDF, vídeo, áudio ou texto.
                         </div>
                       </div>
@@ -7231,7 +7231,7 @@ export default function BobarPage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-[1.4rem] border border-dashed border-white/10 px-4 py-5 text-sm text-white/45">
+                      <div className="bobar-editor-field-box bobar-editor-empty rounded-[1.4rem] border border-dashed border-white/10 px-4 py-5 text-sm text-white/45">
                         Nenhum arquivo anexado ainda.
                       </div>
                     )}

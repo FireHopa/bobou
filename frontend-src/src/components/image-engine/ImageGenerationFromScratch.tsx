@@ -313,9 +313,9 @@ export default function ImageGenerationFromScratch({ onBack }: Props) {
   };
 
   return (
-    <div className="mx-auto max-w-7xl p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="theme-page-image-engine image-engine-generator-root mx-auto max-w-7xl p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8">
-        <div className="rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(2,6,23,0.98)_60%,rgba(7,12,22,1)_100%)] shadow-[0_20px_60px_rgba(0,0,0,0.35)] overflow-hidden">
+        <div className="image-engine-hero-panel rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(2,6,23,0.98)_60%,rgba(7,12,22,1)_100%)] shadow-[0_20px_60px_rgba(0,0,0,0.35)] overflow-hidden">
           <div className="p-6 md:p-8 flex flex-col gap-6">
             {onBack && (
               <div>
@@ -414,7 +414,7 @@ export default function ImageGenerationFromScratch({ onBack }: Props) {
         
         {/* COLUNA 1: FORMULÁRIO */}
         <div className="space-y-6 w-full">
-          <Card className="border-white/10 bg-[linear-gradient(180deg,rgba(7,12,22,0.96)_0%,rgba(6,10,18,0.98)_100%)] shadow-[0_10px_40px_rgba(0,0,0,0.22)]">
+          <Card className="image-engine-config-card border-white/10 bg-[linear-gradient(180deg,rgba(7,12,22,0.96)_0%,rgba(6,10,18,0.98)_100%)] shadow-[0_10px_40px_rgba(0,0,0,0.22)]">
             <CardHeader className="pb-4">
               <CardTitle className="text-xl md:text-2xl font-semibold tracking-tight flex items-center gap-2 text-white">
                 <Rocket className="w-5 h-5 text-blue-400" />
@@ -453,14 +453,14 @@ export default function ImageGenerationFromScratch({ onBack }: Props) {
                           className={cn(
                             "image-engine-choice-card relative flex flex-col items-center justify-center p-4 rounded-2xl border transition-all duration-200",
                             isSelected
-                              ? "image-engine-choice-card--active border-blue-500 bg-blue-600 text-white shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
+                              ? "text-on-blue image-engine-choice-card--active border-blue-500 bg-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
                               : "image-engine-choice-card--idle border-white/10 bg-white/[0.03] hover:border-blue-400/30"
                           )}
                         >
                           <div
                             className={cn(
-                              "mb-2",
-                              isSelected ? "text-white" : "text-slate-400"
+                              "image-engine-choice-icon mb-2 flex h-10 w-10 items-center justify-center rounded-2xl",
+                              isSelected ? "image-engine-choice-icon--active on-blue-icon-surface" : "bg-slate-100 text-slate-400"
                             )}
                           >
                             {option.icon}
@@ -491,14 +491,14 @@ export default function ImageGenerationFromScratch({ onBack }: Props) {
                         className={cn(
                           "image-engine-choice-card relative flex items-center gap-3 p-4 rounded-2xl border transition-all duration-200 text-left",
                           qualidade === option.value
-                            ? "image-engine-choice-card--active border-blue-500 bg-blue-600 text-white shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
+                            ? "text-on-blue image-engine-choice-card--active border-blue-500 bg-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
                             : "image-engine-choice-card--idle border-white/10 bg-white/[0.03] hover:border-blue-400/30"
                         )}
                       >
                         <div
                           className={cn(
-                            "shrink-0",
-                            qualidade === option.value ? "text-white" : "text-slate-400"
+                            "image-engine-choice-icon shrink-0 flex h-10 w-10 items-center justify-center rounded-2xl",
+                            qualidade === option.value ? "image-engine-choice-icon--active on-blue-icon-surface" : "bg-slate-100 text-slate-400"
                           )}
                         >
                           {option.icon}

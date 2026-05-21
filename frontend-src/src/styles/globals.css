@@ -446,6 +446,76 @@
   .bg-theme-accent-softer { background: color-mix(in srgb, var(--theme-primary-soft) 72%, transparent); }
   .bg-theme-elevated { background: var(--theme-card); }
   .text-theme-accent-foreground { color: var(--theme-on-primary); }
+
+
+  /* Opt-in: use this only on real blue/primary surfaces.
+     It prevents Google Gray text remapping from turning active blue controls black. */
+  .text-on-blue,
+  .text-on-blue :where(span, p, div, strong, small, label, em, b, svg, svg *),
+  html[data-color-theme] .text-on-blue,
+  html[data-color-theme] .text-on-blue :where(span, p, div, strong, small, label, em, b, svg, svg *) {
+    color: var(--theme-on-primary) !important;
+    -webkit-text-fill-color: var(--theme-on-primary) !important;
+    stroke: currentColor !important;
+  }
+
+  .on-blue-icon-surface,
+  html[data-color-theme] .on-blue-icon-surface {
+    background: #FFFFFF !important;
+    border: 1px solid rgba(255, 255, 255, 0.72) !important;
+    color: var(--theme-primary-hover) !important;
+    -webkit-text-fill-color: var(--theme-primary-hover) !important;
+    box-shadow: 0 8px 18px rgba(7, 59, 142, 0.18) !important;
+  }
+
+  .on-blue-icon-surface :where(svg, svg *),
+  html[data-color-theme] .on-blue-icon-surface :where(svg, svg *) {
+    color: currentColor !important;
+    -webkit-text-fill-color: currentColor !important;
+    stroke: currentColor !important;
+  }
+
+  /* Bobar editor: give all editor sections a real surface instead of loose text.
+     Scoped to Bobar and theme tokens, so it does not fight unrelated modules. */
+  .theme-page-bobar .bobar-editor-section {
+    background: var(--theme-card) !important;
+    border: 1px solid var(--theme-border) !important;
+    border-radius: 1.8rem !important;
+    padding: 1rem !important;
+    color: var(--theme-text-main) !important;
+    -webkit-text-fill-color: var(--theme-text-main) !important;
+    box-shadow: var(--theme-shadow-soft) !important;
+  }
+
+  .theme-page-bobar .bobar-editor-section-title {
+    color: var(--theme-primary) !important;
+    -webkit-text-fill-color: var(--theme-primary) !important;
+  }
+
+  .theme-page-bobar .bobar-editor-section-description,
+  .theme-page-bobar .bobar-editor-empty {
+    color: var(--theme-text-muted) !important;
+    -webkit-text-fill-color: var(--theme-text-muted) !important;
+  }
+
+  .theme-page-bobar .bobar-editor-field-box {
+    background: var(--theme-card-soft) !important;
+    border-color: var(--theme-border-strong) !important;
+    color: var(--theme-text-muted) !important;
+    -webkit-text-fill-color: var(--theme-text-muted) !important;
+  }
+
+  .theme-page-bobar .bobar-editor-count-pill {
+    background: var(--theme-card-soft) !important;
+    border-color: var(--theme-border-strong) !important;
+    color: var(--theme-text-muted) !important;
+    -webkit-text-fill-color: var(--theme-text-muted) !important;
+  }
+
+  .theme-page-bobar .bobar-editor-count-pill :where(svg, svg *) {
+    color: currentColor !important;
+    stroke: currentColor !important;
+  }
   .shadow-theme-inset { box-shadow: inset 4px 0 0 0 var(--theme-primary); }
 
   .badge-cyan, .badge-blue { background: var(--theme-primary-soft); color: var(--theme-primary-hover); border-color: var(--theme-border-strong); }
@@ -1123,5 +1193,559 @@
   html[data-color-theme="googleGray"] .theme-page-bobar :where(.bobar-column-kicker, .bobar-visual-kicker, .bobar-field-label, .bobar-card-section-label, .bobar-flow-kicker, .bobar-dialog-eyebrow, [class*="text-cyan-"]) {
     color: var(--gg-blue) !important;
     -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+}
+
+/* ============================================================================
+   GOOGLE GRAY FINAL PASS v6
+   Escopo por módulo, com contraste visual real e regras no final do arquivo
+   para vencer overrides anteriores do tema escuro.
+   ============================================================================ */
+@layer utilities {
+  html[data-color-theme="googleGray"] {
+    --gg-page: #F7F9FC;
+    --gg-page-soft: #EEF3F8;
+    --gg-card: #FFFFFF;
+    --gg-card-soft: #F8FAFC;
+    --gg-card-blue: #EAF2FF;
+    --gg-card-blue-strong: #D8E6FF;
+    --gg-card-green: #E8F3EA;
+    --gg-card-yellow: #FFF5DD;
+    --gg-card-red: #FDECEC;
+    --gg-border: #CBD5E1;
+    --gg-border-soft: #E2E8F0;
+    --gg-border-strong: #94A3B8;
+    --gg-text: #0F172A;
+    --gg-muted: #334155;
+    --gg-subtle: #475569;
+    --gg-blue: #0B57D0;
+    --gg-blue-strong: #073B8E;
+    --gg-green: #146C2E;
+    --gg-warning: #8A4B00;
+    --gg-danger: #B3261E;
+    --gg-shadow-card: 0 18px 44px rgba(15, 23, 42, 0.09), 0 1px 0 rgba(255,255,255,0.9) inset;
+    --gg-shadow-soft: 0 10px 28px rgba(15, 23, 42, 0.07);
+  }
+
+  html[data-color-theme="googleGray"] body {
+    background: var(--gg-page) !important;
+    color: var(--gg-text) !important;
+    color-scheme: light !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-standard, .theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) {
+    background: radial-gradient(circle at top left, rgba(11, 87, 208, 0.08), transparent 34%), linear-gradient(180deg, #F8FAFC 0%, #EEF3F8 100%) !important;
+    color: var(--gg-text) !important;
+  }
+
+  /* -------------------- Base legível para texto em módulos claros -------------------- */
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(.text-white, .text-slate-50, .text-slate-100, .text-slate-200, .text-zinc-50, .text-zinc-100, .text-zinc-200, .text-blue-50, .text-blue-100, .text-blue-200, .text-indigo-100, .text-indigo-200) {
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-white/"], .text-slate-300, .text-slate-400, .text-slate-500, .text-slate-600, .text-zinc-300, .text-zinc-400, .text-muted-foreground) {
+    color: var(--gg-muted) !important;
+    -webkit-text-fill-color: var(--gg-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-cyan-"], [class*="text-sky-"], .text-blue-300, .text-blue-400, .text-indigo-300) {
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-emerald-"], [class*="text-green-"]) {
+    color: var(--gg-green) !important;
+    -webkit-text-fill-color: var(--gg-green) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-amber-"], [class*="text-yellow-"]) {
+    color: var(--gg-warning) !important;
+    -webkit-text-fill-color: var(--gg-warning) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-red-"], [class*="text-rose-"]) {
+    color: var(--gg-danger) !important;
+    -webkit-text-fill-color: var(--gg-danger) !important;
+  }
+
+  /* -------------------- Superfícies: remove preto/azul escuro no tema Google -------------------- */
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(
+    .theme-surface,
+    .theme-card,
+    .social-publisher-panel,
+    .skybob-status-panel,
+    .skybob-viewport,
+    .image-engine-hero-panel,
+    .image-engine-config-card,
+    .account-summary-box,
+    [class*="bg-[#020617"],
+    [class*="bg-[#050b18"],
+    [class*="bg-[#07101f"],
+    [class*="bg-[#07111F"],
+    [class*="bg-[#08111c"],
+    [class*="bg-[#09101c"],
+    [class*="bg-[#0a0f1b"],
+    [class*="bg-[#0a1225"],
+    [class*="bg-[#0d1830"],
+    [class*="bg-[#111114"],
+    [class*="bg-slate-950"],
+    [class*="bg-slate-900"],
+    [class*="bg-black/"],
+    [class*="bg-[linear-gradient"],
+    [class*="bg-[radial-gradient"]
+  ) {
+    background: var(--gg-card) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow-card) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(.social-publisher-grid-overlay, [class*="pointer-events-none"][class*="absolute"][class*="inset-0"]) {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(input, textarea, select, .theme-form-control, .bobar-select-trigger) {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border-strong) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+    box-shadow: none !important;
+    color-scheme: light !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(input::placeholder, textarea::placeholder) {
+    color: var(--gg-subtle) !important;
+    -webkit-text-fill-color: var(--gg-subtle) !important;
+    opacity: 1 !important;
+  }
+
+  /* -------------------- Botões e estados ativos: texto branco real em azul -------------------- */
+  html[data-color-theme="googleGray"] :where(.theme-primary-button, .btn-primary, .bg-blue-600, .bg-blue-500, .image-engine-choice-card--active, .bobar-board-card--selected-blue, .bobar-view-tab--active, .bobar-calendar-day--selected, .bobar-time-option--active, .bobar-time-chip--active, .social-publisher-segment-option--active) {
+    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
+    border-color: #0B57D0 !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    box-shadow: 0 14px 30px rgba(11, 87, 208, 0.20) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-primary-button, .btn-primary, .bg-blue-600, .bg-blue-500, .image-engine-choice-card--active, .bobar-board-card--selected-blue, .bobar-view-tab--active, .bobar-calendar-day--selected, .bobar-time-option--active, .bobar-time-chip--active, .social-publisher-segment-option--active) :where(*, svg, svg *) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-outline-button, .btn-ghost) {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border-strong) !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  /* -------------------- Motor de Imagem -------------------- */
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle {
+    background: #FFFFFF !important;
+    border: 1px solid var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow-soft) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle :where(*, svg, svg *) {
+    color: var(--gg-muted) !important;
+    -webkit-text-fill-color: var(--gg-muted) !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle :where(span, div) {
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .image-engine-reference-root {
+    background: radial-gradient(circle at top left, rgba(11, 87, 208, 0.08), transparent 34%), linear-gradient(180deg, #F8FAFC 0%, #EEF3F8 100%) !important;
+    color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .image-engine-reference-root .image-engine-scroll,
+  html[data-color-theme="googleGray"] .image-engine-reference-root :where([class*="rounded-[24px]"], [class*="rounded-[28px]"], [class*="rounded-[32px]"]) {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow-card) !important;
+  }
+
+  /* -------------------- SkyBob -------------------- */
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) .skybob-study-view .theme-card {
+    background: #FFFFFF !important;
+    border: 1px solid var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow-card) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-bullet-item, .skybob-inline-card, .skybob-calendar-item) {
+    background: var(--gg-card-soft) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) .skybob-bullet-item--success {
+    background: var(--gg-card-green) !important;
+    border-color: #86D39A !important;
+    color: var(--gg-green) !important;
+    -webkit-text-fill-color: var(--gg-green) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) .skybob-bullet-item--warning {
+    background: var(--gg-card-yellow) !important;
+    border-color: #F5C76B !important;
+    color: var(--gg-warning) !important;
+    -webkit-text-fill-color: var(--gg-warning) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-bullet-item, .skybob-inline-card, .skybob-calendar-item) :where(svg, svg *) {
+    color: var(--gg-blue) !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-priority-box, .skybob-info-box) {
+    background: var(--gg-card-green) !important;
+    border-color: #86D39A !important;
+    color: var(--gg-green) !important;
+    -webkit-text-fill-color: var(--gg-green) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-warning-box, .skybob-notice-box) {
+    background: var(--gg-card-yellow) !important;
+    border-color: #F5C76B !important;
+    color: var(--gg-warning) !important;
+    -webkit-text-fill-color: var(--gg-warning) !important;
+  }
+
+  /* -------------------- Bobar: portais, dropdowns e calendário -------------------- */
+  html[data-color-theme="googleGray"] :where(.bobar-select-menu, .bobar-calendar-panel, .bobar-calendar-surface, .bobar-due-picker) {
+    background: #FFFFFF !important;
+    border: 1px solid var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow-card) !important;
+    color-scheme: light !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option {
+    background: transparent !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option:hover {
+    background: var(--gg-card-blue) !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option--active,
+  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option--active:hover {
+    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
+    border-color: #0B57D0 !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option--active :where(*, svg, svg *) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.bobar-calendar-day, .bobar-time-option, .bobar-time-chip) {
+    background: var(--gg-card-soft) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.bobar-calendar-day--selected, .bobar-time-option--active, .bobar-time-chip--active) {
+    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
+    border-color: #0B57D0 !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.18), 0 12px 26px rgba(11, 87, 208, 0.20) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.bobar-calendar-day--today):not(.bobar-calendar-day--selected) {
+    background: var(--gg-card-blue) !important;
+    border-color: var(--gg-blue) !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-bobar) :where(.bobar-column-kicker, .bobar-visual-kicker, .bobar-field-label, .bobar-card-section-label, .bobar-flow-kicker, .bobar-dialog-eyebrow) {
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  /* -------------------- Publicador Social -------------------- */
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card {
+    background: #FFFFFF !important;
+    border: 1px solid var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow-soft) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card--selected {
+    background: var(--gg-card-blue) !important;
+    border-color: #93B7F3 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card-title {
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher :where(.social-publisher-network-card-description, .social-publisher-network-card-handle) {
+    color: var(--gg-muted) !important;
+    -webkit-text-fill-color: var(--gg-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card-connection {
+    background: var(--gg-card-green) !important;
+    color: var(--gg-green) !important;
+    -webkit-text-fill-color: var(--gg-green) !important;
+    border: 1px solid #86D39A !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card-selection-label {
+    background: var(--gg-card-blue) !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+    border: 1px solid #93B7F3 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card-check {
+    background: #FFFFFF !important;
+    border-color: #93B7F3 !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher :where(label[class*="border-dashed"], [class*="border-dashed"]) {
+    background: var(--gg-card-blue) !important;
+    border-color: #93B7F3 !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  /* -------------------- Conta e créditos -------------------- */
+  html[data-color-theme="googleGray"] .theme-page-account :where(section, form, .account-summary-box, .account-metric-box, .account-plan-note, .account-credit-card, [class*="rounded-[24px]"], [class*="rounded-[28px]"], [class*="rounded-[32px]"], [class*="rounded-[34px]"]) {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+    box-shadow: var(--gg-shadow-soft) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-account :where(button.bg-white, a.bg-white) {
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  /* -------------------- Sidebar -------------------- */
+  html[data-color-theme="googleGray"] .app-sidebar.bg-sidebar {
+    background: linear-gradient(180deg, #334155 0%, #293548 100%) !important;
+    color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] .app-sidebar :where(.sidebar-brand-card, .sidebar-nav-link, .sidebar-account-link) {
+    color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] .app-sidebar :where(.sidebar-brand-subtitle, .sidebar-user-email, .text-muted-foreground) {
+    color: #D5DEE9 !important;
+    -webkit-text-fill-color: #D5DEE9 !important;
+  }
+
+  html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-icon {
+    background: #EAF2FF !important;
+    border-color: #D8E6FF !important;
+    color: var(--gg-blue) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-icon :where(svg, svg *) {
+    color: var(--gg-blue) !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-link:where(:hover, [aria-current="page"]) {
+    background: rgba(216, 230, 255, 0.20) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-toggle-card,
+  html[data-color-theme="googleGray"] .theme-toggle-compact,
+  html[data-color-theme="googleGray"] .theme-floating-toggle,
+  html[data-color-theme="googleGray"] .sidebar-credits-button {
+    background: #FFFFFF !important;
+    border: 1px solid #D8E6FF !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+    box-shadow: var(--gg-shadow-soft) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-toggle-card :where(*, svg, svg *),
+  html[data-color-theme="googleGray"] .theme-toggle-compact :where(*, svg, svg *),
+  html[data-color-theme="googleGray"] .theme-floating-toggle :where(*, svg, svg *),
+  html[data-color-theme="googleGray"] .sidebar-credits-button :where(*, svg, svg *) {
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] .sidebar-collapse-toggle {
+    background: #FFFFFF !important;
+    border-color: #93B7F3 !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  html[data-color-theme="googleGray"] .sidebar-collapse-toggle :where(svg, svg *) {
+    color: var(--gg-blue) !important;
+    stroke: currentColor !important;
+  }
+}
+
+@layer utilities {
+  /* Google Gray v7, correções específicas de contraste ativo e superfícies do editor.
+     Escopo fechado para evitar regras globais que contaminem outros temas ou módulos. */
+
+  /* 1) Todo elemento ativo em azul escuro mantém texto branco, inclusive filhos com classes locais. */
+  html[data-color-theme="googleGray"] :where(
+    .theme-page-image-engine .image-engine-choice-card--active,
+    .theme-page-image-reference .image-engine-choice-card--active,
+    .theme-page-social-publisher .social-publisher-segment-option--active,
+    .theme-page-bobar .bobar-board-card--selected-blue,
+    .theme-page-bobar .bobar-view-tab--active,
+    .theme-page-bobar .bobar-calendar-day--selected,
+    .theme-page-bobar .bobar-time-option--active,
+    .theme-page-bobar .bobar-time-chip--active
+  ) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(
+    .theme-page-image-engine .image-engine-choice-card--active,
+    .theme-page-image-reference .image-engine-choice-card--active,
+    .theme-page-social-publisher .social-publisher-segment-option--active,
+    .theme-page-bobar .bobar-board-card--selected-blue,
+    .theme-page-bobar .bobar-view-tab--active,
+    .theme-page-bobar .bobar-calendar-day--selected,
+    .theme-page-bobar .bobar-time-option--active,
+    .theme-page-bobar .bobar-time-chip--active
+  ) :where(span, p, div, strong, small, label, em, b, svg, svg *) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    stroke: currentColor !important;
+  }
+
+  /* 2) Botões/labels azuis reais no tema Google: texto e ícones brancos, sem afetar botões claros. */
+  html[data-color-theme="googleGray"] :where(
+    .theme-page-image-engine,
+    .theme-page-image-reference,
+    .theme-page-social-publisher,
+    .theme-page-bobar
+  ) :where(button.bg-blue-600, label.bg-blue-600, a.bg-blue-600, .theme-primary-button, .btn-primary) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(
+    .theme-page-image-engine,
+    .theme-page-image-reference,
+    .theme-page-social-publisher,
+    .theme-page-bobar
+  ) :where(button.bg-blue-600, label.bg-blue-600, a.bg-blue-600, .theme-primary-button, .btn-primary) :where(span, svg, svg *) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    stroke: currentColor !important;
+  }
+
+  /* 3) Ícone de cards ativos do motor de imagem: fundo branco com ícone azul, para não sumir no azul. */
+  html[data-color-theme="googleGray"] :where(
+    .theme-page-image-engine,
+    .theme-page-image-reference
+  ) .image-engine-choice-card--active .image-engine-choice-icon--active {
+    background: #FFFFFF !important;
+    border: 1px solid rgba(255, 255, 255, 0.58) !important;
+    color: #0B57D0 !important;
+    -webkit-text-fill-color: #0B57D0 !important;
+    box-shadow: 0 8px 18px rgba(7, 59, 142, 0.22) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(
+    .theme-page-image-engine,
+    .theme-page-image-reference
+  ) .image-engine-choice-card--active .image-engine-choice-icon--active :where(svg, svg *) {
+    color: #0B57D0 !important;
+    -webkit-text-fill-color: #0B57D0 !important;
+    stroke: currentColor !important;
+  }
+
+  /* 4) Editor do Bobar: áreas de Etiquetas/Anexos voltam a ter card/superfície, não texto solto. */
+  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-section {
+    background: #FFFFFF !important;
+    border: 1px solid #B7C6D8 !important;
+    border-radius: 1.8rem !important;
+    padding: 1rem !important;
+    color: #111827 !important;
+    -webkit-text-fill-color: #111827 !important;
+    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-section-title {
+    color: #0B57D0 !important;
+    -webkit-text-fill-color: #0B57D0 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-section-description,
+  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-empty {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-field-box {
+    background: #F8FAFC !important;
+    border: 1px dashed #9CB4D0 !important;
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-count-pill {
+    background: #F8FAFC !important;
+    border-color: #9CB4D0 !important;
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-count-pill :where(svg, svg *) {
+    color: #334155 !important;
+    stroke: currentColor !important;
+  }
+
+  /* Mantém os seis pontinhos visíveis quando o card selecionado está azul. */
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-drag-handle {
+    background: #FFFFFF !important;
+    border-color: rgba(255, 255, 255, 0.68) !important;
+    color: #0B57D0 !important;
+    -webkit-text-fill-color: #0B57D0 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-drag-handle :where(svg, svg *) {
+    color: #0B57D0 !important;
+    stroke: currentColor !important;
   }
 }

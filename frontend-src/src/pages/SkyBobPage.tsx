@@ -148,10 +148,10 @@ function BulletList({
 }) {
   const accent =
     tone === "success"
-      ? "text-emerald-200 border-emerald-400/20 bg-emerald-400/[0.06]"
+      ? "skybob-bullet-item--success text-emerald-200 border-emerald-400/20 bg-emerald-400/[0.06]"
       : tone === "warning"
-        ? "text-amber-100 border-amber-400/20 bg-amber-400/[0.06]"
-        : "text-slate-100 border-white/10 bg-white/[0.03]";
+        ? "skybob-bullet-item--warning text-amber-100 border-amber-400/20 bg-amber-400/[0.06]"
+        : "skybob-bullet-item--neutral text-slate-100 border-white/10 bg-white/[0.03]";
 
   return (
     <Card className="theme-card">
@@ -161,7 +161,7 @@ function BulletList({
       <CardContent className="space-y-3">
         {items.length ? (
           items.map((item, index) => (
-            <div key={`${item}-${index}`} className={cn("flex items-start gap-3 rounded-2xl border p-4 text-sm leading-6", accent)}>
+            <div key={`${item}-${index}`} className={cn("skybob-bullet-item flex items-start gap-3 rounded-2xl border p-4 text-sm leading-6", accent)}>
               <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-cyan-300" />
               <span>{item}</span>
             </div>
@@ -194,7 +194,7 @@ function InsightCard({ card }: { card: SkyBobCard }) {
       {card.bullets.length ? (
         <CardContent className="space-y-3">
           {card.bullets.map((bullet, index) => (
-            <div key={`${bullet}-${index}`} className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-slate-200">
+            <div key={`${bullet}-${index}`} className="skybob-inline-card flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-slate-200">
               <Sparkles className="mt-1 h-4 w-4 shrink-0 text-cyan-300" />
               <span>{bullet}</span>
             </div>
@@ -783,7 +783,7 @@ function StudyView({
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           {study.calendar_recommendations.length ? study.calendar_recommendations.map((item, index) => (
-            <div key={`${item}-${index}`} className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-slate-200">
+            <div key={`${item}-${index}`} className="skybob-calendar-item flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-slate-200">
               <CalendarDays className="mt-1 h-4 w-4 shrink-0 text-cyan-300" />
               <span>{item}</span>
             </div>

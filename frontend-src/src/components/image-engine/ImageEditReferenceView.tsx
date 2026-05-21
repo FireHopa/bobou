@@ -3134,7 +3134,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
         }
       `}</style>
 
-      <div className="fixed inset-0 z-40 h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_top,rgba(37,99,235,0.18),transparent_28%),linear-gradient(180deg,#020617_0%,#050b18_100%)] text-white">
+      <div className="theme-page-image-reference image-engine-reference-root fixed inset-0 z-40 h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_top,rgba(37,99,235,0.18),transparent_28%),linear-gradient(180deg,#020617_0%,#050b18_100%)] text-white">
       <div
         className="absolute inset-0"
         onDragOver={(event) => {
@@ -3163,7 +3163,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           Voltar
         </Button>
 
-        <label className="pointer-events-auto inline-flex h-11 cursor-pointer items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-600 px-5 text-sm font-semibold text-white shadow-[0_14px_32px_rgba(37,99,235,0.28)] hover:bg-blue-500">
+        <label className="text-on-blue pointer-events-auto inline-flex h-11 cursor-pointer items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-600 px-5 text-sm font-semibold shadow-[0_14px_32px_rgba(37,99,235,0.28)] hover:bg-blue-500">
           <Upload className="h-4 w-4" />
           {activeBaseReferences.length > 1 ? "Trocar bases" : baseReference ? "Trocar base" : "Carregar base"}
           <input
@@ -3205,7 +3205,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                   type="button"
                   onClick={() => void handleCreateProject()}
                   disabled={bulkDeletingProjects || Boolean(deletingProjectId)}
-                  className="h-9 rounded-xl bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="text-on-blue h-9 rounded-xl bg-blue-600 px-3 text-sm font-semibold hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Novo projeto
                 </Button>
@@ -3555,7 +3555,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               </p>
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 <Button
-                  className="h-12 rounded-2xl bg-blue-600 px-6 text-white hover:bg-blue-500"
+                  className="text-on-blue h-12 rounded-2xl bg-blue-600 px-6 hover:bg-blue-500"
                   onClick={() => baseInputRef.current?.click()}
                 >
                   <Upload className="h-4 w-4" />
@@ -3964,7 +3964,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
               </div>
 
               <Button
-                className="h-10 rounded-xl bg-blue-600 px-5 text-white hover:bg-blue-500"
+                className="text-on-blue h-10 rounded-xl bg-blue-600 px-5 hover:bg-blue-500"
                 onClick={handleGenerateBatch}
                 disabled={!activeBaseReferences.length || !promptInput.trim()}
               >
@@ -4067,20 +4067,20 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
                         className={cn(
                           "image-engine-choice-card rounded-[22px] border px-4 py-4 text-left transition-all",
                           active
-                            ? "image-engine-choice-card--active border-blue-500 bg-blue-600 text-white shadow-[0_16px_30px_rgba(37,99,235,0.18)]"
+                            ? "text-on-blue image-engine-choice-card--active border-blue-500 bg-blue-600 shadow-[0_16px_30px_rgba(37,99,235,0.18)]"
                             : "image-engine-choice-card--idle border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
                         )}
                       >
                         <div className="flex min-h-[72px] flex-col justify-between gap-4">
                           <div
                             className={cn(
-                              "flex h-10 w-10 items-center justify-center rounded-2xl",
-                              active ? "bg-white/18 text-white" : "bg-white/5 text-slate-300"
+                              "image-engine-choice-icon flex h-10 w-10 items-center justify-center rounded-2xl",
+                              active ? "image-engine-choice-icon--active on-blue-icon-surface" : "bg-slate-100 text-slate-300"
                             )}
                           >
                             {option.icon}
                           </div>
-                          <div className="text-sm font-semibold leading-snug text-white">{option.label}</div>
+                          <div className={cn("text-sm font-semibold leading-snug", active ? "text-on-blue" : "text-white")}>{option.label}</div>
                         </div>
                       </button>
                     );
