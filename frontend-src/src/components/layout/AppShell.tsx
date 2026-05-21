@@ -24,6 +24,7 @@ export function AppShell() {
     if (isReferenceEditorRoute) return "theme-page-image-reference";
     if (location.pathname === "/conta") return "theme-page-account";
     if (location.pathname === "/image-engine") return "theme-page-image-engine";
+    if (location.pathname.startsWith("/authority-agents")) return "theme-page-authority";
     return "theme-page-standard";
   }, [isBobarFullscreenRoute, isReferenceEditorRoute, isSkyBobFullscreenRoute, isSocialPublisherFullscreenRoute, location.pathname]);
 

@@ -2287,7 +2287,7 @@ function ColumnLane({
     <Card
       variant="glass"
       className={cn(
-        "bobar-column-lane flex w-[min(320px,calc(100vw-1.5rem))] min-w-[280px] max-w-[320px] snap-start flex-col overflow-hidden rounded-[2rem] border bg-[#07101f]/80 backdrop-blur xl:min-w-[300px] 2xl:w-[340px] 2xl:max-w-[340px]",
+        "bobar-column-lane flex h-[min(78vh,860px)] max-h-[min(78vh,860px)] w-[min(320px,calc(100vw-1.5rem))] min-w-[280px] max-w-[320px] snap-start flex-col overflow-hidden rounded-[2rem] border bg-[#07101f]/80 backdrop-blur xl:min-w-[300px] 2xl:w-[340px] 2xl:max-w-[340px]",
         isCardDropActive &&
           "border-cyan-300/60 shadow-[0_0_0_1px_rgba(34,211,238,0.28),0_24px_48px_rgba(8,145,178,0.18)]",
         isColumnDropActive && "border-fuchsia-300/60 shadow-[0_0_0_1px_rgba(232,121,249,0.22)]",
@@ -2337,17 +2337,17 @@ function ColumnLane({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-200">
+              <div className="bobar-column-icon flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-200">
                 <FolderKanban className="h-5 w-5" />
               </div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/75">
+              <div className="bobar-column-kicker text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/75">
                 Coluna
               </div>
             </div>
-            <CardTitle className="break-words text-[1.45rem] leading-tight text-white">
+            <CardTitle className="bobar-column-title break-words text-[1.45rem] leading-tight text-white">
               {column.name}
             </CardTitle>
-            <CardDescription className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-white/45">
+            <CardDescription className="bobar-column-meta mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-white/45">
               <span>
                 {column.cards.length} {column.cards.length === 1 ? "card" : "cards"}
               </span>
@@ -2411,7 +2411,7 @@ function ColumnLane({
         </Button>
 
         {isCardDropActive ? (
-          <div className="rounded-[1.6rem] border border-dashed border-cyan-300/50 bg-cyan-400/8 px-4 py-5 text-center text-sm font-medium text-cyan-100">
+          <div className="bobar-column-dropzone rounded-[1.6rem] border border-dashed border-cyan-300/50 bg-cyan-400/8 px-4 py-5 text-center text-sm font-medium text-cyan-100">
             Solte aqui para mover o card para <span className="break-words">{column.name}</span>.
           </div>
         ) : null}
@@ -2510,7 +2510,7 @@ function ColumnLane({
                         ) : null}
                       </div>
 
-                      <div className="break-words text-base font-semibold leading-6 text-white">
+                      <div className="bobar-card-title break-words text-base font-semibold leading-6 text-white">
                         {card.title}
                       </div>
                     </div>
@@ -2528,13 +2528,13 @@ function ColumnLane({
                         <Eye className="h-3.5 w-3.5" />
                         {expanded ? "Recolher" : "Expandir"}
                       </Button>
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/40">
+                      <div className="bobar-card-drag-handle flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/40">
                         <GripVertical className="h-4 w-4" />
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">
+                  <div className="bobar-card-meta mt-3 flex flex-wrap items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">
                     <span>{formatDate(card.updated_at)}</span>
                     {card.attachments.length ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/60">
@@ -2585,7 +2585,7 @@ function ColumnLane({
 
                   {expanded ? (
                     <div className="mt-4 space-y-3">
-                      <div className="rounded-[1.4rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-white/68">
+                      <div className="bobar-card-preview rounded-[1.4rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-white/68">
                         {buildSnippet(card)}
                       </div>
                       <DetectedLinksPanel text={`${card.content_text}\n${card.note}`} compact />
@@ -2595,7 +2595,7 @@ function ColumnLane({
               );
             })
           ) : (
-            <div className="rounded-[1.6rem] border border-dashed border-white/10 bg-white/[0.025] px-6 py-10 text-center text-sm leading-6 text-white/45">
+            <div className="bobar-column-empty rounded-[1.6rem] border border-dashed border-white/10 bg-white/[0.025] px-6 py-10 text-center text-sm leading-6 text-white/45">
               Arraste cards para essa coluna ou crie um novo card.
             </div>
           )}
@@ -3435,7 +3435,7 @@ function FlowEditorInspector({
       className={cn("bobar-flow-inspector rounded-[2rem] border-white/10 bg-[#06101f]", className)}
     >
       <CardHeader>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+        <div className="bobar-visual-kicker text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
           Inspector
         </div>
         <CardTitle className="text-2xl font-black text-white">
@@ -6865,7 +6865,7 @@ export default function BobarPage() {
               </div>
             ) : visibleColumns.length ? (
               <div className="custom-scrollbar overflow-x-auto pb-5">
-                <div className="flex min-w-max items-start gap-4 pr-4 2xl:gap-5">
+                <div className="bobar-board-columns flex min-w-max items-stretch gap-4 pr-4 2xl:gap-5">
                   {laneColumns.map((column) => (
                     <ColumnLane
                       key={column.id}

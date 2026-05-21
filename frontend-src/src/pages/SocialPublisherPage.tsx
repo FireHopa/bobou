@@ -276,7 +276,7 @@ function SegmentedControl<T extends string>({
 }
 
 const formControlBaseClass =
-  "w-full rounded-2xl border border-white/10 bg-[#07111F] px-4 py-3 text-sm text-white shadow-inner shadow-black/20 outline-none transition placeholder:text-white/32 focus:border-cyan-400/55 focus:bg-[#091827] focus:ring-2 focus:ring-cyan-400/12 disabled:cursor-not-allowed disabled:opacity-60";
+  "theme-form-control w-full rounded-2xl border border-white/10 bg-[#07111F] px-4 py-3 text-sm text-white shadow-inner shadow-black/20 outline-none transition placeholder:text-white/32 focus:border-cyan-400/55 focus:bg-[#091827] focus:ring-2 focus:ring-cyan-400/12 disabled:cursor-not-allowed disabled:opacity-60";
 
 const darkScrollbarClass =
   "scrollbar-thin scrollbar-track-transparent scrollbar-thumb-cyan-300/30 hover:scrollbar-thumb-cyan-300/50 [scrollbar-color:rgba(103,232,249,0.38)_rgba(255,255,255,0.06)] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.045] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-cyan-300/35 [&::-webkit-scrollbar-thumb]:bg-clip-padding hover:[&::-webkit-scrollbar-thumb]:bg-cyan-200/55";
@@ -286,7 +286,7 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...rest}
-      style={{ colorScheme: "dark", ...style }}
+      style={style}
       className={cn(formControlBaseClass, "[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:invert", className)}
     />
   );
@@ -297,7 +297,7 @@ function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...rest}
-      style={{ colorScheme: "dark", ...style }}
+      style={style}
       className={cn(formControlBaseClass, "resize-y leading-6", className)}
     />
   );
@@ -308,7 +308,7 @@ function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...rest}
-      style={{ colorScheme: "dark", ...style }}
+      style={style}
       className={cn(formControlBaseClass, "cursor-pointer [&>option]:bg-[#07111F] [&>option]:text-white", className)}
     />
   );

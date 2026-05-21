@@ -103,7 +103,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 h-dvh border-r border-theme-subtle bg-sidebar backdrop-blur shadow-sidebar transition-all flex flex-col overflow-y-auto overflow-x-hidden custom-scrollbar scrollbar-gutter-stable"
+        "app-sidebar fixed left-0 top-0 z-40 h-dvh border-r border-theme-subtle bg-sidebar backdrop-blur shadow-sidebar transition-all flex flex-col overflow-y-auto overflow-x-hidden custom-scrollbar scrollbar-gutter-stable"
       )}
       style={{ width }}
     >
@@ -111,7 +111,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
         <Link
           to="/"
           className={cn(
-            "group flex items-center gap-3 rounded-2xl px-3 py-3 transition",
+            "sidebar-brand-card group flex items-center gap-3 rounded-2xl px-3 py-3 transition",
             "hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           )}
         >
@@ -130,7 +130,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
           {!collapsed ? (
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold tracking-tight">{APP_NAME}</div>
-              <div className="truncate text-xs text-muted-foreground">painel premium</div>
+              <div className="sidebar-brand-subtitle truncate text-xs text-muted-foreground">painel premium</div>
             </div>
           ) : null}
         </Link>
@@ -148,19 +148,19 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                     to={it.to}
                     onClick={(e) => { if (hasSub && !collapsed) { toggleSubMenu(it.label, e); } }}
                     className={cn(
-                      "group flex flex-1 items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition relative",
+                      "sidebar-nav-link group flex flex-1 items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition relative",
                       "hover:bg-theme-accent-soft",
                       isActiveParent ? "bg-theme-accent-softer ring-1 ring-border/70" : "ring-1 ring-transparent"
                     )}
                   >
-                    <motion.div initial={false} animate={{ scale: isActiveParent ? 1.02 : 1 }} transition={transitions.base} className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-2xl border shadow-soft", "bg-theme-accent-softer")}>
+                    <motion.div initial={false} animate={{ scale: isActiveParent ? 1.02 : 1 }} transition={transitions.base} className={cn("sidebar-nav-icon grid h-10 w-10 shrink-0 place-items-center rounded-2xl border shadow-soft", "bg-theme-accent-softer")}>
                       <it.Icon className={cn("h-5 w-5", isActiveParent ? "text-foreground" : "text-muted-foreground")} />
                     </motion.div>
                     {!collapsed && (
                       <div className="min-w-0 flex-1 flex justify-between items-center">
-                        <div className="truncate font-medium">{it.label}</div>
+                        <div className="sidebar-nav-label truncate font-medium">{it.label}</div>
                         {hasSub && (
-                          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform duration-200", isExpanded ? "rotate-180" : "")} />
+                          <ChevronDown className={cn("sidebar-nav-chevron h-4 w-4 text-muted-foreground transition-transform duration-200", isExpanded ? "rotate-180" : "")} />
                         )}
                       </div>
                     )}
@@ -174,7 +174,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden"
+                        className="sidebar-submenu overflow-hidden"
                       >
                         <div className="ml-12 mt-1 space-y-1 border-l-2 border-border/50 pl-2">
                           {it.subItems!.map((sub) => (
@@ -182,7 +182,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                               key={sub.to}
                               to={sub.to}
                               className={({ isActive }) => cn(
-                                "flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition",
+                                "sidebar-sub-link flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition",
                                 isActive ? "bg-theme-accent-soft text-label font-medium shadow-theme-inset" : "text-muted-foreground hover:bg-theme-accent-soft hover:text-foreground"
                               )}
                             >
@@ -215,7 +215,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                 <button
                   type="button"
                   onClick={() => setShowCredits((current) => !current)}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-theme-accent-softer px-3 py-2 text-sm font-medium text-label border border-theme-soft transition hover:bg-theme-accent-soft"
+                  className="sidebar-credits-button flex items-center justify-center gap-2 rounded-xl bg-theme-accent-softer px-3 py-2 text-sm font-medium text-label border border-theme-soft transition hover:bg-theme-accent-soft"
                   title={showCredits ? "Ocultar créditos" : "Ver créditos"}
                 >
                   <Coins className="h-4 w-4" />
@@ -225,7 +225,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                 {/* Link para Minha Conta */}
                 <Link
                   to="/conta"
-                  className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-theme-accent-soft cursor-pointer mt-1"
+                  className="sidebar-account-link flex items-center gap-3 rounded-xl p-2 transition hover:bg-theme-accent-soft cursor-pointer mt-1"
                 >
                   <Avatar className="h-10 w-10 shrink-0 rounded-full ring-2 ring-theme-soft">
                     {user.profile_image_url ? <AvatarImage src={user.profile_image_url} alt={avatarLabel} /> : null}
@@ -234,10 +234,10 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex flex-col overflow-hidden">
-                    <span className="truncate text-sm font-semibold text-foreground">
+                    <span className="sidebar-user-name truncate text-sm font-semibold text-foreground">
                       {user.name?.split(" ")[0] || "Usuário"}
                     </span>
-                    <span className="truncate text-xs text-muted-foreground">
+                    <span className="sidebar-user-email truncate text-xs text-muted-foreground">
                       {user.email}
                     </span>
                   </div>
@@ -258,7 +258,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
                 <button
                   type="button"
                   onClick={() => setShowCredits((current) => !current)}
-                  className="flex min-h-10 w-12 flex-col items-center justify-center rounded-xl bg-theme-accent-softer text-label border border-theme-soft transition hover:bg-theme-accent-soft"
+                  className="sidebar-credits-button flex min-h-10 w-12 flex-col items-center justify-center rounded-xl bg-theme-accent-softer text-label border border-theme-soft transition hover:bg-theme-accent-soft"
                   title={showCredits ? `${user.credits ?? 0} Créditos` : "Ver créditos"}
                 >
                   <Coins className="h-5 w-5" />
@@ -287,7 +287,7 @@ export function Sidebar({ onWidthChange }: { onWidthChange?: (w: number) => void
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        className="fixed z-50 grid h-9 w-9 place-items-center rounded-full border border-theme-soft bg-theme-elevated text-label shadow-[0_14px_35px_rgba(15,23,42,0.20)] ring-2 ring-background/80 transition hover:scale-105 hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="sidebar-collapse-toggle fixed z-50 grid h-9 w-9 place-items-center rounded-full border border-theme-soft bg-theme-elevated text-label shadow-[0_14px_35px_rgba(15,23,42,0.20)] ring-2 ring-background/80 transition hover:scale-105 hover:bg-theme-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         style={{ left: collapsed ? 23 : width - 48, top: 18 }}
         aria-label={collapsed ? "Expandir menu lateral" : "Retrair menu lateral"}
         title={collapsed ? "Expandir menu" : "Retrair menu"}

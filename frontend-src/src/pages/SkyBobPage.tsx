@@ -125,10 +125,10 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition",
+        "skybob-tab-button flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition",
         active
-          ? "border-cyan-300/40 bg-cyan-400/12 text-white shadow-soft"
-          : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
+          ? "skybob-tab-button--active border-cyan-300/40 bg-cyan-400/12 text-white shadow-soft"
+          : "skybob-tab-button--idle border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
       )}
     >
       {icon}
@@ -1191,7 +1191,7 @@ export default function SkyBobPage() {
     : null;
 
   return (
-    <div className="skybob-page-root theme-page-bg relative min-h-dvh overflow-hidden">
+    <div className="skybob-page-root theme-page-skybob theme-page-bg relative min-h-dvh overflow-hidden">
       
       {/* FUNDO GLOBAL ANIMADO PARA A PÁGINA INTEIRA (Resultados/Intro) */}
       {!isRunningStudy && !isGeneratingHooks && (
