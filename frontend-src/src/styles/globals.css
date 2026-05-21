@@ -654,697 +654,139 @@
 
 
 @layer utilities {
-  /* Google Gray v4.1
-     Single scoped correction layer. Objective: no dark panels, no pale cyan text,
-     and contrast-safe UI in Sidebar + Bobar + complex screens. */
+  /* Google Gray v10, camada única de correção visual.
+     Escopo: apenas html[data-color-theme="googleGray"] e módulos específicos. */
 
   html[data-color-theme="googleGray"] {
-    --gg-bg: #F8FAFC;
-    --gg-bg-soft: #EEF2F7;
+    --gg-page: #F6F9FD;
+    --gg-page-soft: #ECF3FB;
     --gg-card: #FFFFFF;
-    --gg-card-soft: #F1F5F9;
-    --gg-border: #CBD5E1;
-    --gg-border-strong: #94A3B8;
-    --gg-text: #111827;
+    --gg-card-soft: #F8FAFC;
+    --gg-card-blue: #EAF2FF;
+    --gg-border: #C8D3E2;
+    --gg-border-strong: #9FB2CC;
+    --gg-text: #0F172A;
     --gg-muted: #334155;
-    --gg-subtle: #475569;
+    --gg-subtle: #64748B;
     --gg-blue: #0B57D0;
-    --gg-blue-hover: #073B8E;
-    --gg-blue-soft: #D8E6FF;
+    --gg-blue-2: #155CC8;
+    --gg-blue-soft: #D8E8FF;
     --gg-green: #146C2E;
-    --gg-green-soft: #DCFCE7;
-    --gg-warning: #8A4B00;
-    --gg-warning-soft: #FEF3C7;
-    --gg-danger: #B3261E;
-    --gg-danger-soft: #FEE2E2;
-    --gg-purple: #5B21B6;
-    --gg-purple-soft: #EDE9FE;
-    --gg-sidebar-bg: #334155;
-    --gg-sidebar-bg-2: #263447;
-    --gg-sidebar-text: #FFFFFF;
-    --gg-sidebar-muted: #E2E8F0;
-    --gg-sidebar-icon-bg: #EAF2FF;
-    --gg-sidebar-icon: #0B57D0;
+    --gg-green-soft: #E7F5EA;
+    --gg-red: #B3261E;
+    --gg-red-soft: #FDE8E7;
+    --gg-yellow: #8A4B00;
+    --gg-yellow-soft: #FFF4D8;
+    --gg-shadow: 0 18px 48px rgba(15, 23, 42, 0.10);
+    --gg-shadow-soft: 0 10px 28px rgba(15, 23, 42, 0.07);
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-standard, .theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .skybob-page-root, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account) {
-    background: var(--theme-gradient-page);
-    color: var(--gg-text);
-  }
-
-  /* Sidebar: mantém fundo grafite, mas corrige ícones, toggle e textos que ficavam brancos sobre claro. */
-  html[data-color-theme="googleGray"] .app-sidebar.bg-sidebar {
-    background: linear-gradient(180deg, var(--gg-sidebar-bg) 0%, #3B4A5F 52%, var(--gg-sidebar-bg-2) 100%) !important;
-    border-color: rgba(203, 213, 225, 0.35) !important;
-    color: var(--gg-sidebar-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar :where(.sidebar-brand-card, .sidebar-nav-link, .sidebar-account-link) {
-    color: var(--gg-sidebar-text) !important;
-    -webkit-text-fill-color: var(--gg-sidebar-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar :where(.sidebar-brand-card:hover, .sidebar-nav-link:hover, .sidebar-account-link:hover) {
-    background: rgba(216, 230, 255, 0.16) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-icon {
-    background: var(--gg-sidebar-icon-bg) !important;
-    border-color: rgba(255, 255, 255, 0.55) !important;
-    color: var(--gg-sidebar-icon) !important;
-    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-icon :where(svg, svg *),
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-link :where(svg, svg *) {
-    color: var(--gg-sidebar-icon) !important;
-    stroke: currentColor !important;
-    -webkit-text-fill-color: var(--gg-sidebar-icon) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar :where(.text-muted-foreground, [class*="text-white/"], [class*="text-slate-"]) {
-    color: var(--gg-sidebar-muted) !important;
-    -webkit-text-fill-color: var(--gg-sidebar-muted) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar a[aria-current="page"] {
-    background: rgba(216, 230, 255, 0.20) !important;
-    box-shadow: inset 3px 0 0 #D8E6FF !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar a[aria-current="page"] .sidebar-nav-icon {
-    background: #FFFFFF !important;
-    color: var(--gg-blue-hover) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .theme-toggle-card,
-  html[data-color-theme="googleGray"] .app-sidebar .theme-toggle-compact {
-    background: #FFFFFF !important;
-    border: 1px solid var(--gg-border) !important;
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-skybob, .theme-page-authority) {
+    background: radial-gradient(circle at 12% 0%, rgba(11, 87, 208, 0.08), transparent 32%), linear-gradient(180deg, #F8FBFF 0%, #EEF4FB 100%) !important;
     color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .theme-toggle-card :where(*, svg, svg *),
-  html[data-color-theme="googleGray"] .app-sidebar .theme-toggle-compact :where(*, svg, svg *) {
-    color: var(--gg-text) !important;
-    stroke: currentColor !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .theme-toggle-card :where(.text-muted-foreground) {
-    color: var(--gg-muted) !important;
-    -webkit-text-fill-color: var(--gg-muted) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .theme-toggle-icon {
-    background: var(--gg-blue-soft) !important;
-    color: var(--gg-blue-hover) !important;
-    border: 1px solid #93B7F3 !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-credits-button {
-    background: var(--gg-blue-soft) !important;
-    border-color: #93B7F3 !important;
-    color: var(--gg-blue-hover) !important;
-    -webkit-text-fill-color: var(--gg-blue-hover) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-credits-button :where(*, svg, svg *) {
-    color: var(--gg-blue-hover) !important;
-    stroke: currentColor !important;
-    -webkit-text-fill-color: var(--gg-blue-hover) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-logout-button {
-    background: rgba(179, 38, 30, 0.18) !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-collapse-toggle {
-    background: #FFFFFF !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-    box-shadow: 0 14px 35px rgba(15, 23, 42, 0.22) !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-collapse-toggle :where(svg, svg *) {
-    color: var(--gg-blue) !important;
-    stroke: currentColor !important;
-  }
-
-  /* Bobar: remove painéis escuros e ciano claro sobre branco. */
-  html[data-color-theme="googleGray"] .theme-page-bobar {
-    background: radial-gradient(circle at top left, rgba(11, 87, 208, 0.10), transparent 34%), linear-gradient(180deg, #F8FAFC 0%, #EEF2F7 100%) !important;
-    color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where(.glass, .bobar-hero-card, .bobar-board-manager-panel, .bobar-section-card, .bobar-flow-shell, .bobar-flow-inspector, .bobar-column-lane, .bobar-due-picker, .bobar-calendar-panel, .bobar-calendar-surface, .bobar-select-menu, .bobar-dialog, .bobar-modal, .bobar-card-editor-panel) {
-    background: #FFFFFF !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    box-shadow: 0 18px 44px rgba(17, 24, 39, 0.10) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where([class*="bg-[#04"], [class*="bg-[#05"], [class*="bg-[#06"], [class*="bg-[#07"], [class*="bg-[#08"], [class*="bg-[#09"], [class*="bg-[#0a"], [class*="bg-[#0d"], [class*="bg-[#1"], [class*="bg-black/"], [class*="bg-[linear-gradient"], [class*="bg-[radial-gradient"]) {
-    background: #FFFFFF !important;
-    color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where(h1, h2, h3, h4, p, div, span, label, button) {
-    color: inherit;
     -webkit-text-fill-color: currentColor;
   }
 
-  html[data-color-theme="googleGray"] .theme-page-bobar :where(.text-white, .text-slate-50, .text-slate-100, .text-slate-200, .text-zinc-50, .text-zinc-100, .text-zinc-200) {
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where([class*="text-white/"], .text-slate-300, .text-slate-400, .text-slate-500, .text-slate-600, .text-zinc-300, .text-zinc-400, .text-muted-foreground) {
-    color: var(--gg-muted) !important;
-    -webkit-text-fill-color: var(--gg-muted) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where(.text-cyan-50, .text-cyan-100, .text-cyan-200, .text-cyan-300, .text-cyan-400, [class*="text-cyan-"], [class*="text-sky-"], .bobar-column-kicker, .bobar-visual-kicker, .bobar-field-label, .bobar-card-section-label, .bobar-flow-kicker, .bobar-dialog-eyebrow) {
-    color: var(--gg-blue-hover) !important;
-    -webkit-text-fill-color: var(--gg-blue-hover) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where([class*="bg-cyan-"], [class*="bg-sky-"], .bg-blue-50, .bg-blue-100) {
-    background: var(--gg-blue-soft) !important;
-    color: var(--gg-blue-hover) !important;
-    border-color: #93B7F3 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where([class*="bg-emerald-"], [class*="bg-green-"]) {
-    background: var(--gg-green-soft) !important;
-    color: var(--gg-green) !important;
-    border-color: #86D39A !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where([class*="bg-amber-"], [class*="bg-yellow-"]) {
-    background: var(--gg-warning-soft) !important;
-    color: var(--gg-warning) !important;
-    border-color: #F5C76B !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where([class*="bg-red-"], [class*="bg-rose-"]) {
-    background: var(--gg-danger-soft) !important;
-    color: var(--gg-danger) !important;
-    border-color: #F4A3A3 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where(input, textarea, select, .bobar-select-trigger) {
+  html[data-color-theme="googleGray"] :where(input, textarea, select, .theme-form-control, .bobar-select-trigger) {
     background: #FFFFFF !important;
     border-color: var(--gg-border-strong) !important;
     color: var(--gg-text) !important;
     -webkit-text-fill-color: var(--gg-text) !important;
     color-scheme: light !important;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04) !important;
   }
 
-  html[data-color-theme="googleGray"] .theme-page-bobar :where(input::placeholder, textarea::placeholder) {
-    color: var(--gg-subtle) !important;
-    -webkit-text-fill-color: var(--gg-subtle) !important;
+  html[data-color-theme="googleGray"] :where(input::placeholder, textarea::placeholder) {
+    color: #64748B !important;
     opacity: 1 !important;
+    -webkit-text-fill-color: #64748B !important;
   }
 
-  html[data-color-theme="googleGray"] .bobar-select-menu {
-    background: #FFFFFF !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    box-shadow: 0 24px 60px rgba(17, 24, 39, 0.18) !important;
-  }
-
-  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option {
-    background: transparent !important;
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option:hover {
-    background: var(--gg-blue-soft) !important;
-    color: var(--gg-blue-hover) !important;
-    -webkit-text-fill-color: var(--gg-blue-hover) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.bobar-select-option--active, .bobar-calendar-day--selected, .bobar-time-option--active, .bobar-time-chip--active, .bobar-view-tab--active, .bobar-board-card--selected-blue, .theme-primary-button, .btn-primary, .bg-blue-600) {
-    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 56%, #073B8E 100%) !important;
+  html[data-color-theme="googleGray"] :where(button.bg-blue-600, label.bg-blue-600, a.bg-blue-600, .theme-primary-button, .btn-primary) {
+    background: linear-gradient(135deg, #0B57D0 0%, #155CC8 100%) !important;
     border-color: transparent !important;
     color: #FFFFFF !important;
     -webkit-text-fill-color: #FFFFFF !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.bobar-select-option--active, .bobar-calendar-day--selected, .bobar-time-option--active, .bobar-time-chip--active, .bobar-view-tab--active, .bobar-board-card--selected-blue, .theme-primary-button, .btn-primary, .bg-blue-600) :where(*, svg, svg *) {
+  html[data-color-theme="googleGray"] :where(button.bg-blue-600, label.bg-blue-600, a.bg-blue-600, .theme-primary-button, .btn-primary) :where(span, p, div, strong, small, label, em, b, svg, svg *) {
     color: #FFFFFF !important;
     -webkit-text-fill-color: #FFFFFF !important;
     stroke: currentColor !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.bobar-calendar-panel, .bobar-calendar-surface, .bobar-due-picker) {
+  html[data-color-theme="googleGray"] :where(.theme-outline-button, button[data-variant="outline"], .btn-ghost) {
     background: #FFFFFF !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-    box-shadow: 0 24px 60px rgba(17, 24, 39, 0.18) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.bobar-calendar-panel, .bobar-calendar-surface, .bobar-due-picker) :where(*) {
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.bobar-calendar-day, .bobar-time-option, .bobar-time-chip) {
-    background: #F8FAFC !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.bobar-overdue-indicator, .bobar-due-status-overdue) {
-    background: var(--gg-danger-soft) !important;
-    border-color: #F4A3A3 !important;
-    color: var(--gg-danger) !important;
-    -webkit-text-fill-color: var(--gg-danger) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.bobar-overdue-indicator, .bobar-due-status-overdue) :where(*) {
-    color: var(--gg-danger) !important;
-    -webkit-text-fill-color: var(--gg-danger) !important;
-    stroke: currentColor !important;
-  }
-
-  html[data-color-theme="googleGray"] .bobar-column-lane {
-    height: min(78vh, 860px) !important;
-    max-height: min(78vh, 860px) !important;
-  }
-
-  html[data-color-theme="googleGray"] .bobar-column-scroll {
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    scrollbar-color: rgba(11, 87, 208, 0.45) rgba(148, 163, 184, 0.22) !important;
-  }
-
-  html[data-color-theme="googleGray"] .bobar-card-drag-handle,
-  html[data-color-theme="googleGray"] .bobar-card-drag-handle :where(svg, svg *) {
-    background: #EEF2F7 !important;
     border-color: var(--gg-border-strong) !important;
     color: var(--gg-blue) !important;
     -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-outline-button, button[data-variant="outline"], .btn-ghost) :where(svg, svg *) {
+    color: currentColor !important;
     stroke: currentColor !important;
   }
 
-  /* Demais telas complexas: mantém paleta legível sem alterar o tema padrão. */
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root, .theme-page-social-publisher, .theme-page-account, .theme-page-image-engine, .theme-page-image-reference) :where(.text-white, .text-slate-50, .text-slate-100, .text-slate-200, .text-zinc-50, .text-zinc-100, .text-zinc-200) {
+  /* -------------------- Motor de imagem por referência -------------------- */
+  html[data-color-theme="googleGray"] .image-engine-reference-root {
+    background: radial-gradient(circle at 18% 0%, rgba(11, 87, 208, 0.07), transparent 34%), linear-gradient(180deg, #F8FBFF 0%, #EEF4FB 100%) !important;
     color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root, .theme-page-social-publisher, .theme-page-account, .theme-page-image-engine, .theme-page-image-reference) :where([class*="text-white/"], .text-slate-300, .text-slate-400, .text-slate-500, .text-slate-600, .text-muted-foreground) {
+  html[data-color-theme="googleGray"] .image-engine-reference-root > div.pointer-events-none.absolute.inset-0 {
+    background: transparent !important;
+  }
+
+  html[data-color-theme="googleGray"] .image-reference-toolbar,
+  html[data-color-theme="googleGray"] .image-reference-status,
+  html[data-color-theme="googleGray"] .image-reference-bottom-pill,
+  html[data-color-theme="googleGray"] .image-reference-floating-panel,
+  html[data-color-theme="googleGray"] .image-reference-settings-panel,
+  html[data-color-theme="googleGray"] .image-reference-settings-header,
+  html[data-color-theme="googleGray"] .image-reference-settings-toggle,
+  html[data-color-theme="googleGray"] .image-reference-composer {
+    background: rgba(255, 255, 255, 0.96) !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+    box-shadow: var(--gg-shadow-soft) !important;
+    backdrop-filter: blur(18px);
+  }
+
+  html[data-color-theme="googleGray"] .image-reference-canvas-viewport {
+    background: linear-gradient(180deg, #FDFEFF 0%, #F1F6FD 100%) !important;
+    border-color: var(--gg-border) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 20px 60px rgba(15,23,42,.08) !important;
+  }
+
+  html[data-color-theme="googleGray"] .image-reference-empty-canvas {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+    box-shadow: 0 30px 80px rgba(15, 23, 42, 0.10) !important;
+  }
+
+  html[data-color-theme="googleGray"] .image-engine-reference-root :where(.text-white, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400, [class*="text-white/"]) {
     color: var(--gg-muted) !important;
     -webkit-text-fill-color: var(--gg-muted) !important;
   }
 
-  html[data-color-theme="googleGray"] .social-publisher-network-card-icon,
-  html[data-color-theme="googleGray"] .social-publisher-network-card-icon :where(svg, svg *, span) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    stroke: currentColor !important;
-  }
-
-  html[data-color-theme="googleGray"] .social-publisher-network-card-icon--facebook { background: #0B57D0 !important; }
-  html[data-color-theme="googleGray"] .social-publisher-network-card-icon--linkedin { background: #073B8E !important; }
-  html[data-color-theme="googleGray"] .social-publisher-network-card-icon--youtube { background: #B3261E !important; }
-  html[data-color-theme="googleGray"] .social-publisher-network-card-icon--instagram { background: linear-gradient(135deg, #B3261E 0%, #5B21B6 52%, #C2410C 100%) !important; }
-  html[data-color-theme="googleGray"] .social-publisher-network-card-icon--tiktok { background: #111827 !important; }
-}
-
-/* Google Gray v5: correções de contraste com aplicação visual por tela.
-   Escopo limitado ao tema Google para não contaminar os demais temas. */
-@layer utilities {
-  html[data-color-theme="googleGray"] {
-    --gg-bg: #F8FAFC;
-    --gg-bg-soft: #EEF2F7;
-    --gg-card: #FFFFFF;
-    --gg-card-soft: #F1F5F9;
-    --gg-card-blue: #EAF2FF;
-    --gg-card-green: #DCFCE7;
-    --gg-card-yellow: #FEF3C7;
-    --gg-card-red: #FEE2E2;
-    --gg-border: #CBD5E1;
-    --gg-border-strong: #94A3B8;
-    --gg-text: #111827;
-    --gg-muted: #334155;
-    --gg-subtle: #475569;
-    --gg-blue: #0B57D0;
-    --gg-blue-hover: #073B8E;
-    --gg-green: #146C2E;
-    --gg-warning: #8A4B00;
-    --gg-danger: #B3261E;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .skybob-page-root, .theme-page-bobar) {
-    background: radial-gradient(circle at top left, rgba(11, 87, 208, 0.08), transparent 34%), linear-gradient(180deg, #F8FAFC 0%, #EEF2F7 100%) !important;
+  html[data-color-theme="googleGray"] .image-engine-reference-root :where(h1, h2, h3, .font-bold, .font-semibold):not(.text-on-blue):not(.image-engine-choice-card--active *) {
     color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .image-engine-reference-root :where([class*="bg-slate-950"], [class*="bg-slate-900"], [class*="bg-[#071"], [class*="bg-[#091"], [class*="bg-black/20"], [class*="bg-white/["]) :not(.text-on-blue) {
     -webkit-text-fill-color: currentColor;
   }
 
-  /* Motor de Imagem: remove casca escura no tema Google e devolve cards visíveis. */
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where([class*="bg-[#020617"], [class*="bg-[#050b18"], [class*="bg-[#07101f"], [class*="bg-[#09101c"], [class*="bg-[#0a1225"], [class*="bg-[#0d1830"], [class*="bg-slate-950"], [class*="bg-slate-900"], [class*="bg-black/"], [class*="bg-[linear-gradient"], [class*="bg-[radial-gradient"]) {
-    background: var(--gg-card) !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference > :where(div[class*="fixed"][class*="inset-0"]) {
-    background: radial-gradient(circle at top left, rgba(11, 87, 208, 0.08), transparent 34%), linear-gradient(180deg, #F8FAFC 0%, #EEF2F7 100%) !important;
-    color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.image-engine-scroll, [class*="rounded-[28px]"], [class*="rounded-[32px]"], [class*="rounded-[36px]"], [class*="rounded-[24px]"], [class*="rounded-2xl"]) {
-    border-color: var(--gg-border) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.image-engine-scroll, [class*="shadow-[0_30px_90px"], [class*="shadow-[0_24px_80px"], [class*="shadow-[0_24px_70px"], [class*="shadow-lg"], [class*="shadow-inner"]) {
-    box-shadow: 0 18px 44px rgba(17, 24, 39, 0.10) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.text-white, .text-slate-50, .text-slate-100, .text-slate-200, .text-blue-100, .text-blue-200, .text-indigo-300) {
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where([class*="text-white/"], .text-slate-300, .text-slate-400, .text-slate-500, .text-slate-600) {
-    color: var(--gg-muted) !important;
-    -webkit-text-fill-color: var(--gg-muted) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.text-cyan-50, .text-cyan-100, .text-cyan-200, .text-cyan-300, [class*="text-cyan-"], [class*="text-sky-"]) {
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.text-emerald-100, .text-emerald-200, [class*="text-emerald-"], [class*="text-green-"]) {
-    color: var(--gg-green) !important;
-    -webkit-text-fill-color: var(--gg-green) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.text-amber-100, .text-amber-200, [class*="text-amber-"], [class*="text-yellow-"]) {
-    color: var(--gg-warning) !important;
-    -webkit-text-fill-color: var(--gg-warning) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.text-red-100, .text-red-200, [class*="text-red-"], [class*="text-rose-"]) {
-    color: var(--gg-danger) !important;
-    -webkit-text-fill-color: var(--gg-danger) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where([class*="bg-white/["], [class*="bg-white/5"], [class*="bg-white/10"], [class*="bg-white/18"]) {
+  html[data-color-theme="googleGray"] .image-reference-floating-panel :where([class*="bg-slate-950"], [class*="bg-slate-900"], [class*="bg-[#071"], [class*="bg-[#091"], [class*="bg-black/20"], [class*="bg-white/["]),
+  html[data-color-theme="googleGray"] .image-reference-settings-panel :where([class*="bg-slate-950"], [class*="bg-slate-900"], [class*="bg-[#071"], [class*="bg-[#091"], [class*="bg-black/20"], [class*="bg-white/["]) {
     background: var(--gg-card-soft) !important;
     border-color: var(--gg-border) !important;
   }
 
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.image-engine-choice-card--idle, .image-engine-choice-card) {
-    background: var(--gg-card) !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    box-shadow: 0 10px 28px rgba(17, 24, 39, 0.08) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.image-engine-choice-card--active, .bg-blue-600, [class*="from-blue-600"], [class*="to-blue-700"]) {
-    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
-    border-color: #0B57D0 !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(.image-engine-choice-card--active, .bg-blue-600, [class*="from-blue-600"], [class*="to-blue-700"]) :where(*, svg, svg *) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    stroke: currentColor !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(textarea, input, select) {
-    background: #FFFFFF !important;
-    border: 1px solid var(--gg-border-strong) !important;
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-    color-scheme: light !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-reference :where(textarea::placeholder, input::placeholder) {
-    color: var(--gg-subtle) !important;
-    -webkit-text-fill-color: var(--gg-subtle) !important;
-    opacity: 1 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-image-engine .theme-surface,
-  html[data-color-theme="googleGray"] .theme-page-image-engine .theme-card,
-  html[data-color-theme="googleGray"] .theme-page-image-engine .card {
-    background: #FFFFFF !important;
-    border: 1px solid var(--gg-border) !important;
-    box-shadow: 0 18px 44px rgba(17, 24, 39, 0.10) !important;
-    color: var(--gg-text) !important;
-  }
-
-  /* SkyBob: remove verde/amarelo/ciano claros que passavam no contraste só no papel, mas sumiam na tela. */
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.text-cyan-50, .text-cyan-100, .text-cyan-200, .text-cyan-300, [class*="text-cyan-"], [class*="text-sky-"]) {
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.text-emerald-50, .text-emerald-100, .text-emerald-200, .text-emerald-300, [class*="text-emerald-"], [class*="text-green-"]) {
-    color: var(--gg-green) !important;
-    -webkit-text-fill-color: var(--gg-green) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.text-amber-50, .text-amber-100, .text-amber-200, .text-amber-300, .text-yellow-50, .text-yellow-100, .text-yellow-200, .text-yellow-300, [class*="text-amber-"], [class*="text-yellow-"]) {
-    color: var(--gg-warning) !important;
-    -webkit-text-fill-color: var(--gg-warning) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where([class*="bg-emerald-"], [class*="bg-green-"]) {
-    background: var(--gg-card-green) !important;
-    border-color: #86D39A !important;
-    color: var(--gg-green) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where([class*="bg-amber-"], [class*="bg-yellow-"]) {
-    background: var(--gg-card-yellow) !important;
-    border-color: #F5C76B !important;
-    color: var(--gg-warning) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where([class*="bg-cyan-"], [class*="bg-sky-"]) {
-    background: var(--gg-card-blue) !important;
-    border-color: #93B7F3 !important;
-    color: var(--gg-blue) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-bullet-item, .skybob-inline-card, .skybob-priority-box, .skybob-warning-box, .skybob-notice-box, .skybob-info-box) :where(*, svg, svg *) {
-    -webkit-text-fill-color: currentColor;
-    stroke: currentColor;
-  }
-
-  /* Bobar: estados ativos e calendário precisam vir depois das regras genéricas. */
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-select-menu .bobar-select-option--active,
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-select-menu .bobar-select-option--active:hover {
-    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
-    border-color: #0B57D0 !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-select-menu .bobar-select-option--active :where(*, svg, svg *) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    stroke: currentColor !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-day--selected,
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-day--selected:hover,
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-time-option--active,
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-time-chip--active {
-    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
-    border-color: #0B57D0 !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.16), 0 12px 24px rgba(11, 87, 208, 0.18) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-day--selected :where(*),
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-time-option--active :where(*),
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-time-chip--active :where(*) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-day--today:not(.bobar-calendar-day--selected) {
-    background: #EAF2FF !important;
-    border-color: #0B57D0 !important;
-    color: #0B57D0 !important;
-    -webkit-text-fill-color: #0B57D0 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar :where(.bobar-column-kicker, .bobar-visual-kicker, .bobar-field-label, .bobar-card-section-label, .bobar-flow-kicker, .bobar-dialog-eyebrow, [class*="text-cyan-"]) {
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-  }
-}
-
-/* ============================================================================
-   GOOGLE GRAY FINAL PASS v6
-   Escopo por módulo, com contraste visual real e regras no final do arquivo
-   para vencer overrides anteriores do tema escuro.
-   ============================================================================ */
-@layer utilities {
-  html[data-color-theme="googleGray"] {
-    --gg-page: #F7F9FC;
-    --gg-page-soft: #EEF3F8;
-    --gg-card: #FFFFFF;
-    --gg-card-soft: #F8FAFC;
-    --gg-card-blue: #EAF2FF;
-    --gg-card-blue-strong: #D8E6FF;
-    --gg-card-green: #E8F3EA;
-    --gg-card-yellow: #FFF5DD;
-    --gg-card-red: #FDECEC;
-    --gg-border: #CBD5E1;
-    --gg-border-soft: #E2E8F0;
-    --gg-border-strong: #94A3B8;
-    --gg-text: #0F172A;
-    --gg-muted: #334155;
-    --gg-subtle: #475569;
-    --gg-blue: #0B57D0;
-    --gg-blue-strong: #073B8E;
-    --gg-green: #146C2E;
-    --gg-warning: #8A4B00;
-    --gg-danger: #B3261E;
-    --gg-shadow-card: 0 18px 44px rgba(15, 23, 42, 0.09), 0 1px 0 rgba(255,255,255,0.9) inset;
-    --gg-shadow-soft: 0 10px 28px rgba(15, 23, 42, 0.07);
-  }
-
-  html[data-color-theme="googleGray"] body {
-    background: var(--gg-page) !important;
-    color: var(--gg-text) !important;
-    color-scheme: light !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-standard, .theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) {
-    background: radial-gradient(circle at top left, rgba(11, 87, 208, 0.08), transparent 34%), linear-gradient(180deg, #F8FAFC 0%, #EEF3F8 100%) !important;
-    color: var(--gg-text) !important;
-  }
-
-  /* -------------------- Base legível para texto em módulos claros -------------------- */
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(.text-white, .text-slate-50, .text-slate-100, .text-slate-200, .text-zinc-50, .text-zinc-100, .text-zinc-200, .text-blue-50, .text-blue-100, .text-blue-200, .text-indigo-100, .text-indigo-200) {
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-white/"], .text-slate-300, .text-slate-400, .text-slate-500, .text-slate-600, .text-zinc-300, .text-zinc-400, .text-muted-foreground) {
-    color: var(--gg-muted) !important;
-    -webkit-text-fill-color: var(--gg-muted) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-cyan-"], [class*="text-sky-"], .text-blue-300, .text-blue-400, .text-indigo-300) {
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-emerald-"], [class*="text-green-"]) {
-    color: var(--gg-green) !important;
-    -webkit-text-fill-color: var(--gg-green) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-amber-"], [class*="text-yellow-"]) {
-    color: var(--gg-warning) !important;
-    -webkit-text-fill-color: var(--gg-warning) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where([class*="text-red-"], [class*="text-rose-"]) {
-    color: var(--gg-danger) !important;
-    -webkit-text-fill-color: var(--gg-danger) !important;
-  }
-
-  /* -------------------- Superfícies: remove preto/azul escuro no tema Google -------------------- */
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(
-    .theme-surface,
-    .theme-card,
-    .social-publisher-panel,
-    .skybob-status-panel,
-    .skybob-viewport,
-    .image-engine-hero-panel,
-    .image-engine-config-card,
-    .account-summary-box,
-    [class*="bg-[#020617"],
-    [class*="bg-[#050b18"],
-    [class*="bg-[#07101f"],
-    [class*="bg-[#07111F"],
-    [class*="bg-[#08111c"],
-    [class*="bg-[#09101c"],
-    [class*="bg-[#0a0f1b"],
-    [class*="bg-[#0a1225"],
-    [class*="bg-[#0d1830"],
-    [class*="bg-[#111114"],
-    [class*="bg-slate-950"],
-    [class*="bg-slate-900"],
-    [class*="bg-black/"],
-    [class*="bg-[linear-gradient"],
-    [class*="bg-[radial-gradient"]
-  ) {
-    background: var(--gg-card) !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-    box-shadow: var(--gg-shadow-card) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(.social-publisher-grid-overlay, [class*="pointer-events-none"][class*="absolute"][class*="inset-0"]) {
-    background: transparent !important;
-    box-shadow: none !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(input, textarea, select, .theme-form-control, .bobar-select-trigger) {
-    background: #FFFFFF !important;
-    border-color: var(--gg-border-strong) !important;
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-    box-shadow: none !important;
-    color-scheme: light !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference, .theme-page-skybob, .theme-page-social-publisher, .theme-page-bobar, .theme-page-account, .theme-page-authority) :where(input::placeholder, textarea::placeholder) {
-    color: var(--gg-subtle) !important;
-    -webkit-text-fill-color: var(--gg-subtle) !important;
-    opacity: 1 !important;
-  }
-
-  /* -------------------- Botões e estados ativos: texto branco real em azul -------------------- */
-  html[data-color-theme="googleGray"] :where(.theme-primary-button, .btn-primary, .bg-blue-600, .bg-blue-500, .image-engine-choice-card--active, .bobar-board-card--selected-blue, .bobar-view-tab--active, .bobar-calendar-day--selected, .bobar-time-option--active, .bobar-time-chip--active, .social-publisher-segment-option--active) {
-    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
-    border-color: #0B57D0 !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    box-shadow: 0 14px 30px rgba(11, 87, 208, 0.20) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-primary-button, .btn-primary, .bg-blue-600, .bg-blue-500, .image-engine-choice-card--active, .bobar-board-card--selected-blue, .bobar-view-tab--active, .bobar-calendar-day--selected, .bobar-time-option--active, .bobar-time-chip--active, .social-publisher-segment-option--active) :where(*, svg, svg *) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    stroke: currentColor !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-outline-button, .btn-ghost) {
-    background: #FFFFFF !important;
-    border-color: var(--gg-border-strong) !important;
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-  }
-
-  /* -------------------- Motor de Imagem -------------------- */
   html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle {
     background: #FFFFFF !important;
     border: 1px solid var(--gg-border) !important;
@@ -1353,195 +795,277 @@
     box-shadow: var(--gg-shadow-soft) !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle :where(*, svg, svg *) {
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle :where(span, div, p) {
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle :where(.text-slate-400, .text-slate-300, [class*="text-slate-"]) {
     color: var(--gg-muted) !important;
     -webkit-text-fill-color: var(--gg-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--active {
+    background: linear-gradient(135deg, #0B57D0 0%, #155CC8 100%) !important;
+    border-color: transparent !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    box-shadow: 0 16px 34px rgba(11, 87, 208, 0.24) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--active :where(span, div, p) {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--active .image-engine-choice-icon--active,
+  html[data-color-theme="googleGray"] .on-blue-icon-surface {
+    background: #FFFFFF !important;
+    border-color: rgba(255,255,255,.72) !important;
+    color: #0B57D0 !important;
+    -webkit-text-fill-color: #0B57D0 !important;
+    box-shadow: 0 8px 18px rgba(7, 59, 142, 0.22) !important;
+  }
+
+  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--active .image-engine-choice-icon--active :where(svg, svg *),
+  html[data-color-theme="googleGray"] .on-blue-icon-surface :where(svg, svg *) {
+    color: #0B57D0 !important;
+    -webkit-text-fill-color: #0B57D0 !important;
     stroke: currentColor !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-image-engine, .theme-page-image-reference) .image-engine-choice-card--idle :where(span, div) {
+  /* -------------------- Publicador social -------------------- */
+  html[data-color-theme="googleGray"] .theme-page-social-publisher :where(section, .social-publisher-panel, .social-publisher-hero, .social-publisher-network-card, [class*="rounded-[24px]"], [class*="rounded-[28px]"], [class*="rounded-[32px]"]) {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+    box-shadow: var(--gg-shadow-soft) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segmented-control {
+    background: #E5ECF5 !important;
+    border-color: #C8D3E2 !important;
+    box-shadow: inset 0 1px 2px rgba(15,23,42,.06) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option--idle {
+    background: transparent !important;
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option--active {
+    background: linear-gradient(135deg, #0B57D0 0%, #155CC8 100%) !important;
+    border-color: transparent !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    box-shadow: 0 10px 22px rgba(11, 87, 208, 0.22) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-segment-option--active :where(svg, svg *) {
+    color: #FFFFFF !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-social-publisher :where(.text-white, [class*="text-white/"]) {
     color: var(--gg-text) !important;
     -webkit-text-fill-color: var(--gg-text) !important;
   }
 
-  html[data-color-theme="googleGray"] .image-engine-reference-root {
-    background: radial-gradient(circle at top left, rgba(11, 87, 208, 0.08), transparent 34%), linear-gradient(180deg, #F8FAFC 0%, #EEF3F8 100%) !important;
-    color: var(--gg-text) !important;
+  html[data-color-theme="googleGray"] .theme-page-social-publisher :where(.text-slate-300, .text-slate-400, .text-slate-500) {
+    color: var(--gg-muted) !important;
+    -webkit-text-fill-color: var(--gg-muted) !important;
   }
 
-  html[data-color-theme="googleGray"] .image-engine-reference-root .image-engine-scroll,
-  html[data-color-theme="googleGray"] .image-engine-reference-root :where([class*="rounded-[24px]"], [class*="rounded-[28px]"], [class*="rounded-[32px]"]) {
-    background: #FFFFFF !important;
-    border-color: var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    box-shadow: var(--gg-shadow-card) !important;
-  }
-
-  /* -------------------- SkyBob -------------------- */
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) .skybob-study-view .theme-card {
-    background: #FFFFFF !important;
-    border: 1px solid var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    box-shadow: var(--gg-shadow-card) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-bullet-item, .skybob-inline-card, .skybob-calendar-item) {
-    background: var(--gg-card-soft) !important;
-    border-color: var(--gg-border) !important;
+  html[data-color-theme="googleGray"] .theme-page-social-publisher :where(label[class*="border-dashed"], [class*="border-dashed"]) {
+    background: #EEF6FF !important;
+    border-color: #9CC2F4 !important;
     color: var(--gg-text) !important;
     -webkit-text-fill-color: var(--gg-text) !important;
-    box-shadow: none !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) .skybob-bullet-item--success {
-    background: var(--gg-card-green) !important;
-    border-color: #86D39A !important;
-    color: var(--gg-green) !important;
-    -webkit-text-fill-color: var(--gg-green) !important;
+  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card--selected {
+    background: #EAF2FF !important;
+    border-color: #9CC2F4 !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) .skybob-bullet-item--warning {
-    background: var(--gg-card-yellow) !important;
-    border-color: #F5C76B !important;
-    color: var(--gg-warning) !important;
-    -webkit-text-fill-color: var(--gg-warning) !important;
+  /* -------------------- Bobar -------------------- */
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-hero-card,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-controls,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-column-lane,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-editor-section,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-share-card,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-selected-state {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+    box-shadow: var(--gg-shadow) !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-bullet-item, .skybob-inline-card, .skybob-calendar-item) :where(svg, svg *) {
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-hero-card :where(.text-white, [class*="text-white/"], .text-cyan-100, .text-violet-100) {
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-hero-card :where(.text-white\/45, .text-white\/50, .text-white\/55, .text-white\/58, .text-white\/60, .text-white\/65, [class*="text-white/"]) {
+    color: var(--gg-muted) !important;
+    -webkit-text-fill-color: var(--gg-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-controls :where(.bg-white\/\[0\.035\], .bg-white\/\[0\.03\], [class*="bg-white/["]) {
+    background: #F8FAFC !important;
+    border-color: var(--gg-border) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-view-tabs {
+    background: #F1F5F9 !important;
+    border-color: var(--gg-border) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-view-tab:not(.bobar-view-tab--active) {
+    background: transparent !important;
+    color: var(--gg-muted) !important;
+    -webkit-text-fill-color: var(--gg-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-view-tab--active,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-select-option--active,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-day--selected,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-time-option--active,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-time-chip--active {
+    background: linear-gradient(135deg, #0B57D0 0%, #155CC8 100%) !important;
+    border-color: transparent !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-view-tab--active :where(svg, svg *),
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-select-option--active :where(svg, svg *) {
+    color: #FFFFFF !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar :where(.bobar-column-kicker, .bobar-visual-kicker, .bobar-field-label, .bobar-card-section-label, .bobar-flow-kicker, .bobar-dialog-eyebrow, .bobar-editor-section-title) {
     color: var(--gg-blue) !important;
-    stroke: currentColor !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-priority-box, .skybob-info-box) {
-    background: var(--gg-card-green) !important;
-    border-color: #86D39A !important;
-    color: var(--gg-green) !important;
-    -webkit-text-fill-color: var(--gg-green) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.skybob-warning-box, .skybob-notice-box) {
-    background: var(--gg-card-yellow) !important;
-    border-color: #F5C76B !important;
-    color: var(--gg-warning) !important;
-    -webkit-text-fill-color: var(--gg-warning) !important;
-  }
-
-  /* -------------------- Bobar: portais, dropdowns e calendário -------------------- */
-  html[data-color-theme="googleGray"] :where(.bobar-select-menu, .bobar-calendar-panel, .bobar-calendar-surface, .bobar-due-picker) {
-    background: #FFFFFF !important;
-    border: 1px solid var(--gg-border) !important;
+  html[data-color-theme="googleGray"] .theme-page-bobar :where(.bobar-column-title, .bobar-card-title, .bobar-editor-section .font-semibold) {
     color: var(--gg-text) !important;
     -webkit-text-fill-color: var(--gg-text) !important;
-    box-shadow: var(--gg-shadow-card) !important;
-    color-scheme: light !important;
   }
 
-  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option {
+  html[data-color-theme="googleGray"] .theme-page-bobar :where(.bobar-column-meta, .bobar-card-meta, .bobar-editor-section-description, .bobar-editor-empty, .bobar-share-meta) {
+    color: var(--gg-muted) !important;
+    -webkit-text-fill-color: var(--gg-muted) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-editor-field-box,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-share-link-box,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-card-preview {
+    background: #F8FAFC !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-muted) !important;
+    -webkit-text-fill-color: var(--gg-muted) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-select-menu,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-panel,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-surface,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-due-picker {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: var(--gg-text) !important;
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.12) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-select-option:not(.bobar-select-option--active) {
     background: transparent !important;
     color: var(--gg-text) !important;
     -webkit-text-fill-color: var(--gg-text) !important;
   }
 
-  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option:hover {
-    background: var(--gg-card-blue) !important;
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-select-option:not(.bobar-select-option--active):hover {
+    background: #F1F5F9 !important;
   }
 
-  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option--active,
-  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option--active:hover {
-    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
-    border-color: #0B57D0 !important;
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card:not(.bobar-board-card--active) {
+    background: #FFFFFF !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue {
+    background: linear-gradient(135deg, #0B57D0 0%, #155CC8 100%) !important;
+    border-color: rgba(255,255,255,.38) !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 3px rgba(11,87,208,.16), 0 18px 40px rgba(11,87,208,.24) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue :where(.bobar-card-title, .bobar-card-meta, .bobar-card-preview) {
     color: #FFFFFF !important;
     -webkit-text-fill-color: #FFFFFF !important;
   }
 
-  html[data-color-theme="googleGray"] .bobar-select-menu .bobar-select-option--active :where(*, svg, svg *) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-meta :where(span, svg, svg *) {
+    color: rgba(255,255,255,.88) !important;
+    -webkit-text-fill-color: rgba(255,255,255,.88) !important;
     stroke: currentColor !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.bobar-calendar-day, .bobar-time-option, .bobar-time-chip) {
-    background: var(--gg-card-soft) !important;
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-header :where(.rounded-full) {
+    background: rgba(255,255,255,.14) !important;
+    border-color: rgba(255,255,255,.30) !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-expand-button,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-drag-handle {
+    background: #FFFFFF !important;
+    border-color: rgba(255,255,255,.72) !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+    box-shadow: 0 8px 18px rgba(7, 59, 142, 0.18) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-expand-button :where(svg, svg *),
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-drag-handle :where(svg, svg *) {
+    color: var(--gg-blue) !important;
+    stroke: currentColor !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-card-drag-handle:not(.bobar-board-card--selected-blue *) {
+    background: #F8FAFC !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-blue) !important;
+    -webkit-text-fill-color: var(--gg-blue) !important;
+  }
+
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-day,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-time-option,
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-time-chip {
+    background: #F8FAFC !important;
     border-color: var(--gg-border) !important;
     color: var(--gg-text) !important;
     -webkit-text-fill-color: var(--gg-text) !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.bobar-calendar-day--selected, .bobar-time-option--active, .bobar-time-chip--active) {
-    background: linear-gradient(135deg, #0B57D0 0%, #0A4CB8 58%, #073B8E 100%) !important;
-    border-color: #0B57D0 !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.18), 0 12px 26px rgba(11, 87, 208, 0.20) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(.bobar-calendar-day--today):not(.bobar-calendar-day--selected) {
-    background: var(--gg-card-blue) !important;
+  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-calendar-day--today:not(.bobar-calendar-day--selected) {
     border-color: var(--gg-blue) !important;
     color: var(--gg-blue) !important;
     -webkit-text-fill-color: var(--gg-blue) !important;
+    background: #EAF2FF !important;
   }
 
-  html[data-color-theme="googleGray"] :where(.theme-page-bobar) :where(.bobar-column-kicker, .bobar-visual-kicker, .bobar-field-label, .bobar-card-section-label, .bobar-flow-kicker, .bobar-dialog-eyebrow) {
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-  }
-
-  /* -------------------- Publicador Social -------------------- */
-  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card {
-    background: #FFFFFF !important;
-    border: 1px solid var(--gg-border) !important;
-    color: var(--gg-text) !important;
-    box-shadow: var(--gg-shadow-soft) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card--selected {
-    background: var(--gg-card-blue) !important;
-    border-color: #93B7F3 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card-title {
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-social-publisher :where(.social-publisher-network-card-description, .social-publisher-network-card-handle) {
-    color: var(--gg-muted) !important;
-    -webkit-text-fill-color: var(--gg-muted) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card-connection {
-    background: var(--gg-card-green) !important;
-    color: var(--gg-green) !important;
-    -webkit-text-fill-color: var(--gg-green) !important;
-    border: 1px solid #86D39A !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card-selection-label {
-    background: var(--gg-card-blue) !important;
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-    border: 1px solid #93B7F3 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-social-publisher .social-publisher-network-card-check {
-    background: #FFFFFF !important;
-    border-color: #93B7F3 !important;
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-social-publisher :where(label[class*="border-dashed"], [class*="border-dashed"]) {
-    background: var(--gg-card-blue) !important;
-    border-color: #93B7F3 !important;
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
-  }
-
-  /* -------------------- Conta e créditos -------------------- */
-  html[data-color-theme="googleGray"] .theme-page-account :where(section, form, .account-summary-box, .account-metric-box, .account-plan-note, .account-credit-card, [class*="rounded-[24px]"], [class*="rounded-[28px]"], [class*="rounded-[32px]"], [class*="rounded-[34px]"]) {
+  /* -------------------- SkyBob -------------------- */
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) :where(.theme-card, .skybob-bullet-item, .skybob-inline-card, .skybob-calendar-item, .skybob-priority-box, .skybob-info-box, .skybob-warning-box, .skybob-notice-box) {
     background: #FFFFFF !important;
     border-color: var(--gg-border) !important;
     color: var(--gg-text) !important;
@@ -1549,31 +1073,28 @@
     box-shadow: var(--gg-shadow-soft) !important;
   }
 
-  html[data-color-theme="googleGray"] .theme-page-account :where(button.bg-white, a.bg-white) {
-    color: var(--gg-text) !important;
-    -webkit-text-fill-color: var(--gg-text) !important;
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) .skybob-bullet-item--success {
+    background: var(--gg-green-soft) !important;
+    color: var(--gg-green) !important;
+    -webkit-text-fill-color: var(--gg-green) !important;
   }
 
-  /* -------------------- Sidebar -------------------- */
+  html[data-color-theme="googleGray"] :where(.theme-page-skybob, .skybob-page-root) .skybob-bullet-item--warning {
+    background: var(--gg-yellow-soft) !important;
+    color: var(--gg-yellow) !important;
+    -webkit-text-fill-color: var(--gg-yellow) !important;
+  }
+
+  /* -------------------- Sidebar e conta -------------------- */
   html[data-color-theme="googleGray"] .app-sidebar.bg-sidebar {
-    background: linear-gradient(180deg, #334155 0%, #293548 100%) !important;
+    background: linear-gradient(180deg, #334155 0%, #263445 100%) !important;
     color: #FFFFFF !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar :where(.sidebar-brand-card, .sidebar-nav-link, .sidebar-account-link) {
-    color: #FFFFFF !important;
-  }
-
-  html[data-color-theme="googleGray"] .app-sidebar :where(.sidebar-brand-subtitle, .sidebar-user-email, .text-muted-foreground) {
-    color: #D5DEE9 !important;
-    -webkit-text-fill-color: #D5DEE9 !important;
   }
 
   html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-icon {
     background: #EAF2FF !important;
     border-color: #D8E6FF !important;
     color: var(--gg-blue) !important;
-    box-shadow: none !important;
   }
 
   html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-icon :where(svg, svg *) {
@@ -1581,171 +1102,22 @@
     stroke: currentColor !important;
   }
 
-  html[data-color-theme="googleGray"] .app-sidebar .sidebar-nav-link:where(:hover, [aria-current="page"]) {
-    background: rgba(216, 230, 255, 0.20) !important;
-  }
-
   html[data-color-theme="googleGray"] .theme-toggle-card,
   html[data-color-theme="googleGray"] .theme-toggle-compact,
   html[data-color-theme="googleGray"] .theme-floating-toggle,
-  html[data-color-theme="googleGray"] .sidebar-credits-button {
-    background: #FFFFFF !important;
-    border: 1px solid #D8E6FF !important;
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-    box-shadow: var(--gg-shadow-soft) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-toggle-card :where(*, svg, svg *),
-  html[data-color-theme="googleGray"] .theme-toggle-compact :where(*, svg, svg *),
-  html[data-color-theme="googleGray"] .theme-floating-toggle :where(*, svg, svg *),
-  html[data-color-theme="googleGray"] .sidebar-credits-button :where(*, svg, svg *) {
-    color: var(--gg-blue) !important;
-    -webkit-text-fill-color: var(--gg-blue) !important;
-    stroke: currentColor !important;
-  }
-
+  html[data-color-theme="googleGray"] .sidebar-credits-button,
   html[data-color-theme="googleGray"] .sidebar-collapse-toggle {
     background: #FFFFFF !important;
-    border-color: #93B7F3 !important;
+    border-color: #D8E6FF !important;
     color: var(--gg-blue) !important;
     -webkit-text-fill-color: var(--gg-blue) !important;
   }
 
-  html[data-color-theme="googleGray"] .sidebar-collapse-toggle :where(svg, svg *) {
-    color: var(--gg-blue) !important;
-    stroke: currentColor !important;
-  }
-}
-
-@layer utilities {
-  /* Google Gray v7, correções específicas de contraste ativo e superfícies do editor.
-     Escopo fechado para evitar regras globais que contaminem outros temas ou módulos. */
-
-  /* 1) Todo elemento ativo em azul escuro mantém texto branco, inclusive filhos com classes locais. */
-  html[data-color-theme="googleGray"] :where(
-    .theme-page-image-engine .image-engine-choice-card--active,
-    .theme-page-image-reference .image-engine-choice-card--active,
-    .theme-page-social-publisher .social-publisher-segment-option--active,
-    .theme-page-bobar .bobar-board-card--selected-blue,
-    .theme-page-bobar .bobar-view-tab--active,
-    .theme-page-bobar .bobar-calendar-day--selected,
-    .theme-page-bobar .bobar-time-option--active,
-    .theme-page-bobar .bobar-time-chip--active
-  ) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(
-    .theme-page-image-engine .image-engine-choice-card--active,
-    .theme-page-image-reference .image-engine-choice-card--active,
-    .theme-page-social-publisher .social-publisher-segment-option--active,
-    .theme-page-bobar .bobar-board-card--selected-blue,
-    .theme-page-bobar .bobar-view-tab--active,
-    .theme-page-bobar .bobar-calendar-day--selected,
-    .theme-page-bobar .bobar-time-option--active,
-    .theme-page-bobar .bobar-time-chip--active
-  ) :where(span, p, div, strong, small, label, em, b, svg, svg *) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    stroke: currentColor !important;
-  }
-
-  /* 2) Botões/labels azuis reais no tema Google: texto e ícones brancos, sem afetar botões claros. */
-  html[data-color-theme="googleGray"] :where(
-    .theme-page-image-engine,
-    .theme-page-image-reference,
-    .theme-page-social-publisher,
-    .theme-page-bobar
-  ) :where(button.bg-blue-600, label.bg-blue-600, a.bg-blue-600, .theme-primary-button, .btn-primary) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(
-    .theme-page-image-engine,
-    .theme-page-image-reference,
-    .theme-page-social-publisher,
-    .theme-page-bobar
-  ) :where(button.bg-blue-600, label.bg-blue-600, a.bg-blue-600, .theme-primary-button, .btn-primary) :where(span, svg, svg *) {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    stroke: currentColor !important;
-  }
-
-  /* 3) Ícone de cards ativos do motor de imagem: fundo branco com ícone azul, para não sumir no azul. */
-  html[data-color-theme="googleGray"] :where(
-    .theme-page-image-engine,
-    .theme-page-image-reference
-  ) .image-engine-choice-card--active .image-engine-choice-icon--active {
+  html[data-color-theme="googleGray"] .theme-page-account :where(section, form, .account-summary-box, .account-metric-box, .account-plan-note, .account-credit-card, [class*="rounded-[24px]"], [class*="rounded-[28px]"], [class*="rounded-[32px]"], [class*="rounded-[34px]"]) {
     background: #FFFFFF !important;
-    border: 1px solid rgba(255, 255, 255, 0.58) !important;
-    color: #0B57D0 !important;
-    -webkit-text-fill-color: #0B57D0 !important;
-    box-shadow: 0 8px 18px rgba(7, 59, 142, 0.22) !important;
-  }
-
-  html[data-color-theme="googleGray"] :where(
-    .theme-page-image-engine,
-    .theme-page-image-reference
-  ) .image-engine-choice-card--active .image-engine-choice-icon--active :where(svg, svg *) {
-    color: #0B57D0 !important;
-    -webkit-text-fill-color: #0B57D0 !important;
-    stroke: currentColor !important;
-  }
-
-  /* 4) Editor do Bobar: áreas de Etiquetas/Anexos voltam a ter card/superfície, não texto solto. */
-  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-section {
-    background: #FFFFFF !important;
-    border: 1px solid #B7C6D8 !important;
-    border-radius: 1.8rem !important;
-    padding: 1rem !important;
-    color: #111827 !important;
-    -webkit-text-fill-color: #111827 !important;
-    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08) !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-section-title {
-    color: #0B57D0 !important;
-    -webkit-text-fill-color: #0B57D0 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-section-description,
-  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-empty {
-    color: #334155 !important;
-    -webkit-text-fill-color: #334155 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-field-box {
-    background: #F8FAFC !important;
-    border: 1px dashed #9CB4D0 !important;
-    color: #334155 !important;
-    -webkit-text-fill-color: #334155 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-count-pill {
-    background: #F8FAFC !important;
-    border-color: #9CB4D0 !important;
-    color: #334155 !important;
-    -webkit-text-fill-color: #334155 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar #bobar-editor .bobar-editor-count-pill :where(svg, svg *) {
-    color: #334155 !important;
-    stroke: currentColor !important;
-  }
-
-  /* Mantém os seis pontinhos visíveis quando o card selecionado está azul. */
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-drag-handle {
-    background: #FFFFFF !important;
-    border-color: rgba(255, 255, 255, 0.68) !important;
-    color: #0B57D0 !important;
-    -webkit-text-fill-color: #0B57D0 !important;
-  }
-
-  html[data-color-theme="googleGray"] .theme-page-bobar .bobar-board-card--selected-blue .bobar-card-drag-handle :where(svg, svg *) {
-    color: #0B57D0 !important;
-    stroke: currentColor !important;
+    border-color: var(--gg-border) !important;
+    color: var(--gg-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+    box-shadow: var(--gg-shadow-soft) !important;
   }
 }

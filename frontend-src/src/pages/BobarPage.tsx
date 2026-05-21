@@ -2457,7 +2457,7 @@ function ColumnLane({
                         ? "bobar-board-card--active bobar-board-card--completed border-emerald-300/50 bg-emerald-500/10 ring-2 ring-emerald-400/20"
                         : overdue
                           ? "bobar-board-card--active bobar-board-card--overdue border-red-300/50 bg-red-500/10 ring-2 ring-red-400/20"
-                          : "text-on-blue bobar-board-card--active bobar-board-card--selected-blue border-blue-600 bg-blue-600 text-white ring-2 ring-blue-300/35 hover:bg-blue-500"
+                          : "bobar-board-card--active bobar-board-card--selected-blue border-blue-600 bg-blue-600 text-white ring-2 ring-blue-300/35 hover:bg-blue-500"
                       : completed
                         ? "bobar-board-card--completed border-emerald-400/25 bg-emerald-500/10 hover:bg-emerald-500/14"
                         : overdue
@@ -6002,7 +6002,7 @@ export default function BobarPage() {
                             return (
                               <div
                                 key={invite.id}
-                                className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
+                                className="bobar-share-card rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
                               >
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                   <div className="flex flex-wrap items-center gap-2">
@@ -6014,13 +6014,13 @@ export default function BobarPage() {
                                     </Badge>
                                   </div>
 
-                                  <div className="text-right text-xs text-white/45">
+                                  <div className="bobar-share-meta text-right text-xs text-white/45">
                                     <div>Criado em {formatDate(invite.created_at)}</div>
                                     <div className="mt-1">{formatInviteUsage(invite)}</div>
                                   </div>
                                 </div>
 
-                                <div className="mt-3 rounded-[1.2rem] border border-white/10 bg-[#07101f] p-3">
+                                <div className="bobar-share-link-box mt-3 rounded-[1.2rem] border border-white/10 bg-[#07101f] p-3">
                                   <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
                                     Link
                                   </div>
@@ -6074,7 +6074,7 @@ export default function BobarPage() {
                     return (
                       <div
                         key={member.user_id}
-                        className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
+                        className="bobar-share-card rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -6316,7 +6316,7 @@ export default function BobarPage() {
       <div className="flex w-full flex-col gap-5 pl-0 pt-12 sm:pt-14">
         <Card
           variant="glass"
-          className="overflow-hidden rounded-[2.2rem] border-cyan-400/12 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_28%),#040914] shadow-[0_28px_80px_rgba(1,6,20,0.52)]"
+          className="bobar-hero-card overflow-hidden rounded-[2.2rem] border-cyan-400/12 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_28%),#040914] shadow-[0_28px_80px_rgba(1,6,20,0.52)]"
         >
           <CardHeader className="gap-6">
             <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.18fr)_minmax(420px,560px)] 2xl:items-start">
@@ -6361,7 +6361,7 @@ export default function BobarPage() {
               </div>
             </div>
 
-            <div className="rounded-[1.9rem] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,34,0.98),rgba(6,11,23,0.92))] p-5 sm:p-6">
+            <div className="bobar-board-controls rounded-[1.9rem] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,34,0.98),rgba(6,11,23,0.92))] p-5 sm:p-6">
               <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
                 <div className="min-w-0">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
@@ -6542,7 +6542,7 @@ export default function BobarPage() {
                   Nenhum quadro compartilhado selecionado.
                 </div>
               ) : selectedCard ? (
-                <div className="mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/58">
+                <div className="bobar-selected-state mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/58">
                   <span className="block truncate">
                     Card selecionado: <span className="font-semibold text-white">{selectedCard.title}</span>
                   </span>

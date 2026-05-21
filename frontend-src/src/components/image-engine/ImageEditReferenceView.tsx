@@ -698,13 +698,13 @@ function FloatingPanel({
     <div
       ref={panelRef}
       className={cn(
-        "fixed z-30 flex flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl",
+        "image-reference-floating-panel fixed z-30 flex flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl",
         className
       )}
       style={{ left: position.x, top: position.y, width: size.width, height: size.height }}
     >
       <div
-        className="flex cursor-move items-center justify-between border-b border-white/10 px-4 py-3"
+        className="image-reference-floating-panel-header flex cursor-move items-center justify-between border-b border-white/10 px-4 py-3"
         onMouseDown={(event) => {
           const rect = panelRef.current?.getBoundingClientRect();
           if (!rect) return;
@@ -741,7 +741,7 @@ function FloatingPanel({
       <button
         type="button"
         aria-label={`Redimensionar ${title}`}
-        className="absolute bottom-3 right-3 z-10 flex h-8 w-8 cursor-nwse-resize items-center justify-center rounded-xl border border-white/10 bg-slate-950/80 text-slate-300 shadow-lg transition hover:border-blue-400/30 hover:bg-slate-900"
+        className="image-reference-resize-button absolute bottom-3 right-3 z-10 flex h-8 w-8 cursor-nwse-resize items-center justify-center rounded-xl border border-white/10 bg-slate-950/80 text-slate-300 shadow-lg transition hover:border-blue-400/30 hover:bg-slate-900"
         onMouseDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -3348,7 +3348,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
         </div>
 
         <div
-          className="pointer-events-auto rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2.5 shadow-lg"
+          className="image-reference-status pointer-events-auto rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2.5 shadow-lg"
           style={{ maxWidth: Math.min(560, Math.max(280, viewportSize.width - 32)) }}
         >
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Status</div>
@@ -3357,7 +3357,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
       </div>
 
       <div
-        className="absolute top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 p-2 shadow-lg"
+        className="image-reference-toolbar absolute top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 p-2 shadow-lg"
         style={{ right: 16 }}
       >
         <Button
@@ -3435,13 +3435,13 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
           <span className="ml-2 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px]">{debugLogs.length}</span>
           <ChevronDown className={cn("ml-2 h-4 w-4 transition-transform", logsOpen && "rotate-180")} />
         </Button>
-        <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 shadow-lg">
+        <div className="image-reference-bottom-pill rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 shadow-lg">
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Canvas</div>
           <div className="mt-1 text-sm font-medium text-slate-100">
             {resultsCount} resultado{resultsCount === 1 ? "" : "s"} • {activeJobs.length} em andamento • {queuedJobs.length} na fila
           </div>
         </div>
-        <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 shadow-lg">
+        <div className="image-reference-bottom-pill rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 shadow-lg">
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Bases</div>
           <div className="mt-1 max-w-[320px] truncate text-sm font-medium text-slate-100">
             {baseSummaryLabel}
@@ -3517,7 +3517,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
       >
       <div
         ref={canvasViewportRef}
-        className="relative h-full w-full overflow-hidden rounded-[32px] border border-white/10 bg-slate-950/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_20px_60px_rgba(0,0,0,0.22)]"
+        className="image-reference-canvas-viewport relative h-full w-full overflow-hidden rounded-[32px] border border-white/10 bg-slate-950/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_20px_60px_rgba(0,0,0,0.22)]"
         onMouseDown={startCanvasPan}
         onAuxClick={(event) => {
           if (event.button === 1) {
@@ -3543,7 +3543,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
         {!activeBaseReferences.length ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center p-6 md:p-10">
             <div
-              className="w-full max-w-[920px] rounded-[36px] border border-white/10 bg-slate-950/82 p-8 text-center shadow-[0_40px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl md:p-10"
+              className="image-reference-empty-canvas w-full max-w-[920px] rounded-[36px] border border-white/10 bg-slate-950/82 p-8 text-center shadow-[0_40px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl md:p-10"
               style={{ aspectRatio: previewAspectRatio, maxHeight: "min(72vh, 860px)" }}
             >
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-500/10 text-blue-300 ring-1 ring-blue-400/20">
@@ -3939,7 +3939,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
             ))}
           </div>
 
-          <div className="mt-4 shrink-0 rounded-[24px] border border-white/10 bg-slate-950/60 p-3 shadow-inner">
+          <div className="image-reference-composer mt-4 shrink-0 rounded-[24px] border border-white/10 bg-slate-950/60 p-3 shadow-inner">
             <Textarea
               value={promptInput}
               onChange={(event) => setPromptInput(event.target.value)}
@@ -3977,8 +3977,8 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
       </FloatingPanel>
       <div className="fixed bottom-4 right-4 z-30 flex flex-col items-end gap-3">
         {isSettingsOpen ? (
-          <div className="image-engine-scroll w-[min(460px,calc(100vw-24px))] max-h-[min(76vh,720px)] overflow-y-auto rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] px-4 py-3">
+          <div className="image-reference-settings-panel image-engine-scroll w-[min(460px,calc(100vw-24px))] max-h-[min(76vh,720px)] overflow-y-auto rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+            <div className="image-reference-settings-header sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(6,10,20,0.98)_100%)] px-4 py-3">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-white">Motor de edição inteligente</div>
                 <div className="truncate text-[11px] text-slate-400">Formato, qualidade e estratégia de preservação</div>
@@ -4124,7 +4124,7 @@ const startCanvasPan = useCallback((event: React.MouseEvent<HTMLDivElement>) => 
         <button
           type="button"
           onClick={() => setIsSettingsOpen((current) => !current)}
-          className="flex h-12 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/90 px-4 text-sm font-medium text-slate-100 shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition hover:bg-slate-900"
+          className="image-reference-settings-toggle flex h-12 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/90 px-4 text-sm font-medium text-slate-100 shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition hover:bg-slate-900"
         >
           <Settings2 className="h-4 w-4 text-indigo-300" />
           {isSettingsOpen ? "Ocultar controles" : "Formato e qualidade"}
